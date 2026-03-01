@@ -11,4 +11,4 @@ This directory contains machine-readable JSON Schemas that act as **single sourc
 ## Available schemas
 
 - `schemas/platform-profile.schema.json` — `platform-profile.json` (M6 baseline + M7 optional extensions)
-
+- `schemas/hook-ledger.schema.json` — `hook-ledger.json` (M7 retention hook ledger)

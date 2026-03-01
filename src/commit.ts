@@ -13,6 +13,13 @@ import { NovelCliError } from "./errors.js";
 import { fingerprintsMatch, hashText } from "./fingerprint.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, removePath, writeJsonFile } from "./fs-utils.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems, writeForeshadowVisibilityLogs } from "./foreshadow-visibility.js";
+import {
+  attachHookLedgerToEval,
+  computeHookLedgerUpdate,
+  loadHookLedger,
+  writeHookLedgerFile,
+  writeRetentionLogs
+} from "./hook-ledger.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import { withWriteLock } from "./lock.js";
 import { computeContinuityReport, tryResolveVolumeChapterRange, writeContinuityLogs, writeVolumeContinuityReport, type ContinuityReport } from "./consistency-auditor.js";
@@ -510,6 +517,11 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   const loadedProfile = await loadPlatformProfile(args.rootDir);
   if (!loadedProfile) warnings.push("Missing platform-profile.json; platform constraints will be skipped.");
 
+  const hookLedgerPolicy = loadedProfile?.profile.retention?.hook_ledger ?? null;
+  const hookLedgerEnabled = Boolean(hookLedgerPolicy && hookLedgerPolicy.enabled);
+  const retentionReportRange = { start: Math.max(1, args.chapter - 9), end: args.chapter };
+  const shouldWriteRetentionHistory = hookLedgerEnabled && args.chapter % 10 === 0;
+
   const loadedCliche = await loadWebNovelClicheLintConfig(args.rootDir);
   if (!loadedCliche) warnings.push("Missing web-novel-cliche-lint.json; cliché lint will be skipped.");
 
@@ -578,6 +590,16 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(`PATCH ${rel.final.evalJson} (attach platform_constraints metadata)`);
     plan.push(`PATCH ${rel.final.evalJson} (attach readability_lint metadata)`);
     plan.push(`PATCH ${rel.final.evalJson} (attach naming_lint metadata)`);
+    if (hookLedgerEnabled) {
+      plan.push(`UPDATE hook-ledger.json (chapter-end promises + windows/diversity)`);
+      plan.push(`WRITE logs/retention/latest.json`);
+      if (shouldWriteRetentionHistory) {
+        plan.push(
+          `WRITE logs/retention/retention-report-vol-${pad2(volume)}-ch${pad3(retentionReportRange.start)}-ch${pad3(retentionReportRange.end)}.json`
+        );
+      }
+      plan.push(`PATCH ${rel.final.evalJson} (attach hook_ledger metadata)`);
+    }
   }
 
   if (loadedCliche) {
@@ -682,6 +704,21 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     const originalDelta = await readTextFile(deltaAbs);
     const originalEval = loadedProfile || loadedCliche ? await readTextFile(evalStagingAbs) : null;
 
+    const hookLedgerAbs = join(args.rootDir, "hook-ledger.json");
+    const originalHookLedgerExists = hookLedgerEnabled ? await pathExists(hookLedgerAbs) : false;
+    const originalHookLedger = originalHookLedgerExists ? await readTextFile(hookLedgerAbs) : null;
+
+    const retentionLatestAbs = join(args.rootDir, "logs/retention/latest.json");
+    const originalRetentionLatestExists = hookLedgerEnabled ? await pathExists(retentionLatestAbs) : false;
+    const originalRetentionLatest = originalRetentionLatestExists ? await readTextFile(retentionLatestAbs) : null;
+
+    const retentionHistoryAbs = join(
+      args.rootDir,
+      `logs/retention/retention-report-vol-${pad2(volume)}-ch${pad3(retentionReportRange.start)}-ch${pad3(retentionReportRange.end)}.json`
+    );
+    const originalRetentionHistoryExists = shouldWriteRetentionHistory ? await pathExists(retentionHistoryAbs) : false;
+    const originalRetentionHistory = originalRetentionHistoryExists ? await readTextFile(retentionHistoryAbs) : null;
+
     const platformConstraintsLatestAbs = join(args.rootDir, "logs/platform-constraints/latest.json");
     const platformConstraintsHistoryAbs = join(
       args.rootDir,
@@ -726,6 +763,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     let readabilityLintWritten = false;
     let namingLintWritten = false;
     let clicheLintWritten = false;
+    let hookLedgerWritten = false;
+    let retentionWritten = false;
 
     const rollback = async (): Promise<void> => {
       // Roll back moved files (best-effort).
@@ -911,6 +950,44 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
           }
         } catch {
           // ignore
+        }
+      }
+
+      if (hookLedgerWritten) {
+        try {
+          if (originalHookLedgerExists && originalHookLedger !== null) {
+            await writeFile(hookLedgerAbs, originalHookLedger, "utf8");
+          } else {
+            await removePath(hookLedgerAbs);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (retentionWritten) {
+        try {
+          if (originalRetentionLatestExists && originalRetentionLatest !== null) {
+            await ensureDir(dirname(retentionLatestAbs));
+            await writeFile(retentionLatestAbs, originalRetentionLatest, "utf8");
+          } else {
+            await removePath(retentionLatestAbs);
+          }
+        } catch {
+          // ignore
+        }
+
+        if (shouldWriteRetentionHistory) {
+          try {
+            if (originalRetentionHistoryExists && originalRetentionHistory !== null) {
+              await ensureDir(dirname(retentionHistoryAbs));
+              await writeFile(retentionHistoryAbs, originalRetentionHistory, "utf8");
+            } else {
+              await removePath(retentionHistoryAbs);
+            }
+          } catch {
+            // ignore
+          }
         }
       }
     };
@@ -1105,6 +1182,36 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         }
       }
 
+      let hookLedgerUpdate: ReturnType<typeof computeHookLedgerUpdate> | null = null;
+      if (loadedProfile && hookLedgerPolicy && hookLedgerPolicy.enabled) {
+        const ledgerLoaded = await loadHookLedger(args.rootDir);
+        for (const w of ledgerLoaded.warnings) warnings.push(`Hook ledger: ${w}`);
+
+        const evalRaw = await readJsonFile(evalStagingAbs);
+        hookLedgerUpdate = computeHookLedgerUpdate({
+          ledger: ledgerLoaded.ledger,
+          evalRaw,
+          chapter: args.chapter,
+          volume,
+          evalRelPath: rel.final.evalJson,
+          policy: hookLedgerPolicy,
+          reportRange: retentionReportRange
+        });
+
+        if (hookLedgerUpdate.report.has_blocking_issues) {
+          const details = hookLedgerUpdate.report.issues.map((i) => i.summary).slice(0, 2).join(" | ");
+          const suffix = hookLedgerUpdate.report.issues.length > 2 ? " …" : "";
+          const msg = details.length > 0 ? `${details}${suffix}` : "(details in logs/retention/latest.json)";
+          throw new NovelCliError(`Retention hook ledger violation: ${msg}`, 2);
+        }
+
+        if (hookLedgerUpdate.report.issues.length > 0) {
+          const details = hookLedgerUpdate.report.issues.map((i) => i.summary).slice(0, 2).join(" | ");
+          const suffix = hookLedgerUpdate.report.issues.length > 2 ? " …" : "";
+          warnings.push(`Retention hook ledger: ${details}${suffix}. See logs/retention/latest.json.`);
+        }
+      }
+
       // Moves first (rollbackable).
       await doRename(args.rootDir, rel.staging.chapterMd, rel.final.chapterMd);
       moved.push({ from: rel.staging.chapterMd, to: rel.final.chapterMd });
@@ -1184,6 +1291,29 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
           platformProfile: loadedProfile.profile,
           genreWeightProfiles: loadedGenreWeights
         });
+      }
+
+      if (loadedProfile && hookLedgerPolicy && hookLedgerPolicy.enabled && hookLedgerUpdate) {
+        hookLedgerWritten = true;
+        retentionWritten = true;
+        const { rel: hookLedgerRel } = await writeHookLedgerFile({ rootDir: args.rootDir, ledger: hookLedgerUpdate.updatedLedger });
+        const { latestRel: retentionLatestRel, historyRel: retentionHistoryRel } = await writeRetentionLogs({
+          rootDir: args.rootDir,
+          report: hookLedgerUpdate.report,
+          writeHistory: shouldWriteRetentionHistory
+        });
+
+        if (hookLedgerUpdate.entry) {
+          await attachHookLedgerToEval({
+            evalAbsPath: join(args.rootDir, rel.final.evalJson),
+            evalRelPath: rel.final.evalJson,
+            ledgerRelPath: hookLedgerRel,
+            reportLatestRelPath: retentionLatestRel,
+            ...(retentionHistoryRel ? { reportHistoryRelPath: retentionHistoryRel } : {}),
+            entry: hookLedgerUpdate.entry,
+            report: hookLedgerUpdate.report
+          });
+        }
       }
 
       const updatedCheckpoint: Checkpoint = { ...checkpoint };
