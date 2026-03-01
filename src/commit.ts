@@ -19,6 +19,13 @@ import { computeContinuityReport, tryResolveVolumeChapterRange, writeContinuityL
 import { attachPlatformConstraintsToEval, computePlatformConstraints, precomputeInfoLoadNer, writePlatformConstraintsLogs } from "./platform-constraints.js";
 import { loadPlatformProfile } from "./platform-profile.js";
 import {
+  attachNamingLintToEval,
+  computeNamingReport,
+  precomputeNamingReport,
+  summarizeNamingIssues,
+  writeNamingLintLogs
+} from "./naming-lint.js";
+import {
   attachReadabilityLintToEval,
   computeReadabilityReport,
   precomputeReadabilityReport,
@@ -567,8 +574,10 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(`WRITE logs/platform-constraints/platform-constraints-chapter-${pad3(args.chapter)}.json (+ latest.json)`);
     plan.push(`WRITE logs/retention/title-policy/title-policy-chapter-${pad3(args.chapter)}.json (+ latest.json)`);
     plan.push(`WRITE logs/readability/readability-report-chapter-${pad3(args.chapter)}.json (+ latest.json)`);
+    plan.push(`WRITE logs/naming/naming-report-chapter-${pad3(args.chapter)}.json (+ latest.json)`);
     plan.push(`PATCH ${rel.final.evalJson} (attach platform_constraints metadata)`);
     plan.push(`PATCH ${rel.final.evalJson} (attach readability_lint metadata)`);
+    plan.push(`PATCH ${rel.final.evalJson} (attach naming_lint metadata)`);
   }
 
   if (loadedCliche) {
@@ -643,6 +652,18 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
   if (precomputedReadabilityLint?.error) warnings.push(precomputedReadabilityLint.error);
 
+  const precomputedNamingLint = loadedProfile
+    ? await precomputeNamingReport({
+        rootDir: args.rootDir,
+        chapter: args.chapter,
+        chapterAbsPath: chapterAbs,
+        platformProfile: loadedProfile.profile,
+        ...(precomputedNer ? { infoLoadNer: precomputedNer } : {})
+      })
+    : null;
+
+  if (precomputedNamingLint?.error) warnings.push(precomputedNamingLint.error);
+
   await withWriteLock(args.rootDir, { chapter: args.chapter }, async () => {
     const checkpointAbs = join(args.rootDir, ".checkpoint.json");
     const stateAbs = join(args.rootDir, rel.final.stateCurrentJson);
@@ -685,6 +706,13 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     const originalReadabilityLintHistoryExists = loadedProfile ? await pathExists(readabilityLintHistoryAbs) : false;
     const originalReadabilityLintHistory = originalReadabilityLintHistoryExists ? await readTextFile(readabilityLintHistoryAbs) : null;
 
+    const namingLintLatestAbs = join(args.rootDir, "logs/naming/latest.json");
+    const namingLintHistoryAbs = join(args.rootDir, `logs/naming/naming-report-chapter-${pad3(args.chapter)}.json`);
+    const originalNamingLintLatestExists = loadedProfile ? await pathExists(namingLintLatestAbs) : false;
+    const originalNamingLintLatest = originalNamingLintLatestExists ? await readTextFile(namingLintLatestAbs) : null;
+    const originalNamingLintHistoryExists = loadedProfile ? await pathExists(namingLintHistoryAbs) : false;
+    const originalNamingLintHistory = originalNamingLintHistoryExists ? await readTextFile(namingLintHistoryAbs) : null;
+
     const clicheLintLatestAbs = join(args.rootDir, "logs/cliche-lint/latest.json");
     const clicheLintHistoryAbs = join(args.rootDir, `logs/cliche-lint/cliche-lint-chapter-${pad3(args.chapter)}.json`);
     const originalClicheLintLatestExists = loadedCliche ? await pathExists(clicheLintLatestAbs) : false;
@@ -696,6 +724,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     let platformConstraintsWritten = false;
     let titlePolicyWritten = false;
     let readabilityLintWritten = false;
+    let namingLintWritten = false;
     let clicheLintWritten = false;
 
     const rollback = async (): Promise<void> => {
@@ -837,6 +866,30 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         }
       }
 
+      if (namingLintWritten) {
+        try {
+          if (originalNamingLintLatestExists && originalNamingLintLatest !== null) {
+            await ensureDir(dirname(namingLintLatestAbs));
+            await writeFile(namingLintLatestAbs, originalNamingLintLatest, "utf8");
+          } else {
+            await removePath(namingLintLatestAbs);
+          }
+        } catch {
+          // ignore
+        }
+
+        try {
+          if (originalNamingLintHistoryExists && originalNamingLintHistory !== null) {
+            await ensureDir(dirname(namingLintHistoryAbs));
+            await writeFile(namingLintHistoryAbs, originalNamingLintHistory, "utf8");
+          } else {
+            await removePath(namingLintHistoryAbs);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       if (clicheLintWritten) {
         try {
           if (originalClicheLintLatestExists && originalClicheLintLatest !== null) {
@@ -904,6 +957,21 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
             })()
           : null;
 
+      let infoLoadNer = precomputedNer;
+      if (precomputedNer?.status === "pass" && precomputedNer.chapter_fingerprint && chapterFingerprintNow) {
+        const fpNow = chapterFingerprintNow;
+        const fpPrev = precomputedNer.chapter_fingerprint;
+        if (!fingerprintsMatch(fpNow, fpPrev)) {
+          infoLoadNer = {
+            status: "skipped",
+            error: "Chapter changed during commit; skipping info-load NER.",
+            chapter_fingerprint: null,
+            current_index: null,
+            recent_texts: null
+          };
+        }
+      }
+
       let readabilityLintReport: Awaited<ReturnType<typeof computeReadabilityReport>> | null = null;
       if (loadedProfile && chapterText !== null) {
         const pre = precomputedReadabilityLint;
@@ -949,24 +1017,40 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         }
       }
 
-      let platformConstraintsReport: Awaited<ReturnType<typeof computePlatformConstraints>> | null = null;
+      let namingLintReport: Awaited<ReturnType<typeof computeNamingReport>> | null = null;
       if (loadedProfile && chapterText !== null) {
-
-        let infoLoadNer = precomputedNer;
-        if (precomputedNer?.status === "pass" && precomputedNer.chapter_fingerprint && chapterFingerprintNow) {
-          const fpNow = chapterFingerprintNow;
-          const fpPrev = precomputedNer.chapter_fingerprint;
-          if (!fingerprintsMatch(fpNow, fpPrev)) {
-            infoLoadNer = {
-              status: "skipped",
-              error: "Chapter changed during commit; skipping info-load NER.",
-              chapter_fingerprint: null,
-              current_index: null,
-              recent_texts: null
-            };
-          }
+        const pre = precomputedNamingLint;
+        if (
+          pre &&
+          pre.status === "pass" &&
+          pre.report &&
+          pre.chapter_fingerprint &&
+          chapterFingerprintNow &&
+          fingerprintsMatch(pre.chapter_fingerprint, chapterFingerprintNow)
+        ) {
+          namingLintReport = pre.report;
+        } else {
+          namingLintReport = await computeNamingReport({
+            rootDir: args.rootDir,
+            chapter: args.chapter,
+            chapterText,
+            platformProfile: loadedProfile.profile,
+            ...(infoLoadNer ? { infoLoadNer } : {})
+          });
         }
 
+        if (namingLintReport.has_blocking_issues) {
+          const blockingIssues = namingLintReport.issues.filter((i) => i.severity === "hard");
+          const limit = 3;
+          const detailsBase = summarizeNamingIssues(blockingIssues, limit);
+          const suffix = blockingIssues.length > limit ? " …" : "";
+          const details = detailsBase.length > 0 ? `${detailsBase}${suffix}` : "(details in naming lint report)";
+          throw new NovelCliError(`Naming conflict blocking issue: ${details}`, 2);
+        }
+      }
+
+      let platformConstraintsReport: Awaited<ReturnType<typeof computePlatformConstraints>> | null = null;
+      if (loadedProfile && chapterText !== null) {
         platformConstraintsReport = await computePlatformConstraints({
           rootDir: args.rootDir,
           chapter: args.chapter,
@@ -1068,6 +1152,17 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
           evalRelPath: rel.final.evalJson,
           reportRelPath: readabilityHistoryRel,
           report: readabilityLintReport
+        });
+      }
+
+      if (loadedProfile && namingLintReport) {
+        namingLintWritten = true;
+        const { historyRel: namingHistoryRel } = await writeNamingLintLogs({ rootDir: args.rootDir, chapter: args.chapter, report: namingLintReport });
+        await attachNamingLintToEval({
+          evalAbsPath: join(args.rootDir, rel.final.evalJson),
+          evalRelPath: rel.final.evalJson,
+          reportRelPath: namingHistoryRel,
+          report: namingLintReport
         });
       }
 
