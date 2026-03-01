@@ -389,6 +389,7 @@ export async function computeNamingReport(args: {
     if (!hasAlias) continue;
 
     const label = bucket[0]?.value ?? key;
+    if (isPairExempt(exemptions, label, label)) continue;
     const ev = bucket
       .map((b) => `${b.slug_id}:${b.kind} (${b.rel_path})`)
       .slice(0, 6)
@@ -410,13 +411,16 @@ export async function computeNamingReport(args: {
     .sort((a, b) => a.display_name.localeCompare(b.display_name, "zh") || a.slug_id.localeCompare(b.slug_id, "en"));
 
   const maxNearIssues = 50;
-  for (let i = 0; i < canonicalEntries.length; i += 1) {
+  let nearCount = 0;
+  for (let i = 0; i < canonicalEntries.length && nearCount < maxNearIssues; i += 1) {
     const a = canonicalEntries[i];
     if (!a) continue;
-    for (let j = i + 1; j < canonicalEntries.length; j += 1) {
-      if (issues.filter((it) => it.conflict_type === "near_duplicate").length >= maxNearIssues) break;
+    const keyA = normalizeNameKey(a.display_name);
+    for (let j = i + 1; j < canonicalEntries.length && nearCount < maxNearIssues; j += 1) {
       const b = canonicalEntries[j];
       if (!b) continue;
+      const keyB = normalizeNameKey(b.display_name);
+      if (keyA === keyB) continue;
       if (isPairExempt(exemptions, a.display_name, b.display_name)) continue;
       const score = computeSimilarity(a.display_name, b.display_name);
       if (score < threshold) continue;
@@ -429,6 +433,7 @@ export async function computeNamingReport(args: {
         evidence: `${a.slug_id} (${a.rel_path}) | ${b.slug_id} (${b.rel_path})`,
         suggestion: "Consider renaming or adding strong textual disambiguation when both names must coexist."
       });
+      nearCount += 1;
     }
   }
 
