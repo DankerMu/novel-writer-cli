@@ -598,7 +598,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
           `WRITE logs/retention/retention-report-vol-${pad2(volume)}-ch${pad3(retentionReportRange.start)}-ch${pad3(retentionReportRange.end)}.json`
         );
       }
-      plan.push(`PATCH ${rel.final.evalJson} (attach hook_ledger metadata)`);
+      plan.push(`PATCH ${rel.final.evalJson} (attach hook_ledger metadata if hook present)`);
     }
   }
 
@@ -1197,6 +1197,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
           policy: hookLedgerPolicy,
           reportRange: retentionReportRange
         });
+        for (const w of hookLedgerUpdate.warnings) warnings.push(`Hook ledger: ${w}`);
 
         if (hookLedgerUpdate.report.has_blocking_issues) {
           const details = hookLedgerUpdate.report.issues.map((i) => i.summary).slice(0, 2).join(" | ");

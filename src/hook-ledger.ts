@@ -84,6 +84,15 @@ type HookEvalSignals = {
   strength: number | null;
 };
 
+function pickCommentFields(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!k.startsWith("_")) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 function safeInt(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) ? v : null;
 }
@@ -116,6 +125,21 @@ function safeWindow(v: unknown): [number, number] | null {
   if (a === null || b === null) return null;
   if (a > b) return null;
   return [a, b];
+}
+
+function normalizeLinks(raw: unknown): { promise_ids?: string[]; foreshadowing_ids?: string[] } | null {
+  if (!isPlainObject(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const promise_ids = Array.isArray(obj.promise_ids) ? obj.promise_ids.filter((v) => typeof v === "string" && v.trim().length > 0) : null;
+  const foreshadowing_ids = Array.isArray(obj.foreshadowing_ids)
+    ? obj.foreshadowing_ids.filter((v) => typeof v === "string" && v.trim().length > 0)
+    : null;
+
+  if (!promise_ids && !foreshadowing_ids) return null;
+  return {
+    ...(promise_ids ? { promise_ids } : {}),
+    ...(foreshadowing_ids ? { foreshadowing_ids } : {})
+  };
 }
 
 function hookPromiseText(hookType: string): string {
@@ -189,6 +213,7 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
     return null;
   }
   const obj = raw as Record<string, unknown>;
+  const comments = pickCommentFields(obj);
   const id = safeString(obj.id);
   const chapter = safePositiveInt(obj.chapter);
   if (!id || chapter === null) {
@@ -216,12 +241,7 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
   const sources = isPlainObject(obj.sources) ? (obj.sources as Record<string, unknown>) : null;
   const eval_path = sources ? safeString(sources.eval_path) : null;
 
-  const linksRaw = isPlainObject(obj.links) ? (obj.links as Record<string, unknown>) : null;
-  const promise_ids = linksRaw && Array.isArray(linksRaw.promise_ids) ? linksRaw.promise_ids.filter((v) => typeof v === "string" && v.trim().length > 0) : null;
-  const foreshadowing_ids =
-    linksRaw && Array.isArray(linksRaw.foreshadowing_ids)
-      ? linksRaw.foreshadowing_ids.filter((v) => typeof v === "string" && v.trim().length > 0)
-      : null;
+  const links = normalizeLinks(obj.links);
 
   const historyRaw = Array.isArray(obj.history) ? obj.history : null;
   const history: HookLedgerHistory = [];
@@ -239,7 +259,7 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
   }
 
   const entry: HookLedgerEntry = {
-    ...obj,
+    ...comments,
     id,
     chapter,
     hook_type,
@@ -252,14 +272,7 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
     updated_at,
     ...(evidence_snippet ? { evidence_snippet } : {}),
     ...(eval_path ? { sources: { eval_path } } : {}),
-    ...(promise_ids || foreshadowing_ids
-      ? {
-          links: {
-            ...(promise_ids ? { promise_ids } : {}),
-            ...(foreshadowing_ids ? { foreshadowing_ids } : {})
-          }
-        }
-      : {}),
+    ...(links ? { links } : {}),
     ...(history.length > 0 ? { history } : {})
   };
 
@@ -283,6 +296,7 @@ export async function loadHookLedger(rootDir: string): Promise<{ ledger: HookLed
   const raw = await readJsonFile(abs);
   if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${rel}: expected a JSON object.`, 2);
   const obj = raw as Record<string, unknown>;
+  const comments = pickCommentFields(obj);
 
   const schemaVersion = obj.schema_version;
   if (schemaVersion !== undefined && schemaVersion !== 1) {
@@ -300,9 +314,10 @@ export async function loadHookLedger(rootDir: string): Promise<{ ledger: HookLed
 
   return {
     ledger: {
-      ...obj,
+      $schema: "schemas/hook-ledger.schema.json",
       schema_version: 1,
-      entries
+      entries,
+      ...comments
     } as HookLedgerFile,
     warnings
   };
@@ -442,9 +457,11 @@ export function computeHookLedgerUpdate(args: {
   entry: HookLedgerEntry | null;
   report: RetentionReport;
   newlyLapsed: HookLedgerEntry[];
+  warnings: string[];
 } {
   const now = new Date().toISOString();
   const warnings: string[] = [];
+  const ledgerComments = pickCommentFields(args.ledger as Record<string, unknown>);
 
   const existingEntries: HookLedgerEntry[] = [];
   for (const it of args.ledger.entries) {
@@ -488,7 +505,7 @@ export function computeHookLedgerUpdate(args: {
     const baseCreatedAt = existing ? existing.created_at : now;
     const prevStatus = existing ? existing.status : "open";
     const prevFulfilled = existing ? existing.fulfilled_chapter : null;
-    const prevLinks = existing && isPlainObject(existing.links) ? (existing.links as HookLedgerEntry["links"]) : undefined;
+    const prevLinks = existing ? normalizeLinks(existing.links) : null;
     const prevHistory = existing && Array.isArray(existing.history) ? (existing.history as HookLedgerHistory) : [];
 
     const windowStart = args.chapter + 1;
@@ -553,10 +570,10 @@ export function computeHookLedgerUpdate(args: {
   }
 
   const updatedLedger: HookLedgerFile = {
-    ...args.ledger,
     $schema: "schemas/hook-ledger.schema.json",
     schema_version: 1,
-    entries: entries.sort((a, b) => a.chapter - b.chapter || a.id.localeCompare(b.id, "en"))
+    entries: entries.sort((a, b) => a.chapter - b.chapter || a.id.localeCompare(b.id, "en")),
+    ...ledgerComments
   };
 
   // Diversity window computed over last N chapters (based on available ledger entries).
@@ -647,5 +664,5 @@ export function computeHookLedgerUpdate(args: {
     has_blocking_issues: hasBlocking
   };
 
-  return { updatedLedger, entry, report, newlyLapsed };
+  return { updatedLedger, entry, report, newlyLapsed, warnings };
 }
