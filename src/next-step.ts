@@ -4,6 +4,9 @@ import type { Checkpoint } from "./checkpoint.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { computePrejudgeGuardrailsReport, loadPrejudgeGuardrailsReportIfFresh, prejudgeGuardrailsRelPath } from "./prejudge-guardrails.js";
+import { summarizeNamingIssues } from "./naming-lint.js";
+import { summarizeReadabilityIssues } from "./readability-lint.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId } from "./steps.js";
 
@@ -145,6 +148,91 @@ async function checkTitlePolicyForStage(args: {
   };
 }
 
+async function checkPrejudgeGuardrailsForStage(args: {
+  projectRootDir: string;
+  stagePrefix: "refined" | "judged";
+  inflightChapter: number;
+  pipelineStage: string;
+  evidence: Record<string, unknown>;
+  chapterRelPath: string;
+}): Promise<NextStepResult | null> {
+  const loadedProfile = await loadPlatformProfile(args.projectRootDir);
+  if (!loadedProfile) return null;
+
+  const chapterAbsPath = join(args.projectRootDir, args.chapterRelPath);
+  const cacheRelPath = prejudgeGuardrailsRelPath(args.inflightChapter);
+  let cacheStatus: "hit" | "miss" = "miss";
+  let report = await loadPrejudgeGuardrailsReportIfFresh({
+    rootDir: args.projectRootDir,
+    chapter: args.inflightChapter,
+    chapterAbsPath,
+    platformProfileRelPath: loadedProfile.relPath,
+    platformProfile: loadedProfile.profile
+  });
+  if (report) cacheStatus = "hit";
+
+  if (!report) {
+    try {
+      report = await computePrejudgeGuardrailsReport({
+        rootDir: args.projectRootDir,
+        chapter: args.inflightChapter,
+        chapterAbsPath,
+        platformProfileRelPath: loadedProfile.relPath,
+        platformProfile: loadedProfile.profile
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "review" }),
+        reason: `${args.stagePrefix}:prejudge_guardrails_error`,
+        inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+        evidence: { ...args.evidence, prejudge_guardrails: { cache: { status: cacheStatus, rel_path: cacheRelPath }, error: message } }
+      };
+    }
+  }
+
+  if (!report.has_blocking_issues) return null;
+
+  const readabilityBlocking = report.readability_lint.has_blocking_issues;
+  const namingBlocking = report.naming_lint.has_blocking_issues;
+
+  const readabilitySummary = readabilityBlocking ? summarizeReadabilityIssues(report.readability_lint.issues, 3) : null;
+  const namingSummary = namingBlocking ? summarizeNamingIssues(report.naming_lint.issues, 3) : null;
+
+  const reasons: string[] = [];
+  if (readabilityBlocking) reasons.push("readability_lint");
+  if (namingBlocking) reasons.push("naming_lint");
+  const label = reasons.length > 0 ? reasons.join("+") : report.blocking_reasons.join("+");
+
+  return {
+    step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "review" }),
+    reason: `${args.stagePrefix}:prejudge_guardrails_blocking:${label}`,
+    inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+    evidence: {
+      ...args.evidence,
+      prejudge_guardrails: {
+        cache: { status: cacheStatus, rel_path: cacheRelPath },
+        status: report.status,
+        has_blocking_issues: report.has_blocking_issues,
+        blocking_reasons: report.blocking_reasons,
+        platform_profile: report.platform_profile,
+        readability: {
+          status: report.readability_lint.status,
+          issues_total: report.readability_lint.issues.length,
+          has_blocking_issues: report.readability_lint.has_blocking_issues,
+          ...(readabilitySummary ? { blocking_summary: readabilitySummary } : {})
+        },
+        naming: {
+          status: report.naming_lint.status,
+          issues_total: report.naming_lint.issues.length,
+          has_blocking_issues: report.naming_lint.has_blocking_issues,
+          ...(namingSummary ? { blocking_summary: namingSummary } : {})
+        }
+      }
+    }
+  };
+}
+
 export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
   const inflightChapter = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
   const stage = normalizeStage(checkpoint.pipeline_stage);
@@ -232,6 +320,15 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
   }
 
   if (stage === "refined") {
+    if (!hasChapter) {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
+        reason: "refined:missing_chapter",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence
+      };
+    }
+
     if (!hasEval) {
       const titleGate = await checkTitlePolicyForStage({
         projectRootDir,
@@ -276,6 +373,16 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
     });
     if (hookGate) return hookGate;
 
+    const guardrailsGate = await checkPrejudgeGuardrailsForStage({
+      projectRootDir,
+      stagePrefix: "refined",
+      inflightChapter,
+      pipelineStage: stage,
+      evidence,
+      chapterRelPath: rel.staging.chapterMd
+    });
+    if (guardrailsGate) return guardrailsGate;
+
     return {
       step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
       reason: "refined:ready_commit",
@@ -285,6 +392,15 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
   }
 
   if (stage === "judged") {
+    if (!hasChapter) {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
+        reason: "judged:missing_chapter",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence
+      };
+    }
+
     if (!hasEval) {
       return {
         step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),
@@ -316,6 +432,16 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       evalRelPath: rel.staging.evalJson
     });
     if (hookGate) return hookGate;
+
+    const guardrailsGate = await checkPrejudgeGuardrailsForStage({
+      projectRootDir,
+      stagePrefix: "judged",
+      inflightChapter,
+      pipelineStage: stage,
+      evidence,
+      chapterRelPath: rel.staging.chapterMd
+    });
+    if (guardrailsGate) return guardrailsGate;
 
     return {
       step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
