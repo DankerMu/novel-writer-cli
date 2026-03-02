@@ -186,6 +186,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
           rootDir: args.rootDir,
           chapter: args.step.chapter,
           chapterAbsPath: join(args.rootDir, chapterDraftRel),
+          platformProfileRelPath: loadedPlatform.relPath,
           platformProfile: loadedPlatform.profile
         });
         const { relPath } = await writePrejudgeGuardrailsReport({ rootDir: args.rootDir, chapter: args.step.chapter, report });

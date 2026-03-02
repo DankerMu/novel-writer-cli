@@ -4,7 +4,7 @@ import type { Checkpoint } from "./checkpoint.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import { loadPlatformProfile } from "./platform-profile.js";
-import { computePrejudgeGuardrailsReport, loadPrejudgeGuardrailsReportIfFresh } from "./prejudge-guardrails.js";
+import { computePrejudgeGuardrailsReport, loadPrejudgeGuardrailsReportIfFresh, prejudgeGuardrailsRelPath } from "./prejudge-guardrails.js";
 import { summarizeNamingIssues } from "./naming-lint.js";
 import { summarizeReadabilityIssues } from "./readability-lint.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
@@ -163,16 +163,23 @@ async function checkPrejudgeGuardrailsForStage(args: {
   let report = await loadPrejudgeGuardrailsReportIfFresh({
     rootDir: args.projectRootDir,
     chapter: args.inflightChapter,
-    chapterAbsPath
+    chapterAbsPath,
+    platformProfileRelPath: loadedProfile.relPath,
+    platformProfile: loadedProfile.profile
   });
 
   if (!report) {
-    report = await computePrejudgeGuardrailsReport({
-      rootDir: args.projectRootDir,
-      chapter: args.inflightChapter,
-      chapterAbsPath,
-      platformProfile: loadedProfile.profile
-    });
+    try {
+      report = await computePrejudgeGuardrailsReport({
+        rootDir: args.projectRootDir,
+        chapter: args.inflightChapter,
+        chapterAbsPath,
+        platformProfileRelPath: loadedProfile.relPath,
+        platformProfile: loadedProfile.profile
+      });
+    } catch {
+      return null;
+    }
   }
 
   if (!report.has_blocking_issues) return null;
@@ -195,9 +202,11 @@ async function checkPrejudgeGuardrailsForStage(args: {
     evidence: {
       ...args.evidence,
       prejudge_guardrails: {
+        report_path: prejudgeGuardrailsRelPath(args.inflightChapter),
         status: report.status,
         has_blocking_issues: report.has_blocking_issues,
         blocking_reasons: report.blocking_reasons,
+        platform_profile: report.platform_profile,
         readability: {
           status: report.readability_lint.status,
           issues_total: report.readability_lint.issues.length,
@@ -302,6 +311,15 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
   }
 
   if (stage === "refined") {
+    if (!hasChapter) {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
+        reason: "refined:missing_chapter",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence
+      };
+    }
+
     if (!hasEval) {
       const titleGate = await checkTitlePolicyForStage({
         projectRootDir,
@@ -365,6 +383,15 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
   }
 
   if (stage === "judged") {
+    if (!hasChapter) {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
+        reason: "judged:missing_chapter",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence
+      };
+    }
+
     if (!hasEval) {
       return {
         step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),

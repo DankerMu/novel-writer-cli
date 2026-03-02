@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { fingerprintTextFile, type FileFingerprint } from "./fingerprint.js";
+import { fingerprintTextFile, hashText, type FileFingerprint } from "./fingerprint.js";
 import { ensureDir, pathExists, readJsonFile, writeJsonFile } from "./fs-utils.js";
 import { computeNamingReport, type NamingReport } from "./naming-lint.js";
 import type { PlatformProfile } from "./platform-profile.js";
@@ -15,6 +15,7 @@ export type PrejudgeGuardrailsReport = {
   schema_version: 1;
   generated_at: string;
   scope: { chapter: number };
+  platform_profile: { rel_path: string; fingerprint: string };
   chapter_fingerprint: FileFingerprint;
   title_policy: TitlePolicyReport;
   readability_lint: ReadabilityReport;
@@ -43,10 +44,17 @@ export function prejudgeGuardrailsRelPath(chapter: number): string {
   return `staging/guardrails/prejudge-guardrails-chapter-${pad3(chapter)}.json`;
 }
 
+function fingerprintPlatformProfile(profile: PlatformProfile): string {
+  // Note: PlatformProfile is fully derived from platform-profile.json via parsePlatformProfile.
+  // JSON.stringify output is deterministic here because we control key insertion order in the parser.
+  return hashText(JSON.stringify(profile));
+}
+
 export async function computePrejudgeGuardrailsReport(args: {
   rootDir: string;
   chapter: number;
   chapterAbsPath: string;
+  platformProfileRelPath: string;
   platformProfile: PlatformProfile;
 }): Promise<PrejudgeGuardrailsReport> {
   const generated_at = new Date().toISOString();
@@ -82,6 +90,7 @@ export async function computePrejudgeGuardrailsReport(args: {
     schema_version: 1,
     generated_at,
     scope: { chapter: args.chapter },
+    platform_profile: { rel_path: args.platformProfileRelPath, fingerprint: fingerprintPlatformProfile(args.platformProfile) },
     chapter_fingerprint,
     title_policy,
     readability_lint,
@@ -108,25 +117,61 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
   rootDir: string;
   chapter: number;
   chapterAbsPath: string;
+  platformProfileRelPath: string;
+  platformProfile: PlatformProfile;
 }): Promise<PrejudgeGuardrailsReport | null> {
   const rel = prejudgeGuardrailsRelPath(args.chapter);
   const abs = join(args.rootDir, rel);
   if (!(await pathExists(abs))) return null;
 
-  const raw = await readJsonFile(abs);
+  let raw: unknown;
+  try {
+    raw = await readJsonFile(abs);
+  } catch {
+    return null;
+  }
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
   if (obj.schema_version !== 1) return null;
+
+  const profileRaw = obj.platform_profile;
+  if (!isPlainObject(profileRaw)) return null;
+  const profileObj = profileRaw as Record<string, unknown>;
+  if (typeof profileObj.rel_path !== "string" || profileObj.rel_path.trim().length === 0) return null;
+  if (typeof profileObj.fingerprint !== "string" || profileObj.fingerprint.trim().length === 0) return null;
+  if (profileObj.rel_path !== args.platformProfileRelPath) return null;
+  if (profileObj.fingerprint !== fingerprintPlatformProfile(args.platformProfile)) return null;
 
   const fpRaw = obj.chapter_fingerprint;
   if (!isPlainObject(fpRaw)) return null;
   const fp = fpRaw as Record<string, unknown>;
   if (typeof fp.size !== "number" || typeof fp.mtime_ms !== "number" || typeof fp.content_hash !== "string") return null;
 
-  const { fingerprint: now } = await fingerprintTextFile(args.chapterAbsPath);
+  if (typeof obj.has_blocking_issues !== "boolean") return null;
+  if (!Array.isArray(obj.blocking_reasons) || !obj.blocking_reasons.every((v) => typeof v === "string")) return null;
+
+  const readability = obj.readability_lint;
+  if (!isPlainObject(readability)) return null;
+  const readabilityObj = readability as Record<string, unknown>;
+  if (typeof readabilityObj.has_blocking_issues !== "boolean") return null;
+  if (!Array.isArray(readabilityObj.issues)) return null;
+  if (typeof readabilityObj.status !== "string") return null;
+
+  const naming = obj.naming_lint;
+  if (!isPlainObject(naming)) return null;
+  const namingObj = naming as Record<string, unknown>;
+  if (typeof namingObj.has_blocking_issues !== "boolean") return null;
+  if (!Array.isArray(namingObj.issues)) return null;
+  if (typeof namingObj.status !== "string") return null;
+
+  let now: FileFingerprint;
+  try {
+    ({ fingerprint: now } = await fingerprintTextFile(args.chapterAbsPath));
+  } catch {
+    return null;
+  }
   const fresh = now.size === fp.size && now.mtime_ms === fp.mtime_ms && now.content_hash === fp.content_hash;
   if (!fresh) return null;
 
   return raw as PrejudgeGuardrailsReport;
 }
-
