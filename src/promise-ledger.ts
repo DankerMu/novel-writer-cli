@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
@@ -176,7 +176,12 @@ function normalizeExistingEntry(raw: unknown, warnings: string[]): PromiseLedger
   }
   if (last_touched_chapter < introduced_chapter) last_touched_chapter = introduced_chapter;
 
-  const status = safePromiseStatus(obj.status) ?? "promised";
+  const statusRaw = obj.status;
+  const statusParsed = safePromiseStatus(statusRaw);
+  const status = statusParsed ?? "promised";
+  if (statusRaw !== undefined && statusParsed === null) {
+    warnings.push(`Promise ledger entry '${id}': invalid 'status' (defaulted to 'promised').`);
+  }
 
   const delivered_chapter =
     obj.delivered_chapter === null ? null : obj.delivered_chapter === undefined ? undefined : safePositiveInt(obj.delivered_chapter);
@@ -404,7 +409,7 @@ export async function writePromiseLedgerLogs(args: {
   await ensureDir(dirAbs);
 
   const latestRel = `${dirRel}/latest.json`;
-  await writeJsonFile(join(args.rootDir, latestRel), args.report);
+  const latestAbs = join(args.rootDir, latestRel);
 
   const result: { latestRel: string; historyRel?: string } = { latestRel };
   if (args.historyRange) {
@@ -413,6 +418,70 @@ export async function writePromiseLedgerLogs(args: {
     )}.json`;
     await writeJsonFile(join(args.rootDir, historyRel), args.report);
     result.historyRel = historyRel;
+  }
+
+  const parseLatest = (raw: unknown): { chapter: number; generated_at: string | null } | null => {
+    if (!isPlainObject(raw)) return null;
+    const obj = raw as Record<string, unknown>;
+    if (obj.schema_version !== 1) return null;
+    const asOf = obj.as_of;
+    if (!isPlainObject(asOf)) return null;
+    const chapter = (asOf as Record<string, unknown>).chapter;
+    if (typeof chapter !== "number" || !Number.isInteger(chapter) || chapter < 0) return null;
+    const rawTs = typeof obj.generated_at === "string" ? obj.generated_at : null;
+    const generated_at = rawTs && Number.isFinite(Date.parse(rawTs)) ? rawTs : null;
+    return { chapter, generated_at };
+  };
+
+  const next = { chapter: args.report.as_of.chapter, generated_at: args.report.generated_at };
+  let shouldWriteLatest = true;
+  if (await pathExists(latestAbs)) {
+    try {
+      const existing = parseLatest(await readJsonFile(latestAbs));
+      if (existing) {
+        if (existing.chapter > next.chapter) {
+          shouldWriteLatest = false;
+        } else if (existing.chapter === next.chapter) {
+          // If timestamps are comparable, keep the newer one; otherwise, overwrite.
+          if (existing.generated_at) {
+            const a = Date.parse(existing.generated_at);
+            const b = Date.parse(next.generated_at);
+            if (Number.isFinite(a) && Number.isFinite(b) && a >= b) shouldWriteLatest = false;
+          }
+        }
+      }
+    } catch {
+      shouldWriteLatest = true;
+    }
+  }
+
+  if (shouldWriteLatest) {
+    // Atomic replace to avoid partial/corrupted JSON on interruption.
+    const tmpAbs = join(dirAbs, `.tmp-promises-latest-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+    await writeJsonFile(tmpAbs, args.report);
+    try {
+      // Re-check right before publish to reduce (not eliminate) races without introducing a lock.
+      let stillWrite = true;
+      if (await pathExists(latestAbs)) {
+        try {
+          const existing2 = parseLatest(await readJsonFile(latestAbs));
+          if (existing2) {
+            if (existing2.chapter > next.chapter) {
+              stillWrite = false;
+            } else if (existing2.chapter === next.chapter && existing2.generated_at) {
+              const a = Date.parse(existing2.generated_at);
+              const b = Date.parse(next.generated_at);
+              if (Number.isFinite(a) && Number.isFinite(b) && a >= b) stillWrite = false;
+            }
+          }
+        } catch {
+          stillWrite = true;
+        }
+      }
+      if (stillWrite) await rename(tmpAbs, latestAbs);
+    } finally {
+      await rm(tmpAbs, { force: true }).catch(() => {});
+    }
   }
 
   return result;
@@ -431,10 +500,10 @@ function normalizeSeedText(text: string): string {
 
 function guessTypeFromHeading(heading: string): PromiseType | null {
   const h = heading.toLowerCase();
-  if (/[卖爽点]/u.test(heading) || h.includes("selling") || h.includes("highlight")) return "selling_point";
+  if (heading.includes("卖点") || heading.includes("爽点") || h.includes("selling") || h.includes("highlight")) return "selling_point";
   if (heading.includes("谜") || h.includes("mystery") || h.includes("suspense")) return "core_mystery";
   if (heading.includes("机制") || heading.includes("系统") || heading.includes("规则") || h.includes("mechanism") || h.includes("system")) return "mechanism";
-  if (heading.includes("关系") || heading.includes("感情") || heading.includes("cp") || h.includes("relationship")) return "relationship_arc";
+  if (heading.includes("关系") || heading.includes("感情") || h.includes("cp") || h.includes("relationship")) return "relationship_arc";
   return null;
 }
 
@@ -668,4 +737,3 @@ export function validatePromiseLedgerForReport(ledger: PromiseLedgerFile): void 
     if (safePositiveInt(e.last_touched_chapter) === null) throw new Error("promise-ledger entry.last_touched_chapter must be int >= 1");
   }
 }
-

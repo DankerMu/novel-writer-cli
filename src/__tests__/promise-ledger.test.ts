@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { buildPromiseLedgerSeed, computePromiseLedgerReport, loadPromiseLedger, writePromiseLedgerLogs, type PromiseLedgerFile } from "../promise-ledger.js";
+import {
+  buildPromiseLedgerSeed,
+  computePromiseLedgerReport,
+  loadPromiseLedger,
+  writePromiseLedgerLogs,
+  type PromiseLedgerFile,
+  type PromiseLedgerReport
+} from "../promise-ledger.js";
 
 async function writeText(absPath: string, contents: string): Promise<void> {
   await mkdir(dirname(absPath), { recursive: true });
@@ -46,6 +53,52 @@ test("buildPromiseLedgerSeed extracts candidates from brief/outline/summaries", 
 
   const mechanism = seeded.ledger.entries.find((e) => e.promise_text === "系统有代价：使用会消耗寿命");
   assert.equal(mechanism?.type, "mechanism");
+});
+
+test("buildPromiseLedgerSeed avoids overmatching headings and supports uppercase CP", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-promise-ledger-seed-headings-"));
+
+  await writeText(
+    join(rootDir, "brief.md"),
+    `# Brief\n\n## 关键点\n- 主角身世之谜\n\n## CP线\n- 主角与师姐从敌对到信任\n`
+  );
+
+  const seeded = await buildPromiseLedgerSeed({ rootDir, volume: 1, maxRecentSummaries: 0 });
+
+  const mystery = seeded.ledger.entries.find((e) => e.promise_text === "主角身世之谜");
+  assert.equal(mystery?.type, "core_mystery");
+
+  const rel = seeded.ledger.entries.find((e) => e.promise_text === "主角与师姐从敌对到信任");
+  assert.equal(rel?.type, "relationship_arc");
+});
+
+test("loadPromiseLedger warns and defaults invalid status to promised", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-promise-ledger-bad-status-"));
+
+  await writeText(
+    join(rootDir, "promise-ledger.json"),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        entries: [
+          {
+            id: "promise:p001",
+            type: "core_mystery",
+            promise_text: "主角身世之谜",
+            status: "oops",
+            introduced_chapter: 1,
+            last_touched_chapter: 1
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const loaded = await loadPromiseLedger(rootDir);
+  assert.equal(loaded.ledger.entries[0]?.status, "promised");
+  assert.ok(loaded.warnings.some((w) => w.includes("invalid 'status'")));
 });
 
 test("computePromiseLedgerReport surfaces dormant promises and suggestions", async () => {
@@ -90,6 +143,45 @@ test("computePromiseLedgerReport surfaces dormant promises and suggestions", asy
   assert.ok(report.dormant_promises[0]?.suggestion.length > 0);
 });
 
+test("writePromiseLedgerLogs keeps latest.json monotonic by chapter (and generated_at tie-break)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-promise-ledger-log-mono-"));
+
+  const mkReport = (chapter: number, generated_at: string): PromiseLedgerReport => ({
+    schema_version: 1,
+    generated_at,
+    as_of: { chapter, volume: 1 },
+    scope: { volume: 1, chapter_start: Math.max(1, chapter - 9), chapter_end: chapter },
+    ledger_path: "promise-ledger.json",
+    policy: { dormancy_threshold_chapters: 12 },
+    stats: {
+      total_promises: 0,
+      promised_total: 0,
+      advanced_total: 0,
+      delivered_total: 0,
+      open_total: 0,
+      dormant_total: 0
+    },
+    dormant_promises: [],
+    issues: [],
+    has_blocking_issues: false
+  });
+
+  await writePromiseLedgerLogs({ rootDir, report: mkReport(5, "2026-01-01T00:00:00.000Z"), historyRange: null });
+  await writePromiseLedgerLogs({ rootDir, report: mkReport(4, "2026-01-02T00:00:00.000Z"), historyRange: null });
+
+  const latestAbs = join(rootDir, "logs", "promises", "latest.json");
+  const raw = JSON.parse(await readFile(latestAbs, "utf8")) as PromiseLedgerReport;
+  assert.equal(raw.as_of.chapter, 5);
+
+  await writePromiseLedgerLogs({ rootDir, report: mkReport(5, "2025-01-01T00:00:00.000Z"), historyRange: null });
+  const raw2 = JSON.parse(await readFile(latestAbs, "utf8")) as PromiseLedgerReport;
+  assert.equal(raw2.generated_at, "2026-01-01T00:00:00.000Z");
+
+  await writePromiseLedgerLogs({ rootDir, report: mkReport(5, "2027-01-01T00:00:00.000Z"), historyRange: null });
+  const raw3 = JSON.parse(await readFile(latestAbs, "utf8")) as PromiseLedgerReport;
+  assert.equal(raw3.generated_at, "2027-01-01T00:00:00.000Z");
+});
+
 test("writePromiseLedgerLogs writes latest + history when requested", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-promise-ledger-logs-"));
   const ledger: PromiseLedgerFile = { $schema: "schemas/promise-ledger.schema.json", schema_version: 1, entries: [] };
@@ -104,4 +196,3 @@ test("writePromiseLedgerLogs writes latest + history when requested", async () =
   const historyRaw = JSON.parse(await readFile(join(rootDir, written.historyRel), "utf8")) as any;
   assert.equal(historyRaw.schema_version, 1);
 });
-

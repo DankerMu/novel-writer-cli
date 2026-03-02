@@ -655,7 +655,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
   // Optional: promise ledger report maintenance (non-blocking) when promise-ledger.json exists.
   if (promiseLedgerExists) {
-    plan.push(`WRITE logs/promises/latest.json`);
+    plan.push(`WRITE logs/promises/latest.json (monotonic)`);
     if (promiseLedgerHistoryRange) {
       plan.push(
         `WRITE logs/promises/promise-ledger-report-vol-${pad2(volume)}-ch${pad3(promiseLedgerHistoryRange.start)}-ch${pad3(
@@ -1517,13 +1517,18 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     try {
       const loaded = await loadPromiseLedger(args.rootDir);
       for (const w of loaded.warnings) warnings.push(`Promise ledger (load): ${w}`);
+      const scopeRange =
+        isVolumeEnd && volumeRange
+          ? { start: volumeRange.start, end: volumeRange.end }
+          : { start: Math.max(1, args.chapter - 9), end: args.chapter };
+      const historyRange = resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
       const report = computePromiseLedgerReport({
         ledger: loaded.ledger,
         asOfChapter: args.chapter,
         volume,
-        chapterRange: promiseLedgerScopeRange
+        chapterRange: scopeRange
       });
-      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange: promiseLedgerHistoryRange });
+      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`Promise ledger report maintenance skipped: ${message}`);

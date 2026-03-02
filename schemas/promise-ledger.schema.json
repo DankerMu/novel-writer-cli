@@ -8,6 +8,9 @@
   "patternProperties": {
     "^_.*$": { "$ref": "#/$defs/comment_value" }
   },
+  "propertyNames": {
+    "not": { "enum": ["__proto__", "constructor", "prototype"] }
+  },
   "properties": {
     "$schema": {
       "type": "string",
@@ -47,6 +50,9 @@
       "additionalProperties": false,
       "patternProperties": {
         "^_.*$": { "$ref": "#/$defs/comment_value" }
+      },
+      "propertyNames": {
+        "not": { "enum": ["__proto__", "constructor", "prototype"] }
       },
       "properties": {
         "id": { "type": "string", "minLength": 1 },
@@ -89,4 +95,3 @@
     }
   }
 }
-
