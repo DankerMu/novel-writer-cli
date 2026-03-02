@@ -1208,14 +1208,16 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 	            .join(" | ");
 	          const suffix = blockingIssues.length > limit ? " …" : "";
 	          const msg = details.length > 0 ? `${details}${suffix}` : "(details in logs/retention/latest.json)";
-	          const blockedRel = "logs/retention/blocked.json";
 	          try {
-	            await ensureDir(join(args.rootDir, "logs/retention"));
-	            await writeJsonFile(join(args.rootDir, blockedRel), hookLedgerUpdate.report);
+	            await writeRetentionLogs({
+	              rootDir: args.rootDir,
+	              report: hookLedgerUpdate.report,
+	              writeHistory: shouldWriteRetentionHistory
+	            });
 	          } catch {
 	            // ignore
 	          }
-	          throw new NovelCliError(`Retention hook ledger violation: ${msg}. See ${blockedRel}.`, 2);
+	          throw new NovelCliError(`Retention hook ledger violation: ${msg}. See logs/retention/latest.json.`, 2);
 	        }
 
         if (hookLedgerUpdate.report.issues.length > 0) {

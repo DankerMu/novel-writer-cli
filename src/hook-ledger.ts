@@ -726,7 +726,7 @@ export function computeHookLedgerUpdate(args: {
       if (idx >= 0) entries[idx] = entry;
       else entries.push(entry);
     }
-  } else if (existingAtChapter) {
+  } else if (!hookPresent && existingAtChapter) {
     warnings.push(
       `Eval indicates no hook for chapter ${args.chapter}, but hook-ledger has existing entry '${existingAtChapter.id}' (status=${existingAtChapter.status}). Entry preserved (no upsert from eval).`
     );
