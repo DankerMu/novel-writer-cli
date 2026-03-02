@@ -267,7 +267,7 @@ function buildProgram(argv: string[]): Command {
       const asOf = localOpts.asOf ?? end;
       const start = localOpts.start ?? Math.max(1, end - 9);
 
-      if (!Number.isInteger(asOf) || asOf < 0) throw new NovelCliError(`Invalid --as-of: ${String(asOf)} (expected int >= 0).`, 2);
+      if (!Number.isInteger(asOf) || asOf < 1) throw new NovelCliError(`Invalid --as-of: ${String(asOf)} (expected int >= 1).`, 2);
       if (!Number.isInteger(volume) || volume < 0) throw new NovelCliError(`Invalid --volume: ${String(volume)} (expected int >= 0).`, 2);
       if (!Number.isInteger(start) || start < 1) throw new NovelCliError(`Invalid --start: ${String(start)} (expected int >= 1).`, 2);
       if (!Number.isInteger(end) || end < 0) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= 0).`, 2);
