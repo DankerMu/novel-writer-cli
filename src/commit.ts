@@ -1592,7 +1592,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
       metricsRelPath: loaded.rel
     });
 
-    await writeEngagementLogs({ rootDir: args.rootDir, report, historyRange: engagementHistoryRange });
+    const historyRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
+    await writeEngagementLogs({ rootDir: args.rootDir, report, historyRange });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(`Engagement density maintenance skipped: ${message}`);

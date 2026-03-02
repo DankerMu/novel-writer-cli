@@ -68,12 +68,46 @@ function safeString(v: unknown): string | null {
 }
 
 const RFC3339_DATE_TIME =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.(\d{1,9}))?(?:Z|([+-])([01]\d|2[0-3]):([0-5]\d))$/;
+
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function daysInMonth(year: number, month: number): number {
+  switch (month) {
+    case 1:
+    case 3:
+    case 5:
+    case 7:
+    case 8:
+    case 10:
+    case 12:
+      return 31;
+    case 4:
+    case 6:
+    case 9:
+    case 11:
+      return 30;
+    case 2:
+      return isLeapYear(year) ? 29 : 28;
+    default:
+      return 0;
+  }
+}
 
 function safeIso(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
-  if (!RFC3339_DATE_TIME.test(t)) return null;
+  const m = RFC3339_DATE_TIME.exec(t);
+  if (!m) return null;
+
+  const year = Number.parseInt(m[1] ?? "", 10);
+  const month = Number.parseInt(m[2] ?? "", 10);
+  const day = Number.parseInt(m[3] ?? "", 10);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (day > daysInMonth(year, month)) return null;
+
   if (!Number.isFinite(Date.parse(t))) return null;
   return t;
 }
@@ -124,8 +158,20 @@ function extractSummaryKeyEvents(markdown: string): string[] {
     if (!bullet) continue;
     const cleaned = normalizeEventText(bullet[1] ?? "");
     if (cleaned.length < 2) continue;
-    if (cleaned.length > 200) continue;
-    out.push(cleaned);
+    out.push(truncateWithEllipsis(cleaned, 200));
+  }
+  return out;
+}
+
+function extractSummaryBullets(markdown: string): string[] {
+  const lines = markdown.split(/\r?\n/gu);
+  const out: string[] = [];
+  for (const line of lines) {
+    const bullet = /^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/u.exec(line);
+    if (!bullet) continue;
+    const cleaned = normalizeEventText(bullet[1] ?? "");
+    if (cleaned.length < 2) continue;
+    out.push(truncateWithEllipsis(cleaned, 200));
   }
   return out;
 }
@@ -299,12 +345,12 @@ export async function computeEngagementMetricRecord(args: {
 
   const pc = extractPlatformConstraintsSignals(evalRaw);
 
-  const events = extractSummaryKeyEvents(summaryText);
-  const plotBeats = events.length > 0 ? events.length : (() => {
-    // Best-effort fallback: count all bullets in the summary.
-    const bullets = summaryText.split(/\r?\n/gu).filter((l) => /^\s*(?:[-*]|\d+\.)\s+/.test(l)).length;
-    return bullets;
-  })();
+  const keyEvents = extractSummaryKeyEvents(summaryText);
+  const fallbackBullets = keyEvents.length > 0 ? [] : extractSummaryBullets(summaryText);
+  const events = keyEvents.length > 0 ? keyEvents : fallbackBullets;
+  const plotBeats = keyEvents.length > 0 ? keyEvents.length : fallbackBullets.length;
+  const beatsSource = keyEvents.length > 0 ? "key_events" : "summary_bullets";
+  if (events.length === 0) warnings.push("Engagement metrics: no summary bullet events detected; conflict/payoff scoring may be degraded.");
 
   const wordCount = pc.wordCountChars ?? countNonWhitespaceChars(chapterText);
 
@@ -319,7 +365,7 @@ export async function computeEngagementMetricRecord(args: {
 
   const notesParts: string[] = [];
   notesParts.push(`word_count=${wordCount}${pc.wordCountChars !== null ? "(platform_constraints)" : ""}`);
-  notesParts.push(`beats=${plotBeats}${events.length > 0 ? "(key_events)" : "(summary_bullets)"}`);
+  notesParts.push(`beats=${plotBeats}(${beatsSource})`);
   notesParts.push(`conflict=${conflict.score}(${conflict.evidence})`);
   notesParts.push(`payoff=${payoff.score}(${payoff.evidence})`);
   notesParts.push(`info_load=${infoLoad.score}(${infoLoad.evidence})`);
@@ -481,6 +527,9 @@ export function computeEngagementReport(args: {
     args.records.filter((r) => r.chapter >= args.chapterRange.start && r.chapter <= args.chapterRange.end)
   );
 
+  const metricsByChapter = new Map<number, EngagementMetricRecord>();
+  for (const r of selected) metricsByChapter.set(r.chapter, r);
+
   const issues: EngagementIssue[] = [];
 
   // Low plot beats stretches (consecutive beats <= 1).
@@ -528,31 +577,42 @@ export function computeEngagementReport(args: {
     pushLowBeatsStretch(stretchStart, stretchEnd, stretchLen);
   }
 
-  // Low payoff trend in last 5 chapters.
-  if (selected.length >= 5) {
-    const tail = selected.slice(-5);
-    const avgPayoff = average(tail.map((r) => r.payoff_score));
+  const tail5 = (() => {
+    const tailEnd = args.chapterRange.end;
+    const tailStart = tailEnd - 4;
+    if (tailStart < args.chapterRange.start) return null;
+    const tail: EngagementMetricRecord[] = [];
+    for (let ch = tailStart; ch <= tailEnd; ch += 1) {
+      const r = metricsByChapter.get(ch);
+      if (!r) return null;
+      tail.push(r);
+    }
+    return tail;
+  })();
+
+  // Low payoff trend in last 5 chapters (requires a complete consecutive tail).
+  if (tail5) {
+    const avgPayoff = average(tail5.map((r) => r.payoff_score));
     if (avgPayoff !== null && avgPayoff <= 2.0) {
       issues.push({
         id: "engagement.low_density.low_payoff_trend",
         severity: "warn",
         summary: `Low payoff trend in last 5 chapters (avg_payoff=${avgPayoff.toFixed(2)}).`,
-        evidence: `range=ch${pad3(tail[0]!.chapter)}-ch${pad3(tail[tail.length - 1]!.chapter)}`,
+        evidence: `range=ch${pad3(tail5[0]!.chapter)}-ch${pad3(tail5[tail5.length - 1]!.chapter)}`,
         suggestion: "Schedule small but frequent rewards/reveals (wins, reveals, emotional beats) to avoid perceived stalling."
       });
     }
   }
 
-  // Conflict plateau in last 5 chapters (all <= 2).
-  if (selected.length >= 5) {
-    const tail = selected.slice(-5);
-    const maxConflict = Math.max(...tail.map((r) => r.conflict_intensity));
+  // Conflict plateau in last 5 chapters (requires a complete consecutive tail; all <= 2).
+  if (tail5) {
+    const maxConflict = Math.max(...tail5.map((r) => r.conflict_intensity));
     if (maxConflict <= 2) {
       issues.push({
         id: "engagement.low_density.conflict_plateau",
         severity: "warn",
         summary: "Conflict plateau in last 5 chapters (conflict_intensity stays low).",
-        evidence: `range=ch${pad3(tail[0]!.chapter)}-ch${pad3(tail[tail.length - 1]!.chapter)}`,
+        evidence: `range=ch${pad3(tail5[0]!.chapter)}-ch${pad3(tail5[tail5.length - 1]!.chapter)}`,
         suggestion: "Introduce explicit opposition, time pressure, or meaningful cost to raise tension without forcing a full climax."
       });
     }

@@ -51,6 +51,30 @@ test("computeEngagementMetricRecord prefers platform_constraints word_count and 
   assert.ok(computed.record.notes.includes("key_events"));
 });
 
+test("computeEngagementMetricRecord falls back to summary bullets when key events are missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-engagement-metric-bullets-"));
+
+  await writeText(join(rootDir, "chapters/chapter-001.md"), "你好 世界\n");
+  await writeText(
+    join(rootDir, "summaries/chapter-001-summary.md"),
+    `## 第 1 章摘要\n\n- 主角遭遇危机，与强敌对峙\n- 反转揭示真相，获得奖励\n`
+  );
+
+  const computed = await computeEngagementMetricRecord({
+    rootDir,
+    chapter: 1,
+    volume: 1,
+    chapterRel: "chapters/chapter-001.md",
+    summaryRel: "summaries/chapter-001-summary.md",
+    evalRel: "evaluations/chapter-001-eval.json"
+  });
+
+  assert.equal(computed.record.plot_progression_beats, 2);
+  assert.ok(computed.record.conflict_intensity >= 2);
+  assert.ok(computed.record.payoff_score >= 2);
+  assert.ok(computed.record.notes.includes("summary_bullets"));
+});
+
 test("computeEngagementReport flags low-density stretches and trends", () => {
   const records: EngagementMetricRecord[] = [];
   for (let chapter = 1; chapter <= 5; chapter += 1) {
@@ -117,6 +141,74 @@ test("computeEngagementReport does not treat gaps as consecutive stretches", () 
   ];
 
   const report = computeEngagementReport({ records, asOfChapter: 4, volume: 1, chapterRange: { start: 1, end: 4 } });
+  assert.equal(report.issues.length, 0);
+});
+
+test("computeEngagementReport skips tail-based warnings when the last 5 chapters are incomplete", () => {
+  const records: EngagementMetricRecord[] = [
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 1,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 2,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    },
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 2,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 2,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    },
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 3,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 2,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    },
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 4,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 2,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    },
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 6,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 2,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    }
+  ];
+
+  const report = computeEngagementReport({ records, asOfChapter: 6, volume: 1, chapterRange: { start: 1, end: 6 } });
   assert.equal(report.issues.length, 0);
 });
 
@@ -263,6 +355,20 @@ test("loadEngagementMetricsStream skips invalid JSON and invalid records", async
   lines.push(
     JSON.stringify({
       schema_version: 1,
+      generated_at: "2026-02-29T00:00:00.000Z",
+      chapter: 5,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2,
+      notes: "invalid calendar date"
+    })
+  );
+  lines.push(
+    JSON.stringify({
+      schema_version: 1,
       generated_at: "2026-01-02T00:00:00.000Z",
       chapter: 5,
       volume: 1,
@@ -282,5 +388,29 @@ test("loadEngagementMetricsStream skips invalid JSON and invalid records", async
   assert.equal(loaded.records.length, 2);
   assert.equal(loaded.records[0]?.chapter, 1);
   assert.equal(loaded.records[1]?.chapter, 5);
-  assert.ok(loaded.warnings.length >= 4);
+  assert.ok(loaded.warnings.length >= 5);
+});
+
+test("loadEngagementMetricsStream rejects invalid calendar dates (no Date.parse normalization)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-engagement-load-date-"));
+
+  await writeText(
+    join(rootDir, "engagement-metrics.jsonl"),
+    `${JSON.stringify({
+      schema_version: 1,
+      generated_at: "2026-02-29T00:00:00Z",
+      chapter: 1,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2,
+      notes: "invalid calendar date"
+    })}\n`
+  );
+
+  const loaded = await loadEngagementMetricsStream({ rootDir });
+  assert.equal(loaded.records.length, 0);
+  assert.equal(loaded.warnings.length, 1);
 });
