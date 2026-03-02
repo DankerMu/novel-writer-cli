@@ -1,8 +1,8 @@
-import { lstat, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { fingerprintTextFile, hashText, type FileFingerprint } from "./fingerprint.js";
-import { ensureDir, pathExists, readJsonFile, writeJsonFile } from "./fs-utils.js";
+import { ensureDir, pathExists, readJsonFile } from "./fs-utils.js";
 import { computeNamingReport, type NamingReport } from "./naming-lint.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { computeReadabilityReport, type ReadabilityReport } from "./readability-lint.js";
@@ -34,6 +34,7 @@ export type PrejudgeGuardrailsReport = {
 const PREJUDGE_GUARDRAILS_STATUSES = ["pass", "warn", "violation", "skipped"] as const;
 const SEVERITY_POLICIES = ["warn", "soft", "hard"] as const;
 const MAX_PREJUDGE_GUARDRAILS_CACHE_BYTES = 2 * 1024 * 1024;
+const MAX_READABILITY_SCRIPT_FINGERPRINT_BYTES = 1024 * 1024;
 
 type DependencyFingerprint = { rel_path: string; fingerprint: string };
 
@@ -65,6 +66,9 @@ async function fingerprintReadabilityScript(args: { rootDir: string; scriptRelPa
     assertInsideProjectRoot(rootReal, execAbs);
     const st = await stat(execAbs);
     if (!st.isFile()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "not_file" })) };
+    if (st.size > MAX_READABILITY_SCRIPT_FINGERPRINT_BYTES) {
+      return { rel_path, fingerprint: hashText(JSON.stringify({ status: "too_large", size: st.size })) };
+    }
     const { fingerprint } = await fingerprintTextFile(execAbs);
     return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", fingerprint })) };
   } catch {
@@ -100,14 +104,15 @@ async function fingerprintCharactersActive(rootDir: string): Promise<DependencyF
   }
 
   const files = dirents
-    .filter((d) => d.isFile() && !d.isSymbolicLink() && d.name.endsWith(".json"))
     .map((d) => d.name)
+    .filter((name) => name.endsWith(".json"))
     .sort((a, b) => a.localeCompare(b, "en"));
 
   const entries: Array<{ name: string; size: number; mtime_ms: number }> = [];
   for (const name of files) {
     try {
       const st = await lstat(join(dirReal, name));
+      if (st.isSymbolicLink()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
       if (!st.isFile()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
       entries.push({ name, size: st.size, mtime_ms: st.mtimeMs });
     } catch {
@@ -152,7 +157,10 @@ export async function computePrejudgeGuardrailsReport(args: {
   platformProfile: PlatformProfile;
 }): Promise<PrejudgeGuardrailsReport> {
   const generated_at = new Date().toISOString();
-  const { fingerprint: chapter_fingerprint, text: chapterText } = await fingerprintTextFile(args.chapterAbsPath);
+  const rootReal = await realpath(args.rootDir);
+  const chapterReal = await realpath(args.chapterAbsPath);
+  assertInsideProjectRoot(rootReal, chapterReal);
+  const { fingerprint: chapter_fingerprint, text: chapterText } = await fingerprintTextFile(chapterReal);
 
   const [characters_active, readability_script] = await Promise.all([
     fingerprintCharactersActive(args.rootDir),
@@ -163,7 +171,7 @@ export async function computePrejudgeGuardrailsReport(args: {
   const readability_lint = await computeReadabilityReport({
     rootDir: args.rootDir,
     chapter: args.chapter,
-    chapterAbsPath: args.chapterAbsPath,
+    chapterAbsPath: chapterReal,
     chapterText,
     platformProfile: args.platformProfile,
     preferDeterministicScript: true
@@ -213,8 +221,18 @@ export async function writePrejudgeGuardrailsReport(args: {
   const guardrailsAbs = join(args.rootDir, "staging/guardrails");
   if (await pathExists(stagingAbs)) assertInsideProjectRoot(rootReal, await realpath(stagingAbs));
   if (await pathExists(guardrailsAbs)) assertInsideProjectRoot(rootReal, await realpath(guardrailsAbs));
-  await ensureDir(join(args.rootDir, "staging/guardrails"));
-  await writeJsonFile(absPath, args.report);
+  await ensureDir(guardrailsAbs);
+  assertInsideProjectRoot(rootReal, await realpath(guardrailsAbs));
+
+  // Atomic write (rename) prevents following a symlink at the destination path.
+  const tmpPath = `${absPath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
+  await writeFile(tmpPath, `${JSON.stringify(args.report, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+  try {
+    await rename(tmpPath, absPath);
+  } catch (err) {
+    await rm(tmpPath, { force: true });
+    throw err;
+  }
   return { relPath };
 }
 
@@ -348,7 +366,10 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
 
   let now: FileFingerprint;
   try {
-    ({ fingerprint: now } = await fingerprintTextFile(args.chapterAbsPath));
+    const rootReal = await realpath(args.rootDir);
+    const chapterReal = await realpath(args.chapterAbsPath);
+    assertInsideProjectRoot(rootReal, chapterReal);
+    ({ fingerprint: now } = await fingerprintTextFile(chapterReal));
   } catch {
     return null;
   }

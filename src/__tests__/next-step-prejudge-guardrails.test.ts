@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -336,6 +336,52 @@ test("computeNextStep ignores cached guardrails report when characters change", 
   const next = await computeNextStep(rootDir, checkpointJudged);
   assert.equal(next.step, "chapter:001:commit");
 });
+
+test(
+  "computeNextStep ignores cached guardrails report when characters/active is a symlink",
+  { skip: process.platform === "win32" },
+  async () => {
+    const rootDir = await setupProjectDir();
+
+    await writeJson(
+      join(rootDir, "platform-profile.json"),
+      makePlatformProfileRaw({
+        retention: null,
+        readability: null,
+        naming: { enabled: true, near_duplicate_threshold: 0.9, blocking_conflict_types: ["duplicate"], exemptions: {} }
+      })
+    );
+
+    await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+    await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "# 标题\n正文\n", "utf8");
+    await mkdir(join(rootDir, "staging/state"), { recursive: true });
+    await writeJson(join(rootDir, "staging/state/chapter-001-crossref.json"), {});
+    await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
+    await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
+
+    await mkdir(join(rootDir, "characters/shared-active"), { recursive: true });
+    await writeJson(join(rootDir, "characters/shared-active/a.json"), { id: "a", display_name: "张三", aliases: [] });
+    await writeJson(join(rootDir, "characters/shared-active/b.json"), { id: "b", display_name: "张三", aliases: [] });
+    await symlink(join(rootDir, "characters/shared-active"), join(rootDir, "characters/active"));
+
+    // Generate cached report with a blocking duplicate (via judge instructions).
+    const checkpointRefined: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+    await buildInstructionPacket({
+      rootDir,
+      checkpoint: checkpointRefined,
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    });
+
+    // Fix the duplicate in the symlink target; cache must be ignored.
+    await writeJson(join(rootDir, "characters/shared-active/b.json"), { id: "b", display_name: "李四", aliases: [] });
+
+    const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+    const next = await computeNextStep(rootDir, checkpointJudged);
+    assert.equal(next.step, "chapter:001:commit");
+  }
+);
 
 test("computeNextStep returns review when guardrails computation errors", async () => {
   const rootDir = await setupProjectDir();
