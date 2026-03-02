@@ -603,7 +603,8 @@ export function computeHookLedgerUpdate(args: {
           ? hookPromiseText(hookType)
           : existingPromiseText;
       const fulfillment_window = existingWindow && !needsWindowBackfill ? existingWindow : computedWindow;
-      const evidence_snippet = existingEvidence ?? (hookEvidence ? snippet(hookEvidence, 120) : null);
+      const evidenceFromEval = hookEvidence ? snippet(hookEvidence, 120) : null;
+      const evidence_snippet = evidenceFromEval ?? existingEvidence ?? null;
 
       const nextHistory: HookLedgerHistory = prevHistory ? prevHistory.slice() : [];
       if (!existing) {
@@ -613,7 +614,8 @@ export function computeHookLedgerUpdate(args: {
           existing.hook_type !== hookType ||
           existing.hook_strength !== hook_strength ||
           (existingPromiseText !== null && existingPromiseText !== promise_text) ||
-          (existingWindow !== null && (existingWindow[0] !== fulfillment_window[0] || existingWindow[1] !== fulfillment_window[1]));
+          (existingWindow !== null && (existingWindow[0] !== fulfillment_window[0] || existingWindow[1] !== fulfillment_window[1])) ||
+          existingEvidence !== evidence_snippet;
         if (changed) nextHistory.push({ at: now, chapter: args.chapter, action: "updated_from_eval" });
       }
 
