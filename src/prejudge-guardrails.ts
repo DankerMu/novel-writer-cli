@@ -79,13 +79,15 @@ async function fingerprintCharactersActive(rootDir: string): Promise<DependencyF
 
   let rootReal: string;
   let dirReal: string;
+  let resolvedFromSymlink = false;
   try {
     rootReal = await realpath(rootDir);
     dirReal = await realpath(abs);
     assertInsideProjectRoot(rootReal, dirReal);
     const st = await lstat(abs);
-    if (st.isSymbolicLink()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "symlink" })) };
-    if (!st.isDirectory()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "not_dir" })) };
+    resolvedFromSymlink = st.isSymbolicLink();
+    const resolved = await stat(dirReal);
+    if (!resolved.isDirectory()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "not_dir" })) };
   } catch {
     return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
   }
@@ -114,7 +116,7 @@ async function fingerprintCharactersActive(rootDir: string): Promise<DependencyF
     }
   }
 
-  return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", entries })) };
+  return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", resolvedFromSymlink, entries })) };
 }
 
 function isBlockingTitlePolicy(report: TitlePolicyReport): boolean {
