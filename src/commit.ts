@@ -1182,21 +1182,32 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         }
       }
 
-	      let hookLedgerUpdate: ReturnType<typeof computeHookLedgerUpdate> | null = null;
-	      if (loadedProfile && hookLedgerPolicy && hookLedgerPolicy.enabled) {
-	        const ledgerLoaded = await loadHookLedger(args.rootDir);
+      let hookLedgerUpdate: ReturnType<typeof computeHookLedgerUpdate> | null = null;
+      if (loadedProfile && hookLedgerPolicy && hookLedgerPolicy.enabled) {
+        const ledgerLoaded = await loadHookLedger(args.rootDir);
 
-	        const evalRaw = await readJsonFile(evalStagingAbs);
-	        hookLedgerUpdate = computeHookLedgerUpdate({
-	          ledger: ledgerLoaded.ledger,
-	          evalRaw,
+        const evalRaw = await readJsonFile(evalStagingAbs);
+        hookLedgerUpdate = computeHookLedgerUpdate({
+          ledger: ledgerLoaded.ledger,
+          evalRaw,
           chapter: args.chapter,
           volume,
           evalRelPath: rel.final.evalJson,
           policy: hookLedgerPolicy,
           reportRange: retentionReportRange
         });
-        for (const w of hookLedgerUpdate.warnings) warnings.push(`Hook ledger: ${w}`);
+
+        const seenWarnings = new Set<string>();
+        for (const w of ledgerLoaded.warnings) {
+          if (seenWarnings.has(w)) continue;
+          seenWarnings.add(w);
+          warnings.push(`Hook ledger (load): ${w}`);
+        }
+        for (const w of hookLedgerUpdate.warnings) {
+          if (seenWarnings.has(w)) continue;
+          seenWarnings.add(w);
+          warnings.push(`Hook ledger (update): ${w}`);
+        }
 
         if (hookLedgerUpdate.report.has_blocking_issues) {
           const blockingIssues = hookLedgerUpdate.report.issues.filter((i) => i.severity === "hard");
