@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
 import type { SeverityPolicy } from "./platform-profile.js";
+import { resolveProjectRelativePath } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 
@@ -66,24 +67,41 @@ function safeString(v: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+const RFC3339_DATE_TIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
 function safeIso(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
+  if (!RFC3339_DATE_TIME.test(t)) return null;
   if (!Number.isFinite(Date.parse(t))) return null;
   return t;
 }
 
 function clampScore(n: number): EngagementScore {
-  if (n <= 1) return 1;
-  if (n === 2) return 2;
-  if (n === 3) return 3;
-  if (n === 4) return 4;
-  return 5;
+  const clamped = Math.max(1, Math.min(5, Math.round(n)));
+  return clamped as EngagementScore;
 }
 
 function countNonWhitespaceChars(text: string): number {
   const compact = text.replace(/\s+/gu, "");
   return Array.from(compact).length;
+}
+
+function truncateWithEllipsis(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  if (maxLen <= 0) return "";
+  if (maxLen === 1) return "…";
+
+  let end = Math.max(0, maxLen - 1);
+  if (end > 0) {
+    const last = text.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) {
+      const next = text.charCodeAt(end);
+      if (next >= 0xdc00 && next <= 0xdfff) end -= 1;
+    }
+  }
+  return `${text.slice(0, end)}…`;
 }
 
 function normalizeEventText(text: string): string {
@@ -138,12 +156,11 @@ function scoreConflictIntensity(events: string[]): { score: EngagementScore; evi
   let conflictHits = 0;
   let hasPeak = false;
   for (const ev of events) {
-    const t = ev;
     for (const k of peakKeywords) {
-      if (t.includes(k)) hasPeak = true;
+      if (ev.includes(k)) hasPeak = true;
     }
     for (const k of conflictKeywords) {
-      if (t.includes(k)) {
+      if (ev.includes(k)) {
         conflictHits += 1;
         break;
       }
@@ -163,10 +180,9 @@ function scorePayoff(events: string[]): { score: EngagementScore; evidence: stri
   let payoffHits = 0;
   let hasBig = false;
   for (const ev of events) {
-    const t = ev;
-    for (const k of bigPayoffKeywords) if (t.includes(k)) hasBig = true;
+    for (const k of bigPayoffKeywords) if (ev.includes(k)) hasBig = true;
     for (const k of payoffKeywords) {
-      if (t.includes(k)) {
+      if (ev.includes(k)) {
         payoffHits += 1;
         break;
       }
@@ -182,7 +198,6 @@ function scorePayoff(events: string[]): { score: EngagementScore; evidence: stri
 }
 
 function scoreNewInfoLoad(args: {
-  wordCount: number;
   infoLoadNewTermsPer1k: number | null;
   infoLoadNewEntities: number | null;
   infoLoadUnknownEntities: number | null;
@@ -261,9 +276,12 @@ export async function computeEngagementMetricRecord(args: {
 }): Promise<{ record: EngagementMetricRecord; warnings: string[] }> {
   const warnings: string[] = [];
 
-  const chapterAbs = join(args.rootDir, args.chapterRel);
-  const summaryAbs = join(args.rootDir, args.summaryRel);
-  const evalAbs = join(args.rootDir, args.evalRel);
+  if (!Number.isInteger(args.chapter) || args.chapter < 1) throw new Error(`Invalid chapter: ${String(args.chapter)} (expected int >= 1).`);
+  if (!Number.isInteger(args.volume) || args.volume < 0) throw new Error(`Invalid volume: ${String(args.volume)} (expected int >= 0).`);
+
+  const chapterAbs = resolveProjectRelativePath(args.rootDir, args.chapterRel, "chapterRel");
+  const summaryAbs = resolveProjectRelativePath(args.rootDir, args.summaryRel, "summaryRel");
+  const evalAbs = resolveProjectRelativePath(args.rootDir, args.evalRel, "evalRel");
 
   const chapterText = await readTextFile(chapterAbs);
   const summaryText = await readTextFile(summaryAbs);
@@ -293,7 +311,6 @@ export async function computeEngagementMetricRecord(args: {
   const conflict = scoreConflictIntensity(events);
   const payoff = scorePayoff(events);
   const infoLoad = scoreNewInfoLoad({
-    wordCount,
     infoLoadNewTermsPer1k: pc.newTermsPer1k,
     infoLoadNewEntities: pc.newEntitiesCount,
     infoLoadUnknownEntities: pc.unknownEntitiesCount,
@@ -319,7 +336,7 @@ export async function computeEngagementMetricRecord(args: {
     conflict_intensity: conflict.score,
     payoff_score: payoff.score,
     new_info_load_score: infoLoad.score,
-    notes: notes.length > 320 ? `${notes.slice(0, 319)}…` : notes
+    notes: truncateWithEllipsis(notes, 320)
   };
 
   return { record, warnings };
@@ -331,7 +348,7 @@ export async function appendEngagementMetricRecord(args: {
   relPath?: string;
 }): Promise<{ rel: string }> {
   const rel = args.relPath ?? DEFAULT_METRICS_REL;
-  const abs = join(args.rootDir, rel);
+  const abs = resolveProjectRelativePath(args.rootDir, rel, "relPath");
   await ensureDir(dirname(abs));
   await appendFile(abs, `${JSON.stringify(args.record)}\n`, "utf8");
   return { rel };
@@ -340,6 +357,7 @@ export async function appendEngagementMetricRecord(args: {
 function normalizeLoadedMetric(raw: unknown): EngagementMetricRecord | null {
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
+  if (obj.schema_version !== 1) return null;
 
   const chapter = safeInt(obj.chapter);
   if (chapter === null || chapter < 1) return null;
@@ -360,7 +378,8 @@ function normalizeLoadedMetric(raw: unknown): EngagementMetricRecord | null {
   const generated_at = safeIso(obj.generated_at);
   if (!generated_at) return null;
 
-  const notes = safeString(obj.notes) ?? "";
+  const notes = safeString(obj.notes);
+  if (!notes) return null;
 
   return {
     schema_version: 1,
@@ -382,7 +401,7 @@ export async function loadEngagementMetricsStream(args: {
   maxRecords?: number;
 }): Promise<{ records: EngagementMetricRecord[]; warnings: string[]; rel: string }> {
   const rel = args.relPath ?? DEFAULT_METRICS_REL;
-  const abs = join(args.rootDir, rel);
+  const abs = resolveProjectRelativePath(args.rootDir, rel, "relPath");
   if (!(await pathExists(abs))) return { records: [], warnings: [], rel };
 
   const rawText = await readTextFile(abs);
@@ -467,31 +486,7 @@ export function computeEngagementReport(args: {
   // Low plot beats stretches (consecutive beats <= 1).
   const lowBeatThreshold = 1;
   const minStretch = 3;
-  let stretchStart: number | null = null;
-  let stretchLen = 0;
-  for (const r of selected) {
-    if (r.plot_progression_beats <= lowBeatThreshold) {
-      if (stretchStart === null) stretchStart = r.chapter;
-      stretchLen += 1;
-    } else {
-      if (stretchStart !== null && stretchLen >= minStretch) {
-        const start = stretchStart;
-        const end = start + stretchLen - 1;
-        issues.push({
-          id: "engagement.low_density.low_plot_beats_stretch",
-          severity: "warn",
-          summary: `Low plot progression beats for ${stretchLen} consecutive chapters (<=${lowBeatThreshold}).`,
-          evidence: `range=ch${pad3(start)}-ch${pad3(end)}`,
-          suggestion: "Add 1-2 clear progression beats per chapter (goal→obstacle→decision), and surface consequences."
-        });
-      }
-      stretchStart = null;
-      stretchLen = 0;
-    }
-  }
-  if (stretchStart !== null && stretchLen >= minStretch) {
-    const start = stretchStart;
-    const end = start + stretchLen - 1;
+  const pushLowBeatsStretch = (start: number, end: number, stretchLen: number): void => {
     issues.push({
       id: "engagement.low_density.low_plot_beats_stretch",
       severity: "warn",
@@ -499,6 +494,38 @@ export function computeEngagementReport(args: {
       evidence: `range=ch${pad3(start)}-ch${pad3(end)}`,
       suggestion: "Add 1-2 clear progression beats per chapter (goal→obstacle→decision), and surface consequences."
     });
+  };
+
+  let stretchStart: number | null = null;
+  let stretchEnd: number | null = null;
+  let stretchLen = 0;
+  let lastChapter: number | null = null;
+  for (const r of selected) {
+    const isConsecutive = lastChapter !== null && r.chapter === lastChapter + 1;
+    if (r.plot_progression_beats <= lowBeatThreshold) {
+      if (stretchStart === null || stretchEnd === null || !isConsecutive) {
+        if (stretchStart !== null && stretchEnd !== null && stretchLen >= minStretch) {
+          pushLowBeatsStretch(stretchStart, stretchEnd, stretchLen);
+        }
+        stretchStart = r.chapter;
+        stretchEnd = r.chapter;
+        stretchLen = 1;
+      } else {
+        stretchLen += 1;
+        stretchEnd = r.chapter;
+      }
+    } else {
+      if (stretchStart !== null && stretchEnd !== null && stretchLen >= minStretch) {
+        pushLowBeatsStretch(stretchStart, stretchEnd, stretchLen);
+      }
+      stretchStart = null;
+      stretchEnd = null;
+      stretchLen = 0;
+    }
+    lastChapter = r.chapter;
+  }
+  if (stretchStart !== null && stretchEnd !== null && stretchLen >= minStretch) {
+    pushLowBeatsStretch(stretchStart, stretchEnd, stretchLen);
   }
 
   // Low payoff trend in last 5 chapters.
@@ -537,6 +564,8 @@ export function computeEngagementReport(args: {
   const payoffs = selected.map((r) => r.payoff_score);
   const infos = selected.map((r) => r.new_info_load_score);
 
+  const hasBlocking = issues.some((i) => i.severity === "hard");
+
   return {
     schema_version: 1,
     generated_at: new Date().toISOString(),
@@ -553,7 +582,7 @@ export function computeEngagementReport(args: {
       avg_new_info_load_score: average(infos)
     },
     issues,
-    has_blocking_issues: false
+    has_blocking_issues: hasBlocking
   };
 }
 

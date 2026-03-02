@@ -5,8 +5,10 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 
 import {
+  appendEngagementMetricRecord,
   computeEngagementMetricRecord,
   computeEngagementReport,
+  loadEngagementMetricsStream,
   writeEngagementLogs,
   type EngagementMetricRecord,
   type EngagementReport
@@ -74,6 +76,50 @@ test("computeEngagementReport flags low-density stretches and trends", () => {
   assert.equal(report.has_blocking_issues, false);
 });
 
+test("computeEngagementReport does not treat gaps as consecutive stretches", () => {
+  const records: EngagementMetricRecord[] = [
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 1,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 1,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    },
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 3,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 1,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    },
+    {
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 4,
+      volume: 1,
+      word_count: 1000,
+      plot_progression_beats: 1,
+      conflict_intensity: 1,
+      payoff_score: 1,
+      new_info_load_score: 1,
+      notes: "test"
+    }
+  ];
+
+  const report = computeEngagementReport({ records, asOfChapter: 4, volume: 1, chapterRange: { start: 1, end: 4 } });
+  assert.equal(report.issues.length, 0);
+});
+
 test("writeEngagementLogs keeps latest.json monotonic by chapter (and generated_at tie-break)", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-engagement-log-mono-"));
 
@@ -126,3 +172,115 @@ test("writeEngagementLogs writes latest + history when requested", async () => {
   assert.equal(historyRaw.schema_version, 1);
 });
 
+test("appendEngagementMetricRecord writes a JSONL line under the default path", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-engagement-jsonl-"));
+
+  const record: EngagementMetricRecord = {
+    schema_version: 1,
+    generated_at: "2026-01-01T00:00:00.000Z",
+    chapter: 1,
+    volume: 1,
+    word_count: 100,
+    plot_progression_beats: 2,
+    conflict_intensity: 2,
+    payoff_score: 3,
+    new_info_load_score: 2,
+    notes: "test"
+  };
+
+  const written = await appendEngagementMetricRecord({ rootDir, record });
+  assert.equal(written.rel, "engagement-metrics.jsonl");
+
+  const raw = await readFile(join(rootDir, written.rel), "utf8");
+  const lines = raw.trim().split(/\r?\n/gu);
+  assert.equal(lines.length, 1);
+
+  const parsed = JSON.parse(lines[0] ?? "") as EngagementMetricRecord;
+  assert.equal(parsed.chapter, 1);
+  assert.equal(parsed.word_count, 100);
+});
+
+test("loadEngagementMetricsStream skips invalid JSON and invalid records", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-engagement-load-"));
+
+  const lines: string[] = [];
+  lines.push(
+    JSON.stringify({
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 1,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2,
+      notes: "ok"
+    })
+  );
+  lines.push("{");
+  lines.push(
+    JSON.stringify({
+      schema_version: 2,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 2,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2,
+      notes: "wrong schema"
+    })
+  );
+  lines.push(
+    JSON.stringify({
+      schema_version: 1,
+      generated_at: "2026-01-01T00:00:00.000Z",
+      chapter: 3,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2
+    })
+  );
+  lines.push(
+    JSON.stringify({
+      schema_version: 1,
+      generated_at: "2026-01-01",
+      chapter: 4,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2,
+      notes: "bad timestamp"
+    })
+  );
+  lines.push(
+    JSON.stringify({
+      schema_version: 1,
+      generated_at: "2026-01-02T00:00:00.000Z",
+      chapter: 5,
+      volume: 1,
+      word_count: 100,
+      plot_progression_beats: 2,
+      conflict_intensity: 2,
+      payoff_score: 3,
+      new_info_load_score: 2,
+      notes: "ok2"
+    })
+  );
+
+  await writeText(join(rootDir, "engagement-metrics.jsonl"), `${lines.join("\n")}\n`);
+
+  const loaded = await loadEngagementMetricsStream({ rootDir });
+  assert.equal(loaded.rel, "engagement-metrics.jsonl");
+  assert.equal(loaded.records.length, 2);
+  assert.equal(loaded.records[0]?.chapter, 1);
+  assert.equal(loaded.records[1]?.chapter, 5);
+  assert.ok(loaded.warnings.length >= 4);
+});
