@@ -75,6 +75,72 @@ test("computeHookLedgerUpdate creates an entry with window and evidence snippet"
   assert.equal(res.report.debt.lapsed.length, 0);
 });
 
+test("computeHookLedgerUpdate reads hook signals from eval_used wrapper", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evalRaw = { eval_used: makeEval({ hookType: "question", strength: 4, evidence: "章末证据片段" }) };
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 1,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-001-eval.json",
+    policy,
+    reportRange: { start: 1, end: 1 }
+  });
+
+  assert.ok(res.entry);
+  assert.equal(res.entry.hook_type, "question");
+  assert.equal(res.entry.hook_strength, 4);
+});
+
+test("computeHookLedgerUpdate uses legacy hook_strength fallback fields when scores are missing", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evalRaw = {
+    chapter: 1,
+    hook: { present: true, type: "QUESTION", evidence: "章末证据片段" },
+    hook_strength: 5
+  };
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 1,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-001-eval.json",
+    policy,
+    reportRange: { start: 1, end: 1 }
+  });
+
+  assert.ok(res.entry);
+  assert.equal(res.entry.hook_type, "question");
+  assert.equal(res.entry.hook_strength, 5);
+});
+
+test("computeHookLedgerUpdate uses hook.strength fallback when scores are missing", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evalRaw = {
+    chapter: 1,
+    hook: { present: true, type: "question", strength: 2, evidence: "章末证据片段" }
+  };
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 1,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-001-eval.json",
+    policy,
+    reportRange: { start: 1, end: 1 }
+  });
+
+  assert.ok(res.entry);
+  assert.equal(res.entry.hook_strength, 2);
+});
+
 test("computeHookLedgerUpdate evidence_snippet truncation does not split surrogate pairs", () => {
   const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
   const evidence = `${"a".repeat(118)}😀b`;
@@ -272,6 +338,14 @@ test("computeHookLedgerUpdate flags diversity streak and low distinct types in w
 
   assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.diversity.streak_exceeded"));
   assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.diversity.low_distinct_types"));
+  assert.equal(res.report.stats.entries_total, 3);
+  assert.equal(res.report.stats.open_total, 3);
+  assert.equal(res.report.stats.fulfilled_total, 0);
+  assert.equal(res.report.stats.lapsed_total, 0);
+  assert.equal(res.report.diversity.window_chapters, 3);
+  assert.deepEqual(res.report.diversity.range, { start: 1, end: 3 });
+  assert.equal(res.report.diversity.distinct_types_in_window, 1);
+  assert.equal(res.report.diversity.max_same_type_streak_in_window, 3);
 });
 
 test("computeHookLedgerUpdate does not overwrite fulfilled entries on re-commit", () => {
@@ -596,6 +670,84 @@ test("computeHookLedgerUpdate backfills fulfillment_window when it is behind the
   assert.deepEqual(ch10.fulfillment_window, [11, 14]);
   assert.equal(ch10.status, "open");
   assert.ok(res.warnings.some((w) => w.includes("invalid fulfillment_window")));
+});
+
+test("loadHookLedger returns an empty, schema-pointed ledger when hook-ledger.json is missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-missing-file-test-"));
+  const loaded = await loadHookLedger(rootDir);
+
+  assert.equal(loaded.ledger.$schema, "schemas/hook-ledger.schema.json");
+  assert.equal(loaded.ledger.schema_version, 1);
+  assert.deepEqual(loaded.ledger.entries, []);
+  assert.deepEqual(loaded.warnings, []);
+});
+
+test("loadHookLedger rejects non-object JSON to avoid silent data loss", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-non-object-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  await writeFile(abs, `[]\n`, "utf8");
+
+  await assert.rejects(() => loadHookLedger(rootDir), /expected a JSON object/);
+});
+
+test("loadHookLedger rejects unsupported schema_version values", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-bad-sv-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = { schema_version: 2, entries: [] };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  await assert.rejects(() => loadHookLedger(rootDir), /schema_version.*must be 1/);
+});
+
+test("loadHookLedger drops entries missing id/chapter and returns warnings", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-missing-fields-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = {
+    schema_version: 1,
+    entries: [{ id: "hook:ch001" }, { chapter: 1 }]
+  };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  const loaded = await loadHookLedger(rootDir);
+  assert.equal(loaded.ledger.entries.length, 0);
+  assert.ok(loaded.warnings.some((w) => w.includes("missing id/chapter")));
+});
+
+test("loadHookLedger preserves user comment fields and normalizes links", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-comments-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = {
+    schema_version: 1,
+    _comment: "root comment",
+    entries: [
+      {
+        id: "hook:ch001",
+        chapter: 1,
+        hook_type: "Question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [2, 5],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        _note: "entry note",
+        links: { promise_ids: [" a ", "a", ""], foreshadowing_ids: ["b", " b "] }
+      }
+    ]
+  };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  const loaded = await loadHookLedger(rootDir);
+  assert.equal(loaded.ledger.$schema, "schemas/hook-ledger.schema.json");
+  assert.equal((loaded.ledger as any)._comment, "root comment");
+  assert.equal(loaded.ledger.entries.length, 1);
+
+  const e = loaded.ledger.entries[0] as any;
+  assert.equal(e.hook_type, "question");
+  assert.equal(e._note, "entry note");
+  assert.deepEqual(e.links.promise_ids, ["a"]);
+  assert.deepEqual(e.links.foreshadowing_ids, ["b"]);
 });
 
 test("loadHookLedger normalizes unknown fields, invalid strengths, and missing windows", async () => {

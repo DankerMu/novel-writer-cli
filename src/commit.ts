@@ -1182,15 +1182,14 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         }
       }
 
-      let hookLedgerUpdate: ReturnType<typeof computeHookLedgerUpdate> | null = null;
-      if (loadedProfile && hookLedgerPolicy && hookLedgerPolicy.enabled) {
-        const ledgerLoaded = await loadHookLedger(args.rootDir);
-        for (const w of ledgerLoaded.warnings) warnings.push(`Hook ledger: ${w}`);
+	      let hookLedgerUpdate: ReturnType<typeof computeHookLedgerUpdate> | null = null;
+	      if (loadedProfile && hookLedgerPolicy && hookLedgerPolicy.enabled) {
+	        const ledgerLoaded = await loadHookLedger(args.rootDir);
 
-        const evalRaw = await readJsonFile(evalStagingAbs);
-        hookLedgerUpdate = computeHookLedgerUpdate({
-          ledger: ledgerLoaded.ledger,
-          evalRaw,
+	        const evalRaw = await readJsonFile(evalStagingAbs);
+	        hookLedgerUpdate = computeHookLedgerUpdate({
+	          ledger: ledgerLoaded.ledger,
+	          evalRaw,
           chapter: args.chapter,
           volume,
           evalRelPath: rel.final.evalJson,
