@@ -39,5 +39,5 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Document new platform profile sections and default behaviors
-- [ ] 7.2 Document how to interpret `logs/retention/*`, `logs/readability/*`, `logs/naming/*`
+- [x] 7.1 Document new platform profile sections and default behaviors (`docs/user/guardrails.md`)
+- [x] 7.2 Document how to interpret `logs/retention/*`, `logs/readability/*`, `logs/naming/*` (`docs/user/guardrails.md`)

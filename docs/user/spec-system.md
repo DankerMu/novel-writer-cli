@@ -154,3 +154,13 @@ project/
 | `hard` | 阻断 `novel commit`，必须修改后重新提交 |
 
 需要启用时可从 `templates/web-novel-cliche-lint.json` 复制到项目根目录并按需微调。当前 cliché lint 由 `scripts/lint-cliche.sh` 脚本执行（通过 `platform-profile.json.compliance.script_paths.lint_cliche` 配置），尚未作为 Agent context manifest 的内联输入注入。
+
+### Guardrails（留存 / 可读性 / 命名）
+
+`platform-profile.json` 还包含一组可选的 Guardrails 配置（可逐项启用/关闭），并在 `novel next`/`novel commit` 阶段产出可审计报告：
+
+- Retention：`retention.title_policy`、`retention.hook_ledger` → `logs/retention/*`
+- Readability：`readability.mobile` → `logs/readability/*`
+- Naming：`naming` → `logs/naming/*`
+
+如何配置这些字段、以及如何解读上述日志，见 [Guardrails 文档](guardrails.md)。
