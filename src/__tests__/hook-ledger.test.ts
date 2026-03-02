@@ -844,6 +844,21 @@ test("computeHookLedgerUpdate warns when eval hook.present=true but hook.type is
   assert.ok(res.warnings.some((w) => w.includes("hook.present=true")));
 });
 
+test("loadHookLedger drops __proto__ comment field to avoid prototype pollution", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-proto-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = {
+    schema_version: 1,
+    __proto__: { polluted: true },
+    entries: []
+  };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  const loaded = await loadHookLedger(rootDir);
+  assert.equal((loaded.ledger as any).polluted, undefined);
+  assert.equal(({} as any).polluted, undefined);
+});
+
 test("computeHookLedgerUpdate skips when hook is not present", () => {
   const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
   const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
