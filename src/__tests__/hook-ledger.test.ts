@@ -324,6 +324,8 @@ test("loadHookLedger normalizes unknown fields, invalid strengths, and missing w
         hook_strength: 6,
         promise_text: "留悬念：未解之问",
         status: "open",
+        created_at: "2026-01-01",
+        updated_at: " 2026-01-01T00:00:00Z ",
         // fulfillment_window missing
         fulfilled_chapter: 3,
         extra_field: "drop-me"
@@ -340,11 +342,53 @@ test("loadHookLedger normalizes unknown fields, invalid strengths, and missing w
   assert.equal(e.extra_field, undefined);
   assert.equal(e.hook_strength, 3);
   assert.ok(e._invalid_hook_strength !== undefined);
+  assert.equal(e._invalid_created_at, "2026-01-01");
+  assert.equal(e._invalid_updated_at, undefined);
+  assert.equal(e.updated_at, "2026-01-01T00:00:00Z");
+  assert.ok(typeof e.created_at === "string" && e.created_at.endsWith("Z"));
   assert.equal(e.status, "fulfilled");
   assert.ok(Array.isArray(e.history) && e.history.some((h: any) => h.action === "status_auto_fixed"));
   assert.ok(Array.isArray(e.fulfillment_window) && e.fulfillment_window.length === 2);
   assert.equal(e._needs_window_backfill, true);
   assert.ok(Array.isArray(loaded.warnings) && loaded.warnings.length > 0);
+});
+
+test("computeHookLedgerUpdate refreshes auto promise_text when hook_type changes", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch010",
+        chapter: 10,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [11, 14],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "twist_reveal", strength: 4, evidence: "新证据" });
+  const policy = makePolicy({ overdue_policy: "warn", diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 10,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-010-eval.json",
+    policy,
+    reportRange: { start: 1, end: 10 }
+  });
+
+  const ch10 = res.updatedLedger.entries.find((e) => e.chapter === 10);
+  assert.ok(ch10);
+  assert.equal(ch10.hook_type, "twist_reveal");
+  assert.equal(ch10.promise_text, "留悬念：反转揭示");
 });
 
 test("computeHookLedgerUpdate skips when hook is not present", () => {

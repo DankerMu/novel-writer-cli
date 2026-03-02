@@ -116,9 +116,14 @@ function safeHookStatus(v: unknown): HookLedgerStatus | null {
   return null;
 }
 
+const RFC3339_DATE_TIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u;
+
 function safeIso(v: unknown): string | null {
   if (typeof v !== "string") return null;
-  return Number.isFinite(Date.parse(v)) ? v : null;
+  const s = v.trim();
+  if (!RFC3339_DATE_TIME.test(s)) return null;
+  return Number.isFinite(Date.parse(s)) ? s : null;
 }
 
 function safeWindow(v: unknown): [number, number] | null {
@@ -249,8 +254,21 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
     status = "fulfilled";
   }
 
-  const created_at = safeIso(obj.created_at) ?? now;
-  const updated_at = safeIso(obj.updated_at) ?? now;
+  const rawCreatedAt = obj.created_at;
+  let created_at = safeIso(rawCreatedAt);
+  if (!created_at) {
+    if (rawCreatedAt !== undefined && comments._invalid_created_at === undefined) comments._invalid_created_at = rawCreatedAt;
+    if (rawCreatedAt !== undefined) warnings.push(`Hook ledger entry '${id}' has invalid created_at; defaulted to now.`);
+    created_at = now;
+  }
+
+  const rawUpdatedAt = obj.updated_at;
+  let updated_at = safeIso(rawUpdatedAt);
+  if (!updated_at) {
+    if (rawUpdatedAt !== undefined && comments._invalid_updated_at === undefined) comments._invalid_updated_at = rawUpdatedAt;
+    if (rawUpdatedAt !== undefined) warnings.push(`Hook ledger entry '${id}' has invalid updated_at; defaulted to now.`);
+    updated_at = now;
+  }
   const evidence_snippet = safeString(obj.evidence_snippet) ?? undefined;
 
   const sources = isPlainObject(obj.sources) ? (obj.sources as Record<string, unknown>) : null;
@@ -579,7 +597,11 @@ export function computeHookLedgerUpdate(args: {
       const strengthFromExisting = existing && existing.hook_strength >= 1 && existing.hook_strength <= 5 ? existing.hook_strength : null;
       const hook_strength = strengthFromEval ?? strengthFromExisting ?? 3;
 
-      const promise_text = existingPromiseText ?? hookPromiseText(hookType);
+      const existingDefaultPromiseText = existing ? hookPromiseText(existing.hook_type) : null;
+      const promise_text =
+        existingPromiseText === null || (existingDefaultPromiseText !== null && existingPromiseText === existingDefaultPromiseText)
+          ? hookPromiseText(hookType)
+          : existingPromiseText;
       const fulfillment_window = existingWindow && !needsWindowBackfill ? existingWindow : computedWindow;
       const evidence_snippet = existingEvidence ?? (hookEvidence ? snippet(hookEvidence, 120) : null);
 
