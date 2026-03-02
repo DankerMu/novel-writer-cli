@@ -12,6 +12,7 @@ novel-project/
 ├── platform-profile.json           # 平台画像/约束配置（M6）
 ├── web-novel-cliche-lint.json      # 网文套路词 / 模板腔 lint 词库（M6）
 ├── style-drift.json                # 风格漂移纠偏指令（每 5 章检测生成，回归基线后清除）
+├── character-voice-profiles.json   # 角色语气基线画像（M7，可选；主角+核心配角）
 ├── character-voice-drift.json      # 角色语气漂移纠偏指令（M7，可选；存在时注入后续写作/润色）
 ├── engagement-metrics.jsonl        # 参与度密度指标流（M7，可选；append-only）
 ├── hook-ledger.json                # 章末钩子台账（M7，可选；短周期留存“承诺→兑现”）

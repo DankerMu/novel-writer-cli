@@ -8,8 +8,10 @@ import {
   buildCharacterVoiceProfiles,
   clearCharacterVoiceDriftFile,
   computeCharacterVoiceDrift,
+  loadCharacterVoiceProfiles,
   writeCharacterVoiceDriftFile
 } from "../character-voice.js";
+import { buildInstructionPacket } from "../instructions.js";
 
 async function writeText(absPath: string, contents: string): Promise<void> {
   await mkdir(dirname(absPath), { recursive: true });
@@ -200,4 +202,209 @@ test("computeCharacterVoiceDrift flags drift and clears on recovery", async () =
 
   const cleared = await clearCharacterVoiceDriftFile(rootDir);
   assert.equal(cleared, true);
+});
+
+test("computeCharacterVoiceDrift uses recovery thresholds for active drift (hysteresis)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-hysteresis-"));
+
+  await writeJson(join(rootDir, "state/current-state.json"), {
+    schema_version: 1,
+    state_version: 1,
+    last_updated_chapter: 11,
+    characters: {
+      hero: { display_name: "阿宁" }
+    }
+  });
+
+  // Baseline: no exclamation.
+  await writeText(join(rootDir, "chapters/chapter-001.md"), `# 1\n\n阿宁说：“嗯，我知道了。”\n\n阿宁说：“嗯，我们走吧。”\n\n阿宁说：“嗯，别急。”\n`);
+  await writeText(join(rootDir, "chapters/chapter-002.md"), `# 2\n\n阿宁说：“嗯，按计划。”\n\n阿宁说：“嗯，我会的。”\n`);
+
+  const built = await buildCharacterVoiceProfiles({
+    rootDir,
+    protagonistId: "hero",
+    coreCastIds: [],
+    baselineRange: { start: 1, end: 2 },
+    windowChapters: 3
+  });
+
+  // Window (3..5): heavy drift triggers activation.
+  await writeText(join(rootDir, "chapters/chapter-003.md"), `# 3\n\n阿宁怒道：“够了！！！”\n\n阿宁喊：“快走！！！”\n`);
+  await writeText(join(rootDir, "chapters/chapter-004.md"), `# 4\n\n阿宁厉声：“别逼我！！！”\n\n阿宁咬牙：“我说过了！！！”\n`);
+  await writeText(join(rootDir, "chapters/chapter-005.md"), `# 5\n\n阿宁冷笑：“你听清楚！！！”\n\n阿宁道：“现在！！！”\n`);
+
+  const first = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 5,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>()
+  });
+  assert.ok(first.drift);
+  assert.ok(first.activeCharacterIds.has("hero"));
+
+  // Window (6..8): improved but not fully recovered (keeps some exclamation).
+  await writeText(
+    join(rootDir, "chapters/chapter-006.md"),
+    `# 6\n\n` +
+      `阿宁说：“嗯，我们得把他们引到巷口再动手，别打草惊蛇，先稳住阵脚！”\n\n` +
+      `阿宁说：“嗯，照我说的做，先把后路封住，再慢慢逼他们露出破绽！”\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-007.md"),
+    `# 7\n\n` +
+      `阿宁说：“嗯，你盯紧后门，我去前面探路，听到风声就立刻撤回！”\n\n` +
+      `阿宁说：“嗯，跟上节奏，别被情绪带跑偏，稳住呼吸，把话说清楚！”\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-008.md"),
+    `# 8\n\n` +
+      `阿宁说：“嗯，记住我刚才说的每个细节，别漏掉任何一步，出错就会死人！”\n\n` +
+      `阿宁说：“嗯，到了就停，别冒进，先看清对方底牌，再决定我们怎么收尾！”\n`
+  );
+
+  const stillActive = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 8,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>(["hero"])
+  });
+  assert.ok(stillActive.drift);
+  assert.ok(stillActive.activeCharacterIds.has("hero"));
+
+  // Window (9..11): fully recovered (no exclamation).
+  await writeText(join(rootDir, "chapters/chapter-009.md"), `# 9\n\n阿宁说：“嗯，回去吧。”\n\n阿宁说：“嗯。”\n`);
+  await writeText(join(rootDir, "chapters/chapter-010.md"), `# 10\n\n阿宁说：“嗯，明白。”\n\n阿宁说：“嗯，行。”\n`);
+  await writeText(join(rootDir, "chapters/chapter-011.md"), `# 11\n\n阿宁说：“嗯，别急。”\n\n阿宁说：“嗯，就这样。”\n`);
+
+  const recovered = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 11,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>(["hero"])
+  });
+  assert.equal(recovered.drift, null);
+});
+
+test("loadCharacterVoiceProfiles defaults invalid thresholds and drops invalid profile entries", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-load-"));
+
+  await writeJson(join(rootDir, "character-voice-profiles.json"), {
+    schema_version: 1,
+    created_at: "2026-03-02T00:00:00.000Z",
+    selection: { protagonist_id: "hero", core_cast_ids: ["side"] },
+    policy: {
+      window_chapters: 10,
+      min_dialogue_samples: 5,
+      drift_thresholds: {
+        avg_dialogue_chars_ratio_low: 0.6,
+        avg_dialogue_chars_ratio_high: 1.67,
+        exclamation_per_100_chars_delta: 3.5,
+        question_per_100_chars_delta: 3.5,
+        ellipsis_per_100_chars_delta: 3.5,
+        signature_overlap_min: 2
+      },
+      recovery_thresholds: {
+        avg_dialogue_chars_ratio_low: 0.75,
+        avg_dialogue_chars_ratio_high: 1.33,
+        exclamation_per_100_chars_delta: 2.0,
+        question_per_100_chars_delta: 2.0,
+        ellipsis_per_100_chars_delta: 2.0,
+        signature_overlap_min: 0.3
+      }
+    },
+    profiles: [
+      {
+        character_id: "hero",
+        display_name: "阿宁",
+        baseline_range: { chapter_start: 1, chapter_end: 2 },
+        baseline_metrics: {
+          dialogue_samples: 10,
+          dialogue_chars: 100,
+          dialogue_len_avg: 10,
+          dialogue_len_p25: 8,
+          dialogue_len_p50: 10,
+          dialogue_len_p75: 12,
+          sentence_len_avg: 8,
+          sentence_len_p25: 6,
+          sentence_len_p50: 8,
+          sentence_len_p75: 10,
+          exclamation_per_100_chars: 1,
+          question_per_100_chars: 1,
+          ellipsis_per_100_chars: 1
+        },
+        signature_phrases: ["嗯"]
+      },
+      {
+        display_name: "老周"
+      }
+    ]
+  });
+
+  const loaded = await loadCharacterVoiceProfiles(rootDir);
+  assert.ok(loaded.profiles);
+  assert.ok(loaded.warnings.some((w) => w.includes("invalid thresholds")));
+  assert.equal(loaded.profiles?.policy.window_chapters, 10);
+  assert.equal(loaded.profiles?.profiles.length, 1);
+  assert.equal(loaded.profiles?.profiles[0]?.character_id, "hero");
+});
+
+test("buildInstructionPacket injects character voice drift directives into draft/refine packets", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-instructions-"));
+
+  await writeJson(join(rootDir, "character-voice-drift.json"), {
+    schema_version: 1,
+    generated_at: "2026-03-02T00:00:00.000Z",
+    as_of: { chapter: 10, volume: 1 },
+    window: { chapter_start: 1, chapter_end: 10, window_chapters: 10 },
+    profiles_path: "character-voice-profiles.json",
+    characters: [
+      {
+        character_id: "hero",
+        display_name: "阿宁",
+        directives: ["台词偏长：把长句拆短。", "口癖回归：适度加入“嗯”。"]
+      }
+    ]
+  });
+
+  await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
+
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+
+  const draftOut = (await buildInstructionPacket({
+    rootDir,
+    checkpoint,
+    step: { kind: "chapter", chapter: 1, stage: "draft" },
+    embedMode: null,
+    writeManifest: false
+  })) as any;
+
+  const draftInline = draftOut.packet?.manifest?.inline;
+  assert.ok(draftInline?.character_voice_drift);
+  assert.equal(draftInline.character_voice_drift.directives.length, 1);
+  assert.equal(draftInline.character_voice_drift.directives[0]?.character_id, "hero");
+
+  const refineOut = (await buildInstructionPacket({
+    rootDir,
+    checkpoint,
+    step: { kind: "chapter", chapter: 1, stage: "refine" },
+    embedMode: null,
+    writeManifest: false
+  })) as any;
+
+  const refineInline = refineOut.packet?.manifest?.inline;
+  assert.ok(refineInline?.character_voice_drift);
+
+  // Clearing drift removes injection.
+  await writeText(join(rootDir, "character-voice-drift.json"), "");
+  const draftOut2 = (await buildInstructionPacket({
+    rootDir,
+    checkpoint,
+    step: { kind: "chapter", chapter: 1, stage: "draft" },
+    embedMode: null,
+    writeManifest: false
+  })) as any;
+  assert.equal(draftOut2.packet?.manifest?.inline?.character_voice_drift, undefined);
 });

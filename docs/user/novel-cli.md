@@ -102,6 +102,20 @@ commit 会执行（见 PRD §10.4）：
 - 从 delta 的 `foreshadow` ops 更新 `foreshadowing/global.json`
 - 更新 `.checkpoint.json`：`last_completed_chapter`、`pipeline_stage="committed"`、`inflight_chapter=null`
 
+## 角色语气漂移（M7H.3，可选）
+
+角色语气漂移用于：为关键角色建立“台词基线画像”，并在后续章节检测偏移，生成纠偏指令 `character-voice-drift.json`，直到恢复为止（自动清除）。
+
+```bash
+# 初始化基线画像（建议在 quick-start 章节后）
+novel voice init --protagonist <character_id> --core-cast a,b,c --apply
+
+# 手动检测/更新漂移文件（预览：不写文件；加 --apply 则写/清理）
+novel voice check --apply
+```
+
+一旦存在 `character-voice-drift.json`，后续 `chapter:*:draft` / `chapter:*:refine` 的 instruction packet 会自动注入纠偏指令（`packet.manifest.inline.character_voice_drift` + `packet.manifest.paths.character_voice_drift`）。
+
 ## 中断恢复示例
 
 场景：你在 `chapter:048:draft` 后中断了执行器。

@@ -9,17 +9,18 @@ import {
   computeCharacterVoiceDrift,
   loadActiveCharacterVoiceDriftIds,
   loadCharacterVoiceProfiles,
-  writeCharacterVoiceDriftFile
+  writeCharacterVoiceDriftFile,
+  writeCharacterVoiceProfilesFile
 } from "./character-voice.js";
 import { NovelCliError } from "./errors.js";
 import { errJson, okJson, printJson } from "./output.js";
-import { pathExists, writeJsonFile } from "./fs-utils.js";
+import { pathExists } from "./fs-utils.js";
 import { resolveProjectRoot } from "./project.js";
 import { readCheckpoint } from "./checkpoint.js";
 import { advanceCheckpointForStep } from "./advance.js";
 import { commitChapter } from "./commit.js";
 import { buildInstructionPacket } from "./instructions.js";
-import { getLockStatus, clearStaleLock } from "./lock.js";
+import { getLockStatus, clearStaleLock, withWriteLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
 import { computeEngagementReport, loadEngagementMetricsStream, writeEngagementLogs } from "./engagement.js";
 import { computePromiseLedgerReport, ensurePromiseLedgerInitialized, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
@@ -428,6 +429,7 @@ function buildProgram(argv: string[]): Command {
 
         const start = localOpts.start ?? 1;
         const end = localOpts.end ?? Math.min(10, checkpoint.last_completed_chapter);
+        const windowChapters = localOpts.windowChapters;
 
         if (!Number.isInteger(start) || start < 1) throw new NovelCliError(`Invalid --start: ${String(start)} (expected int >= 1).`, 2);
         if (!Number.isInteger(end) || end < 1) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= 1).`, 2);
@@ -437,6 +439,11 @@ function buildProgram(argv: string[]): Command {
             `Invalid --end: ${String(end)} (expected <= checkpoint.last_completed_chapter=${checkpoint.last_completed_chapter}).`,
             2
           );
+        }
+        if (windowChapters !== undefined) {
+          if (!Number.isInteger(windowChapters) || windowChapters < 1) {
+            throw new NovelCliError(`Invalid --window-chapters: ${String(windowChapters)} (expected int >= 1).`, 2);
+          }
         }
 
         const coreCastIds =
@@ -449,12 +456,14 @@ function buildProgram(argv: string[]): Command {
           protagonistId: localOpts.protagonist,
           coreCastIds,
           baselineRange: { start, end },
-          ...(typeof localOpts.windowChapters === "number" ? { windowChapters: localOpts.windowChapters } : {})
+          ...(windowChapters !== undefined ? { windowChapters } : {})
         });
 
         let wrote = false;
         if (localOpts.apply) {
-          await writeJsonFile(resolve(rootDir, result.rel), result.profiles);
+          await withWriteLock(rootDir, { chapter: checkpoint.last_completed_chapter }, async () => {
+            await writeCharacterVoiceProfilesFile({ rootDir, profiles: result.profiles });
+          });
           wrote = true;
         }
 
@@ -515,7 +524,19 @@ function buildProgram(argv: string[]): Command {
 
       const allWarnings = [...loaded.warnings, ...computed.warnings];
       if (json) {
-        printJson(okJson("voice check", { rootDir, drift: computed.drift, warnings: allWarnings, wrote, cleared }));
+        const action = wrote ? "wrote" : cleared ? "cleared" : localOpts.apply ? "noop" : computed.drift ? "preview_would_write" : "preview_no_drift";
+        printJson(
+          okJson("voice check", {
+            rootDir,
+            drift: computed.drift,
+            warnings: allWarnings,
+            drift_rel: "character-voice-drift.json",
+            action,
+            applied: Boolean(localOpts.apply),
+            wrote,
+            cleared
+          })
+        );
         return;
       }
 

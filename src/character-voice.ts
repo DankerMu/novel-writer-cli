@@ -331,13 +331,31 @@ function normalizeThresholds(raw: unknown, label: string): CharacterVoiceThresho
     return v;
   };
 
+  const ratioLow = num("avg_dialogue_chars_ratio_low");
+  const ratioHigh = num("avg_dialogue_chars_ratio_high");
+  if (ratioLow <= 0 || ratioHigh <= 0 || ratioLow > ratioHigh) {
+    throw new NovelCliError(`Invalid ${PROFILES_REL}: '${label}.avg_dialogue_chars_ratio_*' must satisfy 0 < low <= high.`, 2);
+  }
+
+  const exDelta = num("exclamation_per_100_chars_delta");
+  const qDelta = num("question_per_100_chars_delta");
+  const eDelta = num("ellipsis_per_100_chars_delta");
+  if (exDelta < 0 || qDelta < 0 || eDelta < 0) {
+    throw new NovelCliError(`Invalid ${PROFILES_REL}: '${label}.*_delta' must be >= 0.`, 2);
+  }
+
+  const overlapMin = num("signature_overlap_min");
+  if (overlapMin < 0 || overlapMin > 1) {
+    throw new NovelCliError(`Invalid ${PROFILES_REL}: '${label}.signature_overlap_min' must be in [0, 1].`, 2);
+  }
+
   return {
-    avg_dialogue_chars_ratio_low: num("avg_dialogue_chars_ratio_low"),
-    avg_dialogue_chars_ratio_high: num("avg_dialogue_chars_ratio_high"),
-    exclamation_per_100_chars_delta: num("exclamation_per_100_chars_delta"),
-    question_per_100_chars_delta: num("question_per_100_chars_delta"),
-    ellipsis_per_100_chars_delta: num("ellipsis_per_100_chars_delta"),
-    signature_overlap_min: num("signature_overlap_min")
+    avg_dialogue_chars_ratio_low: ratioLow,
+    avg_dialogue_chars_ratio_high: ratioHigh,
+    exclamation_per_100_chars_delta: exDelta,
+    question_per_100_chars_delta: qDelta,
+    ellipsis_per_100_chars_delta: eDelta,
+    signature_overlap_min: overlapMin
   };
 }
 
@@ -883,10 +901,26 @@ export async function writeCharacterVoiceDriftFile(args: { rootDir: string; drif
   return { rel };
 }
 
+export async function writeCharacterVoiceProfilesFile(args: { rootDir: string; profiles: CharacterVoiceProfilesFile }): Promise<{ rel: string }> {
+  const rel = PROFILES_REL;
+  const abs = join(args.rootDir, rel);
+  await ensureDir(dirname(abs));
+
+  const dirAbs = dirname(abs);
+  const tmpAbs = join(dirAbs, `.tmp-character-voice-profiles-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+  await writeJsonFile(tmpAbs, args.profiles);
+  try {
+    await rename(tmpAbs, abs);
+  } finally {
+    await rm(tmpAbs, { force: true }).catch(() => {});
+  }
+
+  return { rel };
+}
+
 export async function clearCharacterVoiceDriftFile(rootDir: string): Promise<boolean> {
   const abs = join(rootDir, DRIFT_REL);
   if (!(await pathExists(abs))) return false;
   await removePath(abs);
   return true;
 }
-
