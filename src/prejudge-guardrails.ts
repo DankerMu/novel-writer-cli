@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { fingerprintTextFile, hashText, type FileFingerprint } from "./fingerprint.js";
@@ -33,6 +33,7 @@ export type PrejudgeGuardrailsReport = {
 
 const PREJUDGE_GUARDRAILS_STATUSES = ["pass", "warn", "violation", "skipped"] as const;
 const SEVERITY_POLICIES = ["warn", "soft", "hard"] as const;
+const MAX_PREJUDGE_GUARDRAILS_CACHE_BYTES = 2 * 1024 * 1024;
 
 type DependencyFingerprint = { rel_path: string; fingerprint: string };
 
@@ -64,7 +65,8 @@ async function fingerprintReadabilityScript(args: { rootDir: string; scriptRelPa
     assertInsideProjectRoot(rootReal, execAbs);
     const st = await stat(execAbs);
     if (!st.isFile()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "not_file" })) };
-    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", size: st.size, mtime_ms: st.mtimeMs })) };
+    const { fingerprint } = await fingerprintTextFile(execAbs);
+    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", fingerprint })) };
   } catch {
     return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
   }
@@ -75,22 +77,36 @@ async function fingerprintCharactersActive(rootDir: string): Promise<DependencyF
   const abs = join(rootDir, rel_path);
   if (!(await pathExists(abs))) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "missing" })) };
 
+  let rootReal: string;
+  let dirReal: string;
+  try {
+    rootReal = await realpath(rootDir);
+    dirReal = await realpath(abs);
+    assertInsideProjectRoot(rootReal, dirReal);
+    const st = await lstat(abs);
+    if (st.isSymbolicLink()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "symlink" })) };
+    if (!st.isDirectory()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "not_dir" })) };
+  } catch {
+    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
+  }
+
   let dirents;
   try {
-    dirents = await readdir(abs, { withFileTypes: true });
+    dirents = await readdir(dirReal, { withFileTypes: true });
   } catch {
     return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
   }
 
   const files = dirents
-    .filter((d) => d.isFile() && d.name.endsWith(".json"))
+    .filter((d) => d.isFile() && !d.isSymbolicLink() && d.name.endsWith(".json"))
     .map((d) => d.name)
     .sort((a, b) => a.localeCompare(b, "en"));
 
   const entries: Array<{ name: string; size: number; mtime_ms: number }> = [];
   for (const name of files) {
     try {
-      const st = await stat(join(abs, name));
+      const st = await lstat(join(dirReal, name));
+      if (!st.isFile()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
       entries.push({ name, size: st.size, mtime_ms: st.mtimeMs });
     } catch {
       // Any unreadable file should invalidate cache conservatively.
@@ -190,6 +206,11 @@ export async function writePrejudgeGuardrailsReport(args: {
 }): Promise<{ relPath: string }> {
   const relPath = prejudgeGuardrailsRelPath(args.chapter);
   const absPath = join(args.rootDir, relPath);
+  const rootReal = await realpath(args.rootDir);
+  const stagingAbs = join(args.rootDir, "staging");
+  const guardrailsAbs = join(args.rootDir, "staging/guardrails");
+  if (await pathExists(stagingAbs)) assertInsideProjectRoot(rootReal, await realpath(stagingAbs));
+  if (await pathExists(guardrailsAbs)) assertInsideProjectRoot(rootReal, await realpath(guardrailsAbs));
   await ensureDir(join(args.rootDir, "staging/guardrails"));
   await writeJsonFile(absPath, args.report);
   return { relPath };
@@ -206,9 +227,21 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
   const abs = join(args.rootDir, rel);
   if (!(await pathExists(abs))) return null;
 
+  let cacheAbs = abs;
+  try {
+    const rootReal = await realpath(args.rootDir);
+    cacheAbs = await realpath(abs);
+    assertInsideProjectRoot(rootReal, cacheAbs);
+    const st = await stat(cacheAbs);
+    if (!st.isFile()) return null;
+    if (st.size > MAX_PREJUDGE_GUARDRAILS_CACHE_BYTES) return null;
+  } catch {
+    return null;
+  }
+
   let raw: unknown;
   try {
-    raw = await readJsonFile(abs);
+    raw = await readJsonFile(cacheAbs);
   } catch {
     return null;
   }
