@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { NovelCliError } from "./errors.js";
 import { errJson, okJson, printJson } from "./output.js";
+import { pathExists } from "./fs-utils.js";
 import { resolveProjectRoot } from "./project.js";
 import { readCheckpoint } from "./checkpoint.js";
 import { advanceCheckpointForStep } from "./advance.js";
@@ -12,6 +13,7 @@ import { commitChapter } from "./commit.js";
 import { buildInstructionPacket } from "./instructions.js";
 import { getLockStatus, clearStaleLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
+import { computePromiseLedgerReport, ensurePromiseLedgerInitialized, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
 import { parseStepId } from "./steps.js";
 import { validateStep } from "./validate.js";
 
@@ -203,6 +205,89 @@ function buildProgram(argv: string[]): Command {
         for (const w of result.warnings) process.stdout.write(`WARN: ${w}\n`);
       }
       if (!localOpts.dryRun) process.stdout.write(`Committed chapter ${localOpts.chapter}.\n`);
+    });
+
+  const promises = program.command("promises").description("Promise ledger (long-horizon narrative promises).");
+
+  promises
+    .command("init")
+    .description("Initialize promise-ledger.json from brief/outline/summaries (best-effort seed).")
+    .option("--apply", "Write promise-ledger.json (otherwise preview-only).")
+    .option("--max-recent-summaries <n>", "How many recent summaries to scan for seed candidates (default: 10).", (v) =>
+      Number.parseInt(String(v), 10)
+    )
+    .action(async (localOpts: { apply?: boolean; maxRecentSummaries?: number }) => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+      const checkpoint = await readCheckpoint(rootDir);
+
+      const maxRecentSummaries = localOpts.maxRecentSummaries ?? 10;
+      if (!Number.isInteger(maxRecentSummaries) || maxRecentSummaries < 0) {
+        throw new NovelCliError(`Invalid --max-recent-summaries: ${String(localOpts.maxRecentSummaries)} (expected int >= 0).`, 2);
+      }
+
+      const result = await ensurePromiseLedgerInitialized({
+        rootDir,
+        volume: checkpoint.current_volume,
+        maxRecentSummaries,
+        apply: Boolean(localOpts.apply)
+      });
+
+      if (json) {
+        printJson(okJson("promises init", { rootDir, ...result }));
+        return;
+      }
+
+      if (result.wrote) {
+        process.stdout.write(`Initialized ${result.rel}.\n`);
+        return;
+      }
+      process.stdout.write(`${result.rel} already exists or init is preview-only. Use --json to inspect the seed, or re-run with --apply.\n`);
+    });
+
+  promises
+    .command("report")
+    .description("Generate a promise-ledger report under logs/promises/ (latest.json + optional history).")
+    .option("--as-of <n>", "As-of chapter (defaults to checkpoint.last_completed_chapter).", (v) => Number.parseInt(String(v), 10))
+    .option("--volume <n>", "Volume number (defaults to checkpoint.current_volume).", (v) => Number.parseInt(String(v), 10))
+    .option("--start <n>", "Start chapter for report scope (defaults to max(1, end-9)).", (v) => Number.parseInt(String(v), 10))
+    .option("--end <n>", "End chapter for report scope (defaults to as-of chapter).", (v) => Number.parseInt(String(v), 10))
+    .option("--history", "Also write a history report file for the selected scope.")
+    .action(async (localOpts: { asOf?: number; volume?: number; start?: number; end?: number; history?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+      const checkpoint = await readCheckpoint(rootDir);
+
+      const asOf = localOpts.asOf ?? checkpoint.last_completed_chapter;
+      const volume = localOpts.volume ?? checkpoint.current_volume;
+      const end = localOpts.end ?? asOf;
+      const start = localOpts.start ?? Math.max(1, end - 9);
+
+      if (!Number.isInteger(asOf) || asOf < 0) throw new NovelCliError(`Invalid --as-of: ${String(asOf)} (expected int >= 0).`, 2);
+      if (!Number.isInteger(volume) || volume < 0) throw new NovelCliError(`Invalid --volume: ${String(volume)} (expected int >= 0).`, 2);
+      if (!Number.isInteger(start) || start < 1) throw new NovelCliError(`Invalid --start: ${String(start)} (expected int >= 1).`, 2);
+      if (!Number.isInteger(end) || end < start) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= start).`, 2);
+
+      const ledgerAbs = resolve(rootDir, "promise-ledger.json");
+      if (!(await pathExists(ledgerAbs))) {
+        throw new NovelCliError("Missing promise-ledger.json. Run: novel promises init --apply", 2);
+      }
+
+      const loaded = await loadPromiseLedger(rootDir);
+      const report = computePromiseLedgerReport({ ledger: loaded.ledger, asOfChapter: asOf, volume, chapterRange: { start, end } });
+      const written = await writePromiseLedgerLogs({ rootDir, report, historyRange: localOpts.history ? { start, end } : null });
+
+      if (json) {
+        printJson(okJson("promises report", { rootDir, report, ...written }));
+        return;
+      }
+
+      process.stdout.write(`Wrote ${written.latestRel}.\n`);
+      if (written.historyRel) process.stdout.write(`Wrote ${written.historyRel}.\n`);
     });
 
   const lock = program.command("lock").description("Manage project lock (.novel.lock).");

@@ -1,9 +1,9 @@
 ## 1. Promise Ledger
 
-- [ ] 1.1 Define `promise-ledger.json` schema (types/status/history/dormancy fields)
-- [ ] 1.2 Add initializer that can seed ledger from `brief.md`, volume outline, and recent summaries (with user confirmation gate)
-- [ ] 1.3 Implement periodic promise-ledger report generation under `logs/promises/` (`latest.json` + history)
-- [ ] 1.4 Implement non-spoiler “light-touch” suggestion generator for dormant promises
+- [x] 1.1 Define `promise-ledger.json` schema (types/status/history/dormancy fields) (`schemas/promise-ledger.schema.json`, `src/promise-ledger.ts`)
+- [x] 1.2 Add initializer that can seed ledger from `brief.md`, volume outline, and recent summaries (with user confirmation gate) (`novel promises init` dry-run/--apply)
+- [x] 1.3 Implement periodic promise-ledger report generation under `logs/promises/` (`latest.json` + history) (`src/promise-ledger.ts`, `src/commit.ts`)
+- [x] 1.4 Implement non-spoiler “light-touch” suggestion generator for dormant promises (`src/promise-ledger.ts`)
 
 ## 2. Engagement Density Metrics
 
