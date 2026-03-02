@@ -213,6 +213,7 @@ test("computeNextStep tolerates invalid cached prejudge guardrails JSON (recompu
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_blocking:naming_lint");
+  assert.equal((next.evidence as any)?.prejudge_guardrails?.cache?.status, "miss");
 });
 
 test("computeNextStep does not use cached report when platform profile changes (fingerprint invalidation)", async () => {
@@ -330,7 +331,7 @@ test("computeNextStep ignores cached guardrails report when characters change", 
   });
 
   // Fix the duplicate by renaming a character; cache must be ignored.
-  await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "李四", aliases: [] });
+  await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "李四五", aliases: [] });
 
   const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
   const next = await computeNextStep(rootDir, checkpointJudged);
@@ -366,16 +367,21 @@ test(
 
     // Generate cached report with a blocking duplicate (via judge instructions).
     const checkpointRefined: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
-    await buildInstructionPacket({
+    const built = await buildInstructionPacket({
       rootDir,
       checkpoint: checkpointRefined,
       step: { kind: "chapter", chapter: 1, stage: "judge" },
       embedMode: null,
       writeManifest: false
     });
+    const packet = (built as { packet: any }).packet;
+    const guardrailRel = packet?.manifest?.paths?.prejudge_guardrails;
+    assert.equal(typeof guardrailRel, "string");
+    const reportRaw = JSON.parse(await readFile(join(rootDir, guardrailRel), "utf8")) as unknown;
+    assert.equal((reportRaw as any).has_blocking_issues, true);
 
     // Fix the duplicate in the symlink target; cache must be ignored.
-    await writeJson(join(rootDir, "characters/shared-active/b.json"), { id: "b", display_name: "李四", aliases: [] });
+    await writeJson(join(rootDir, "characters/shared-active/b.json"), { id: "b", display_name: "李四五", aliases: [] });
 
     const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
     const next = await computeNextStep(rootDir, checkpointJudged);
@@ -398,6 +404,8 @@ test("computeNextStep returns review when guardrails computation errors", async 
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_error");
+  assert.equal((next.evidence as any)?.prejudge_guardrails?.cache?.status, "miss");
+  assert.equal(typeof (next.evidence as any)?.prejudge_guardrails?.error, "string");
 });
 
 test("buildInstructionPacket (judge) sets prejudge_guardrails_degraded when report compute fails", async () => {

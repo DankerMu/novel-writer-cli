@@ -108,20 +108,26 @@ async function fingerprintCharactersActive(rootDir: string): Promise<DependencyF
     .filter((name) => name.endsWith(".json"))
     .sort((a, b) => a.localeCompare(b, "en"));
 
-  const entries: Array<{ name: string; size: number; mtime_ms: number }> = [];
+  const entries: Array<{
+    name: string;
+    kind: "file" | "symlink" | "other" | "error";
+    size?: number;
+    mtime_ms?: number;
+  }> = [];
   for (const name of files) {
     try {
       const st = await lstat(join(dirReal, name));
-      if (st.isSymbolicLink()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
-      if (!st.isFile()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
-      entries.push({ name, size: st.size, mtime_ms: st.mtimeMs });
+      const base = { name, size: st.size, mtime_ms: st.mtimeMs };
+      if (st.isSymbolicLink()) entries.push({ ...base, kind: "symlink" });
+      else if (st.isFile()) entries.push({ ...base, kind: "file" });
+      else entries.push({ ...base, kind: "other" });
     } catch {
-      // Any unreadable file should invalidate cache conservatively.
-      return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
+      entries.push({ name, kind: "error" });
     }
   }
 
-  return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", resolvedFromSymlink, entries })) };
+  const status = entries.some((e) => e.kind !== "file") ? "unreadable" : "ok";
+  return { rel_path, fingerprint: hashText(JSON.stringify({ status, resolvedFromSymlink, entries })) };
 }
 
 function isBlockingTitlePolicy(report: TitlePolicyReport): boolean {
