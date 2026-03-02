@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   attachHookLedgerToEval,
   computeHookLedgerUpdate,
+  loadHookLedger,
   writeHookLedgerFile,
   writeRetentionLogs,
   type HookLedgerFile,
@@ -149,6 +150,25 @@ test("computeHookLedgerUpdate blocks when overdue_policy is hard and hook debt i
   assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.hook_debt" && i.severity === "hard"));
 });
 
+test("computeHookLedgerUpdate does not hard-block on diversity issues (even when overdue_policy is hard)", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evalRaw = makeEval({ hookType: "question", strength: 4, evidence: "章末证据片段" });
+  const policy = makePolicy({ overdue_policy: "hard", diversity_window_chapters: 5, min_distinct_types_in_window: 2 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 1,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-001-eval.json",
+    policy,
+    reportRange: { start: 1, end: 1 }
+  });
+
+  assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.diversity.low_distinct_types" && i.severity === "warn"));
+  assert.equal(res.report.has_blocking_issues, false);
+});
+
 test("computeHookLedgerUpdate flags diversity streak and low distinct types in window", () => {
   const ledger: HookLedgerFile = {
     schema_version: 1,
@@ -195,6 +215,157 @@ test("computeHookLedgerUpdate flags diversity streak and low distinct types in w
 
   assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.diversity.streak_exceeded"));
   assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.diversity.low_distinct_types"));
+});
+
+test("computeHookLedgerUpdate does not overwrite fulfilled entries on re-commit", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch010",
+        chapter: 10,
+        hook_type: "question",
+        hook_strength: 5,
+        promise_text: "自定义承诺点",
+        status: "fulfilled",
+        fulfillment_window: [11, 20],
+        fulfilled_chapter: 12,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+        evidence_snippet: "旧证据"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "twist_reveal", strength: 1, evidence: "新证据" });
+  const policy = makePolicy({ overdue_policy: "warn", diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 10,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-010-eval.json",
+    policy,
+    reportRange: { start: 1, end: 10 }
+  });
+
+  const ch10 = res.updatedLedger.entries.find((e) => e.chapter === 10);
+  assert.ok(ch10);
+  assert.equal(ch10.status, "fulfilled");
+  assert.equal(ch10.hook_type, "question");
+  assert.equal(ch10.hook_strength, 5);
+  assert.equal(ch10.promise_text, "自定义承诺点");
+  assert.deepEqual(ch10.fulfillment_window, [11, 20]);
+  assert.equal(ch10.evidence_snippet, "旧证据");
+});
+
+test("computeHookLedgerUpdate dedupes same-status duplicates by newest timestamps", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch005-old",
+        chapter: 5,
+        hook_type: "question",
+        hook_strength: 3,
+        promise_text: "旧",
+        status: "open",
+        fulfillment_window: [6, 9],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z"
+      },
+      {
+        id: "hook:ch005-new",
+        chapter: 5,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "新",
+        status: "open",
+        fulfillment_window: [6, 9],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-03T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 6,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-006-eval.json",
+    policy,
+    reportRange: { start: 1, end: 6 }
+  });
+
+  assert.ok(res.warnings.some((w) => w.includes("Dropped") && w.includes("hook:ch005-old")));
+  const ch5 = res.updatedLedger.entries.find((e) => e.chapter === 5);
+  assert.ok(ch5);
+  assert.equal(ch5.id, "hook:ch005-new");
+});
+
+test("loadHookLedger normalizes unknown fields, invalid strengths, and missing windows", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = {
+    schema_version: 1,
+    foo: "bar",
+    entries: [
+      {
+        id: "hook:ch002",
+        chapter: 2,
+        hook_type: "question",
+        hook_strength: 6,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        // fulfillment_window missing
+        fulfilled_chapter: 3,
+        extra_field: "drop-me"
+      }
+    ]
+  };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  const loaded = await loadHookLedger(rootDir);
+  assert.equal((loaded.ledger as any).foo, undefined);
+  assert.equal(loaded.ledger.entries.length, 1);
+
+  const e = loaded.ledger.entries[0] as any;
+  assert.equal(e.extra_field, undefined);
+  assert.equal(e.hook_strength, 3);
+  assert.ok(e._invalid_hook_strength !== undefined);
+  assert.equal(e.status, "fulfilled");
+  assert.ok(Array.isArray(e.history) && e.history.some((h: any) => h.action === "status_auto_fixed"));
+  assert.ok(Array.isArray(e.fulfillment_window) && e.fulfillment_window.length === 2);
+  assert.equal(e._needs_window_backfill, true);
+  assert.ok(Array.isArray(loaded.warnings) && loaded.warnings.length > 0);
+});
+
+test("computeHookLedgerUpdate skips when hook is not present", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ diversity_window_chapters: 5, min_distinct_types_in_window: 2, overdue_policy: "warn" }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 1,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-001-eval.json",
+    policy,
+    reportRange: { start: 1, end: 1 }
+  });
+
+  assert.equal(res.entry, null);
+  assert.equal(res.updatedLedger.entries.length, 0);
+  assert.equal(res.report.issues.length, 0);
+  assert.equal(res.report.has_blocking_issues, false);
 });
 
 test("computeHookLedgerUpdate strips unknown fields to keep hook-ledger.json schema-valid and returns warnings", () => {

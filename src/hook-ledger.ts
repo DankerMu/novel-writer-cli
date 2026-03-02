@@ -222,17 +222,29 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
   }
 
   const hook_type = safeString(obj.hook_type)?.toLowerCase() ?? "unknown";
-  let hook_strength = safeInt(obj.hook_strength);
+  const rawHookStrength = obj.hook_strength;
+  let hook_strength = safeInt(rawHookStrength);
   if (hook_strength === null || hook_strength < 1 || hook_strength > 5) {
+    if (rawHookStrength !== undefined && comments._invalid_hook_strength === undefined) {
+      comments._invalid_hook_strength = rawHookStrength;
+    }
     hook_strength = 3;
     warnings.push(`Hook ledger entry '${id}' has invalid hook_strength; defaulted to 3.`);
   }
 
   const promise_text = safeString(obj.promise_text) ?? hookPromiseText(hook_type);
-  const status = safeHookStatus(obj.status) ?? "open";
-  // Use an intentionally-invalid placeholder when missing; it will be backfilled during the next update pass.
-  const fulfillment_window = safeWindow(obj.fulfillment_window) ?? [chapter + 1, chapter];
+  let status = safeHookStatus(obj.status) ?? "open";
+  const window = safeWindow(obj.fulfillment_window);
+  const fulfillment_window = window ?? [chapter + 1, chapter + 1];
+  if (!window && comments._needs_window_backfill === undefined) {
+    comments._needs_window_backfill = true;
+  }
   const fulfilled_chapter = safePositiveInt(obj.fulfilled_chapter) ?? null;
+  const didAutoFixStatus = fulfilled_chapter !== null && status !== "fulfilled";
+  if (didAutoFixStatus) {
+    warnings.push(`Hook ledger entry '${id}' has fulfilled_chapter set but status='${status}'; auto-corrected to status='fulfilled'.`);
+    status = "fulfilled";
+  }
 
   const created_at = safeIso(obj.created_at) ?? now;
   const updated_at = safeIso(obj.updated_at) ?? now;
@@ -256,6 +268,9 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
       const detail = safeString(ho.detail) ?? undefined;
       history.push({ at, chapter: hChapter, action, ...(detail ? { detail } : {}) });
     }
+  }
+  if (didAutoFixStatus) {
+    history.push({ at: now, chapter, action: "status_auto_fixed", detail: "fulfilled_chapter set" });
   }
 
   const entry: HookLedgerEntry = {
@@ -444,6 +459,20 @@ function computeMaxSameTypeStreak(typesByChapter: Array<{ chapter: number; hook_
   return { max, type: maxType };
 }
 
+function parseIsoTimestamp(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? t : null;
+}
+
+function entryTimestamp(e: HookLedgerEntry): number | null {
+  return parseIsoTimestamp(e.updated_at) ?? parseIsoTimestamp(e.created_at) ?? null;
+}
+
+function statusRank(status: HookLedgerStatus): number {
+  return status === "fulfilled" ? 3 : status === "open" ? 2 : 1;
+}
+
 export function computeHookLedgerUpdate(args: {
   ledger: HookLedgerFile;
   evalRaw: unknown;
@@ -469,25 +498,51 @@ export function computeHookLedgerUpdate(args: {
     if (normalized) existingEntries.push(normalized);
   }
 
-  // Unique by chapter, prefer fulfilled over open over lapsed.
+  // Unique by chapter, prefer fulfilled over open over lapsed; within same status, keep the newest timestamps.
   const byChapter = new Map<number, HookLedgerEntry>();
-  const dropped: HookLedgerEntry[] = [];
-  const rank = (s: HookLedgerStatus): number => (s === "fulfilled" ? 3 : s === "open" ? 2 : 1);
+  const dropped: Array<{ chapter: number; kept: HookLedgerEntry; dropped: HookLedgerEntry }> = [];
   for (const e of existingEntries) {
     const prev = byChapter.get(e.chapter);
     if (!prev) {
       byChapter.set(e.chapter, e);
       continue;
     }
-    if (rank(e.status) > rank(prev.status)) {
-      dropped.push(prev);
+    const prevRank = statusRank(prev.status);
+    const nextRank = statusRank(e.status);
+    if (nextRank > prevRank) {
+      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
       byChapter.set(e.chapter, e);
       continue;
     }
-    dropped.push(e);
+    if (nextRank < prevRank) {
+      dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
+      continue;
+    }
+
+    // Same status: keep the newest timestamp when available (updated_at preferred, then created_at).
+    const prevTs = entryTimestamp(prev);
+    const nextTs = entryTimestamp(e);
+    if (prevTs !== null && nextTs !== null && nextTs > prevTs) {
+      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
+      byChapter.set(e.chapter, e);
+      continue;
+    }
+    if (prevTs === null && nextTs !== null) {
+      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
+      byChapter.set(e.chapter, e);
+      continue;
+    }
+
+    dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
   }
   if (dropped.length > 0) {
-    warnings.push(`Dropped ${dropped.length} duplicate hook ledger entries (duplicate chapter numbers).`);
+    const samples = dropped
+      .slice(0, 3)
+      .map((d) => `ch${pad3(d.chapter)} keep=${d.kept.id}(${d.kept.status}) drop=${d.dropped.id}(${d.dropped.status})`)
+      .join(" | ");
+    const suffix = dropped.length > 3 ? " …" : "";
+    const detail = samples.length > 0 ? ` ${samples}${suffix}` : "";
+    warnings.push(`Dropped ${dropped.length} duplicate hook ledger entries (duplicate chapter numbers).${detail}`);
   }
 
   const entries = Array.from(byChapter.values()).sort((a, b) => a.chapter - b.chapter || a.id.localeCompare(b.id, "en"));
@@ -500,53 +555,80 @@ export function computeHookLedgerUpdate(args: {
 
   let entry: HookLedgerEntry | null = null;
   if (hookPresent && hookType && hookType !== "none") {
-    const id = `hook:ch${pad3(args.chapter)}`;
     const existing = entries.find((e) => e.chapter === args.chapter) ?? null;
-    const baseCreatedAt = existing ? existing.created_at : now;
-    const prevStatus = existing ? existing.status : "open";
-    const prevFulfilled = existing ? existing.fulfilled_chapter : null;
-    const prevLinks = existing ? normalizeLinks(existing.links) : null;
-    const prevHistory = existing && Array.isArray(existing.history) ? (existing.history as HookLedgerHistory) : [];
+    if (existing && existing.status === "fulfilled") {
+      // Fulfilled entries are treated as user-authored state; do not overwrite fields from a new eval.
+      entry = existing;
+    } else {
+      const id = `hook:ch${pad3(args.chapter)}`;
+      const baseCreatedAt = existing ? existing.created_at : now;
+      const prevStatus = existing ? existing.status : "open";
+      const prevFulfilled = existing ? existing.fulfilled_chapter : null;
+      const prevLinks = existing ? normalizeLinks(existing.links) : null;
+      const prevHistory = existing && Array.isArray(existing.history) ? (existing.history as HookLedgerHistory) : [];
+      const existingPromiseText = existing ? safeString(existing.promise_text) : null;
+      const existingEvidence = existing ? safeString(existing.evidence_snippet) : null;
+      const existingWindow = existing ? safeWindow(existing.fulfillment_window) : null;
+      const needsWindowBackfill = existing ? (existing as Record<string, unknown>)._needs_window_backfill === true : false;
+      const computedWindow: [number, number] = [args.chapter + 1, args.chapter + args.policy.fulfillment_window_chapters];
 
-    const windowStart = args.chapter + 1;
-    const windowEnd = args.chapter + args.policy.fulfillment_window_chapters;
-    const fulfillment_window: [number, number] = [windowStart, windowEnd];
+      const strengthFromEval = hookStrength !== null && hookStrength >= 1 && hookStrength <= 5 ? hookStrength : null;
+      const strengthFromExisting = existing && existing.hook_strength >= 1 && existing.hook_strength <= 5 ? existing.hook_strength : null;
+      const hook_strength = strengthFromEval ?? strengthFromExisting ?? 3;
 
-    const nextHistory: HookLedgerHistory = prevHistory ? prevHistory.slice() : [];
-    if (!existing) {
-      nextHistory.push({ at: now, chapter: args.chapter, action: "opened" });
+      const promise_text = existingPromiseText ?? hookPromiseText(hookType);
+      const fulfillment_window = existingWindow && !needsWindowBackfill ? existingWindow : computedWindow;
+      const evidence_snippet = existingEvidence ?? (hookEvidence ? snippet(hookEvidence, 120) : null);
+
+      const nextHistory: HookLedgerHistory = prevHistory ? prevHistory.slice() : [];
+      if (!existing) {
+        nextHistory.push({ at: now, chapter: args.chapter, action: "opened" });
+      } else {
+        const changed =
+          existing.hook_type !== hookType ||
+          existing.hook_strength !== hook_strength ||
+          (existingPromiseText !== null && existingPromiseText !== promise_text) ||
+          (existingWindow !== null && (existingWindow[0] !== fulfillment_window[0] || existingWindow[1] !== fulfillment_window[1]));
+        if (changed) nextHistory.push({ at: now, chapter: args.chapter, action: "updated_from_eval" });
+      }
+
+      const evalPath = safeString(args.evalRelPath);
+      const nextSources = evalPath ? { eval_path: evalPath } : undefined;
+
+      entry = {
+        ...(existing ? { ...existing } : {}),
+        id: existing ? existing.id : id,
+        chapter: args.chapter,
+        hook_type: hookType,
+        hook_strength,
+        promise_text,
+        status: prevStatus,
+        fulfillment_window,
+        fulfilled_chapter: prevStatus === "fulfilled" ? prevFulfilled : null,
+        created_at: baseCreatedAt,
+        updated_at: now,
+        ...(evidence_snippet ? { evidence_snippet } : {}),
+        ...(nextSources ? { sources: nextSources } : {}),
+        ...(prevLinks ? { links: prevLinks } : {}),
+        ...(nextHistory.length > 0 ? { history: nextHistory } : {})
+      };
+
+      // Upsert by chapter.
+      const idx = entries.findIndex((e) => e.chapter === args.chapter);
+      if (idx >= 0) entries[idx] = entry;
+      else entries.push(entry);
     }
-
-    entry = {
-      ...(existing ? { ...existing } : {}),
-      id,
-      chapter: args.chapter,
-      hook_type: hookType,
-      hook_strength: hookStrength && hookStrength >= 1 && hookStrength <= 5 ? hookStrength : 3,
-      promise_text: hookPromiseText(hookType),
-      status: prevStatus,
-      fulfillment_window,
-      fulfilled_chapter: prevStatus === "fulfilled" ? prevFulfilled : null,
-      created_at: baseCreatedAt,
-      updated_at: now,
-      ...(hookEvidence ? { evidence_snippet: snippet(hookEvidence, 120) } : {}),
-      sources: { eval_path: args.evalRelPath },
-      ...(prevLinks ? { links: prevLinks } : {}),
-      ...(nextHistory.length > 0 ? { history: nextHistory } : {})
-    };
-
-    // Upsert by chapter.
-    const idx = entries.findIndex((e) => e.chapter === args.chapter);
-    if (idx >= 0) entries[idx] = entry;
-    else entries.push(entry);
   }
 
   // Backfill windows when missing/invalid.
   for (const e of entries) {
+    const meta = e as Record<string, unknown>;
+    const needsBackfill = meta._needs_window_backfill === true;
     const window = safeWindow(e.fulfillment_window);
-    if (window) continue;
+    if (window && !needsBackfill) continue;
     e.fulfillment_window = [e.chapter + 1, e.chapter + args.policy.fulfillment_window_chapters];
     e.updated_at = now;
+    if (needsBackfill) delete meta._needs_window_backfill;
     const history: HookLedgerHistory = Array.isArray(e.history) ? (e.history as HookLedgerHistory) : [];
     history.push({ at: now, chapter: args.chapter, action: "window_backfilled" });
     e.history = history;
@@ -589,9 +671,11 @@ export function computeHookLedgerUpdate(args: {
   }
 
   const distinctTypes = new Set<string>();
+  let hooksInWindow = 0;
   for (const it of typesByChapter) {
     const t = it.hook_type;
     if (!t || t === "none" || t === "unknown") continue;
+    hooksInWindow += 1;
     distinctTypes.add(t);
   }
 
@@ -613,17 +697,17 @@ export function computeHookLedgerUpdate(args: {
   if (maxStreak.max > args.policy.max_same_type_streak) {
     issues.push({
       id: "retention.hook_ledger.diversity.streak_exceeded",
-      severity: args.policy.overdue_policy,
+      severity: "warn",
       summary: `Hook type streak ${maxStreak.max} exceeds max ${args.policy.max_same_type_streak} in the last ${args.policy.diversity_window_chapters} chapters.`,
       evidence: maxStreak.type ? `type=${maxStreak.type}` : undefined,
       suggestion: "Rotate hook types across consecutive chapters to reduce reader fatigue."
     });
   }
 
-  if (distinctTypes.size < args.policy.min_distinct_types_in_window) {
+  if (hooksInWindow > 0 && distinctTypes.size < args.policy.min_distinct_types_in_window) {
     issues.push({
       id: "retention.hook_ledger.diversity.low_distinct_types",
-      severity: args.policy.overdue_policy,
+      severity: "warn",
       summary: `Low hook type diversity: ${distinctTypes.size} distinct type(s) in the last ${args.policy.diversity_window_chapters} chapters (min ${args.policy.min_distinct_types_in_window}).`,
       suggestion: "Introduce at least one additional hook type within the diversity window."
     });
@@ -632,7 +716,7 @@ export function computeHookLedgerUpdate(args: {
   const open = updatedLedger.entries.filter((e) => e.status === "open").map(summarizeEntry);
   const lapsed = updatedLedger.entries.filter((e) => e.status === "lapsed").map(summarizeEntry);
 
-  const hasBlocking = args.policy.overdue_policy === "hard" && issues.some((i) => i.severity === "hard");
+  const hasBlocking = issues.some((i) => i.id === "retention.hook_ledger.hook_debt" && i.severity === "hard");
   const report: RetentionReport = {
     schema_version: 1,
     generated_at: now,
