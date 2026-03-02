@@ -177,7 +177,15 @@ function hookPromiseText(hookType: string): string {
 function snippet(text: string, maxLen: number): string {
   const s = text.trim().replace(/\s+/gu, " ");
   if (s.length <= maxLen) return s;
-  return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
+  let end = Math.max(0, maxLen - 1);
+  if (end > 0) {
+    const last = s.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) {
+      const next = s.charCodeAt(end);
+      if (next >= 0xdc00 && next <= 0xdfff) end -= 1;
+    }
+  }
+  return `${s.slice(0, end)}…`;
 }
 
 function extractHookSignals(evalRaw: unknown): HookEvalSignals {

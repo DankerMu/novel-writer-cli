@@ -75,6 +75,26 @@ test("computeHookLedgerUpdate creates an entry with window and evidence snippet"
   assert.equal(res.report.debt.lapsed.length, 0);
 });
 
+test("computeHookLedgerUpdate evidence_snippet truncation does not split surrogate pairs", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evidence = `${"a".repeat(118)}😀b`;
+  const evalRaw = makeEval({ hookType: "question", strength: 4, evidence });
+  const policy = makePolicy() as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 10,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-010-eval.json",
+    policy,
+    reportRange: { start: 1, end: 10 }
+  });
+
+  assert.ok(res.entry?.evidence_snippet);
+  assert.equal(res.entry.evidence_snippet, `${"a".repeat(118)}…`);
+});
+
 test("computeHookLedgerUpdate marks overdue open promises as lapsed and reports hook debt", () => {
   const ledger: HookLedgerFile = {
     schema_version: 1,
@@ -500,6 +520,45 @@ test("computeHookLedgerUpdate preserves fulfilled status when deduping", () => {
   assert.equal(ch20.status, "fulfilled");
 });
 
+test("computeHookLedgerUpdate backfills missing fulfillment_window and clears _needs_window_backfill", () => {
+  const ledger = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch010",
+        chapter: 10,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        // fulfillment_window intentionally missing
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z"
+      }
+    ]
+  } as unknown as HookLedgerFile;
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ fulfillment_window_chapters: 4, diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 12,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-012-eval.json",
+    policy,
+    reportRange: { start: 1, end: 12 }
+  });
+
+  const ch10 = res.updatedLedger.entries.find((e) => e.chapter === 10);
+  assert.ok(ch10);
+  assert.deepEqual(ch10.fulfillment_window, [11, 14]);
+  assert.equal((ch10 as any)._needs_window_backfill, undefined);
+  assert.ok(Array.isArray(ch10.history) && ch10.history.some((h) => h.action === "window_backfilled"));
+});
+
 test("loadHookLedger normalizes unknown fields, invalid strengths, and missing windows", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-test-"));
   const abs = join(rootDir, "hook-ledger.json");
@@ -608,6 +667,44 @@ test("computeHookLedgerUpdate refreshes auto promise_text when hook_type changes
   assert.equal(ch10.promise_text, "留悬念：反转揭示");
 });
 
+test("computeHookLedgerUpdate does not overwrite custom promise_text when hook_type changes", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch010",
+        chapter: 10,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "自定义承诺点",
+        status: "open",
+        fulfillment_window: [11, 14],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "twist_reveal", strength: 4, evidence: "新证据" });
+  const policy = makePolicy({ overdue_policy: "warn", diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 10,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-010-eval.json",
+    policy,
+    reportRange: { start: 1, end: 10 }
+  });
+
+  const ch10 = res.updatedLedger.entries.find((e) => e.chapter === 10);
+  assert.ok(ch10);
+  assert.equal(ch10.hook_type, "twist_reveal");
+  assert.equal(ch10.promise_text, "自定义承诺点");
+});
+
 test("computeHookLedgerUpdate refreshes evidence_snippet on re-commit for open entries", () => {
   const ledger: HookLedgerFile = {
     schema_version: 1,
@@ -644,6 +741,45 @@ test("computeHookLedgerUpdate refreshes evidence_snippet on re-commit for open e
   const ch10 = res.updatedLedger.entries.find((e) => e.chapter === 10);
   assert.ok(ch10);
   assert.equal(ch10.evidence_snippet, "新证据");
+});
+
+test("computeHookLedgerUpdate does not lapse on window end (inclusive)", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch020",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 24,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-024-eval.json",
+    policy,
+    reportRange: { start: 20, end: 24 }
+  });
+
+  const e = res.updatedLedger.entries.find((x) => x.chapter === 20);
+  assert.ok(e);
+  assert.equal(e.status, "open");
+  assert.equal(res.report.debt.newly_lapsed_total, 0);
+  assert.ok(!res.report.issues.some((i) => i.id === "retention.hook_ledger.hook_debt"));
 });
 
 test("computeHookLedgerUpdate skips when hook is not present", () => {
