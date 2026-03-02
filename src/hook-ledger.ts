@@ -11,7 +11,9 @@ export type HookLedgerStatus = "open" | "fulfilled" | "lapsed";
 export type HookLedgerHistoryEvent = { at: string; chapter: number; action: string; detail?: string };
 export type HookLedgerHistory = HookLedgerHistoryEvent[];
 
-export type HookLedgerEntry = Record<string, unknown> & {
+type CommentFields = Partial<Record<`_${string}`, unknown>>;
+
+export type HookLedgerEntry = CommentFields & {
   id: string;
   chapter: number;
   hook_type: string;
@@ -28,7 +30,8 @@ export type HookLedgerEntry = Record<string, unknown> & {
   history?: HookLedgerHistory;
 };
 
-export type HookLedgerFile = Record<string, unknown> & {
+export type HookLedgerFile = CommentFields & {
+  $schema?: string;
   schema_version: 1;
   entries: HookLedgerEntry[];
 };
@@ -84,11 +87,11 @@ type HookEvalSignals = {
   strength: number | null;
 };
 
-function pickCommentFields(obj: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+function pickCommentFields(obj: Record<string, unknown>): CommentFields {
+  const out: CommentFields = {};
   for (const [k, v] of Object.entries(obj)) {
     if (!k.startsWith("_")) continue;
-    out[k] = v;
+    out[k as `_${string}`] = v;
   }
   return out;
 }

@@ -369,7 +369,7 @@ test("computeHookLedgerUpdate skips when hook is not present", () => {
 });
 
 test("computeHookLedgerUpdate strips unknown fields to keep hook-ledger.json schema-valid and returns warnings", () => {
-  const ledger: HookLedgerFile = {
+  const ledger = {
     schema_version: 1,
     foo: "bar",
     entries: [
@@ -400,7 +400,7 @@ test("computeHookLedgerUpdate strips unknown fields to keep hook-ledger.json sch
         extra_field: "should_be_dropped"
       }
     ]
-  };
+  } as unknown as HookLedgerFile;
 
   const evalRaw = makeEval({ hookType: "question", strength: 4, evidence: "章末证据片段" });
   const policy = makePolicy({ overdue_policy: "warn", diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
