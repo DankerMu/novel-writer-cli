@@ -1,3 +1,4 @@
+import { readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { fingerprintTextFile, hashText, type FileFingerprint } from "./fingerprint.js";
@@ -5,6 +6,7 @@ import { ensureDir, pathExists, readJsonFile, writeJsonFile } from "./fs-utils.j
 import { computeNamingReport, type NamingReport } from "./naming-lint.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { computeReadabilityReport, type ReadabilityReport } from "./readability-lint.js";
+import { assertInsideProjectRoot, resolveProjectRelativePath } from "./safe-path.js";
 import { pad3 } from "./steps.js";
 import { computeTitlePolicyReport, type TitlePolicyReport } from "./title-policy.js";
 import { isPlainObject } from "./type-guards.js";
@@ -12,10 +14,14 @@ import { isPlainObject } from "./type-guards.js";
 export type PrejudgeGuardrailsStatus = "pass" | "warn" | "violation" | "skipped";
 
 export type PrejudgeGuardrailsReport = {
-  schema_version: 1;
+  schema_version: 2;
   generated_at: string;
   scope: { chapter: number };
   platform_profile: { rel_path: string; fingerprint: string };
+  dependencies: {
+    characters_active: { rel_path: string; fingerprint: string };
+    readability_script: { rel_path: string; fingerprint: string };
+  };
   chapter_fingerprint: FileFingerprint;
   title_policy: TitlePolicyReport;
   readability_lint: ReadabilityReport;
@@ -26,6 +32,74 @@ export type PrejudgeGuardrailsReport = {
 };
 
 const PREJUDGE_GUARDRAILS_STATUSES = ["pass", "warn", "violation", "skipped"] as const;
+const SEVERITY_POLICIES = ["warn", "soft", "hard"] as const;
+
+type DependencyFingerprint = { rel_path: string; fingerprint: string };
+
+function resolveReadabilityScriptRelPath(profile: PlatformProfile): string {
+  const fromProfile = profile.compliance.script_paths?.lint_readability;
+  if (typeof fromProfile === "string" && fromProfile.trim().length > 0) return fromProfile.trim();
+  return "scripts/lint-readability.sh";
+}
+
+async function fingerprintReadabilityScript(args: { rootDir: string; scriptRelPath: string }): Promise<DependencyFingerprint> {
+  const rel_path = args.scriptRelPath.trim();
+  if (rel_path.length === 0) {
+    return { rel_path: args.scriptRelPath, fingerprint: hashText(JSON.stringify({ status: "invalid_path" })) };
+  }
+
+  const label = "platform-profile.json.compliance.script_paths.lint_readability";
+  let scriptAbs: string;
+  try {
+    scriptAbs = resolveProjectRelativePath(args.rootDir, rel_path, label);
+  } catch {
+    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "invalid_path" })) };
+  }
+
+  if (!(await pathExists(scriptAbs))) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "missing" })) };
+
+  try {
+    const rootReal = await realpath(args.rootDir);
+    const execAbs = await realpath(scriptAbs);
+    assertInsideProjectRoot(rootReal, execAbs);
+    const st = await stat(execAbs);
+    if (!st.isFile()) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "not_file" })) };
+    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", size: st.size, mtime_ms: st.mtimeMs })) };
+  } catch {
+    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
+  }
+}
+
+async function fingerprintCharactersActive(rootDir: string): Promise<DependencyFingerprint> {
+  const rel_path = "characters/active";
+  const abs = join(rootDir, rel_path);
+  if (!(await pathExists(abs))) return { rel_path, fingerprint: hashText(JSON.stringify({ status: "missing" })) };
+
+  let dirents;
+  try {
+    dirents = await readdir(abs, { withFileTypes: true });
+  } catch {
+    return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
+  }
+
+  const files = dirents
+    .filter((d) => d.isFile() && d.name.endsWith(".json"))
+    .map((d) => d.name)
+    .sort((a, b) => a.localeCompare(b, "en"));
+
+  const entries: Array<{ name: string; size: number; mtime_ms: number }> = [];
+  for (const name of files) {
+    try {
+      const st = await stat(join(abs, name));
+      entries.push({ name, size: st.size, mtime_ms: st.mtimeMs });
+    } catch {
+      // Any unreadable file should invalidate cache conservatively.
+      return { rel_path, fingerprint: hashText(JSON.stringify({ status: "unreadable" })) };
+    }
+  }
+
+  return { rel_path, fingerprint: hashText(JSON.stringify({ status: "ok", entries })) };
+}
 
 function isBlockingTitlePolicy(report: TitlePolicyReport): boolean {
   if (report.status === "pass" || report.status === "skipped") return false;
@@ -62,6 +136,11 @@ export async function computePrejudgeGuardrailsReport(args: {
   const generated_at = new Date().toISOString();
   const { fingerprint: chapter_fingerprint, text: chapterText } = await fingerprintTextFile(args.chapterAbsPath);
 
+  const [characters_active, readability_script] = await Promise.all([
+    fingerprintCharactersActive(args.rootDir),
+    fingerprintReadabilityScript({ rootDir: args.rootDir, scriptRelPath: resolveReadabilityScriptRelPath(args.platformProfile) })
+  ]);
+
   const title_policy = computeTitlePolicyReport({ chapter: args.chapter, chapterText, platformProfile: args.platformProfile });
   const readability_lint = await computeReadabilityReport({
     rootDir: args.rootDir,
@@ -89,10 +168,11 @@ export async function computePrejudgeGuardrailsReport(args: {
   const status: PrejudgeGuardrailsStatus = has_blocking_issues ? "violation" : hasAnyIssues ? "warn" : "pass";
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     generated_at,
     scope: { chapter: args.chapter },
     platform_profile: { rel_path: args.platformProfileRelPath, fingerprint: fingerprintPlatformProfile(args.platformProfile) },
+    dependencies: { characters_active, readability_script },
     chapter_fingerprint,
     title_policy,
     readability_lint,
@@ -134,7 +214,7 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
   }
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
-  if (obj.schema_version !== 1) return null;
+  if (obj.schema_version !== 2) return null;
 
   const scopeRaw = obj.scope;
   if (!isPlainObject(scopeRaw)) return null;
@@ -152,6 +232,22 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
   if (typeof profileObj.fingerprint !== "string" || profileObj.fingerprint.trim().length === 0) return null;
   if (profileObj.rel_path !== args.platformProfileRelPath) return null;
   if (profileObj.fingerprint !== fingerprintPlatformProfile(args.platformProfile)) return null;
+
+  const depsRaw = obj.dependencies;
+  if (!isPlainObject(depsRaw)) return null;
+  const depsObj = depsRaw as Record<string, unknown>;
+
+  const charactersRaw = depsObj.characters_active;
+  if (!isPlainObject(charactersRaw)) return null;
+  const charactersObj = charactersRaw as Record<string, unknown>;
+  if (typeof charactersObj.rel_path !== "string" || charactersObj.rel_path !== "characters/active") return null;
+  if (typeof charactersObj.fingerprint !== "string" || charactersObj.fingerprint.trim().length === 0) return null;
+
+  const scriptRaw = depsObj.readability_script;
+  if (!isPlainObject(scriptRaw)) return null;
+  const scriptObj = scriptRaw as Record<string, unknown>;
+  if (typeof scriptObj.rel_path !== "string" || scriptObj.rel_path.trim().length === 0) return null;
+  if (typeof scriptObj.fingerprint !== "string" || scriptObj.fingerprint.trim().length === 0) return null;
 
   const fpRaw = obj.chapter_fingerprint;
   if (!isPlainObject(fpRaw)) return null;
@@ -172,16 +268,48 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
   const readability = obj.readability_lint;
   if (!isPlainObject(readability)) return null;
   const readabilityObj = readability as Record<string, unknown>;
+  if (readabilityObj.schema_version !== 1) return null;
   if (typeof readabilityObj.has_blocking_issues !== "boolean") return null;
   if (!Array.isArray(readabilityObj.issues)) return null;
+  if (
+    !readabilityObj.issues.every((it) => {
+      if (!isPlainObject(it)) return false;
+      const rec = it as Record<string, unknown>;
+      if (typeof rec.id !== "string" || rec.id.trim().length === 0) return false;
+      if (typeof rec.summary !== "string" || rec.summary.trim().length === 0) return false;
+      if (typeof rec.severity !== "string" || !(SEVERITY_POLICIES as readonly string[]).includes(rec.severity)) return false;
+      return true;
+    })
+  )
+    return null;
   if (typeof readabilityObj.status !== "string") return null;
 
   const naming = obj.naming_lint;
   if (!isPlainObject(naming)) return null;
   const namingObj = naming as Record<string, unknown>;
+  if (namingObj.schema_version !== 1) return null;
   if (typeof namingObj.has_blocking_issues !== "boolean") return null;
   if (!Array.isArray(namingObj.issues)) return null;
+  if (
+    !namingObj.issues.every((it) => {
+      if (!isPlainObject(it)) return false;
+      const rec = it as Record<string, unknown>;
+      if (typeof rec.id !== "string" || rec.id.trim().length === 0) return false;
+      if (typeof rec.summary !== "string" || rec.summary.trim().length === 0) return false;
+      if (typeof rec.severity !== "string" || !(SEVERITY_POLICIES as readonly string[]).includes(rec.severity)) return false;
+      return true;
+    })
+  )
+    return null;
   if (typeof namingObj.status !== "string") return null;
+
+  const [currentCharacters, currentScript] = await Promise.all([
+    fingerprintCharactersActive(args.rootDir),
+    fingerprintReadabilityScript({ rootDir: args.rootDir, scriptRelPath: resolveReadabilityScriptRelPath(args.platformProfile) })
+  ]);
+  if (charactersObj.fingerprint !== currentCharacters.fingerprint) return null;
+  if (scriptObj.rel_path !== currentScript.rel_path) return null;
+  if (scriptObj.fingerprint !== currentScript.fingerprint) return null;
 
   let now: FileFingerprint;
   try {
