@@ -8,6 +8,7 @@ import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./
 import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, titleFixSnapshotRel, type Step } from "./steps.js";
@@ -150,7 +151,8 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
   } else if (args.step.stage === "judge") {
     agent = { kind: "subagent", name: "quality-judge" };
-    paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
+    const chapterDraftRel = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
+    paths.chapter_draft = chapterDraftRel;
     paths.cross_references = relIfExists(rel.staging.crossrefJson, await pathExists(join(args.rootDir, rel.staging.crossrefJson)));
 
     const loadedPlatform = await loadPlatformProfile(args.rootDir);
@@ -175,6 +177,29 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
     // Optional: inject compact continuity summary for LS-001 evidence (non-blocking).
     inline.continuity_report_summary = await loadContinuityLatestSummary(args.rootDir);
+
+    // Optional: pre-judge guardrails report (title/readability/naming). Non-blocking here; gate engine decides.
+    inline.prejudge_guardrails = null;
+    if (loadedPlatform && chapterDraftRel) {
+      try {
+        const report = await computePrejudgeGuardrailsReport({
+          rootDir: args.rootDir,
+          chapter: args.step.chapter,
+          chapterAbsPath: join(args.rootDir, chapterDraftRel),
+          platformProfile: loadedPlatform.profile
+        });
+        const { relPath } = await writePrejudgeGuardrailsReport({ rootDir: args.rootDir, chapter: args.step.chapter, report });
+        paths.prejudge_guardrails = relPath;
+        inline.prejudge_guardrails = {
+          status: report.status,
+          has_blocking_issues: report.has_blocking_issues,
+          blocking_reasons: report.blocking_reasons,
+          report_path: relPath
+        };
+      } catch {
+        inline.prejudge_guardrails_degraded = true;
+      }
+    }
 
     expected_outputs.push({
       path: rel.staging.evalJson,
