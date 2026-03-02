@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "title": "promise-ledger.json",
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_.*$": { "$ref": "#/$defs/comment_value" }
+  },
+  "propertyNames": {
+    "not": { "enum": ["__proto__", "constructor", "prototype"] }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema pointer for editor tooling. Example: schemas/promise-ledger.schema.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "Schema version of promise-ledger.json (SSOT in schemas/promise-ledger.schema.json)."
+    },
+    "policy": { "$ref": "#/$defs/promise_ledger_policy" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/promise_ledger_entry" }
+    }
+  },
+  "$defs": {
+    "comment_value": {
+      "description": "Free-form comment fields supported by templates/specs.",
+      "type": ["string", "number", "boolean", "null", "object", "array"]
+    },
+    "promise_ledger_policy": {
+      "type": "object",
+      "required": ["dormancy_threshold_chapters"],
+      "additionalProperties": false,
+      "properties": {
+        "dormancy_threshold_chapters": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Warn when chapters_since_last_touch >= dormancy_threshold_chapters."
+        }
+      }
+    },
+    "promise_ledger_entry": {
+      "type": "object",
+      "required": ["id", "type", "promise_text", "status", "introduced_chapter", "last_touched_chapter"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^_.*$": { "$ref": "#/$defs/comment_value" }
+      },
+      "propertyNames": {
+        "not": { "enum": ["__proto__", "constructor", "prototype"] }
+      },
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": ["selling_point", "core_mystery", "mechanism", "relationship_arc"]
+        },
+        "promise_text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short, non-spoiler description of the promise."
+        },
+        "status": { "type": "string", "enum": ["promised", "advanced", "delivered"] },
+        "introduced_chapter": { "type": "integer", "minimum": 1 },
+        "last_touched_chapter": { "type": "integer", "minimum": 1 },
+        "delivered_chapter": { "type": ["integer", "null"], "minimum": 1 },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hook_entry_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "foreshadowing_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["chapter", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "chapter": { "type": "integer", "minimum": 1 },
+              "action": { "type": "string", "minLength": 1 },
+              "note": { "type": "string" },
+              "at": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

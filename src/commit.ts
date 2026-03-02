@@ -25,6 +25,7 @@ import { withWriteLock } from "./lock.js";
 import { computeContinuityReport, tryResolveVolumeChapterRange, writeContinuityLogs, writeVolumeContinuityReport, type ContinuityReport } from "./consistency-auditor.js";
 import { attachPlatformConstraintsToEval, computePlatformConstraints, precomputeInfoLoadNer, writePlatformConstraintsLogs } from "./platform-constraints.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { computePromiseLedgerReport, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
 import {
   attachNamingLintToEval,
   computeNamingReport,
@@ -445,6 +446,16 @@ function resolveForeshadowVisibilityHistoryRange(args: {
   return null;
 }
 
+function resolvePromiseLedgerHistoryRange(args: {
+  chapter: number;
+  isVolumeEnd: boolean;
+  volumeRange: { start: number; end: number } | null;
+}): { start: number; end: number } | null {
+  if (args.isVolumeEnd && args.volumeRange) return { start: args.volumeRange.start, end: args.volumeRange.end };
+  if (args.chapter % 10 === 0) return { start: Math.max(1, args.chapter - 9), end: args.chapter };
+  return null;
+}
+
 function parsePendingVolumeEndAuditMarker(raw: unknown): PendingVolumeEndAuditMarker | null {
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -532,6 +543,9 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
       2
     );
   }
+
+  const promiseLedgerExists = await pathExists(join(args.rootDir, "promise-ledger.json"));
+  const promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
 
   const rel = chapterRelPaths(args.chapter);
   await ensureFilePresent(args.rootDir, rel.staging.chapterMd);
@@ -636,6 +650,18 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         foreshadowHistoryRange.end
       )}.json`
     );
+  }
+
+  // Optional: promise ledger report maintenance (non-blocking) when promise-ledger.json exists.
+  if (promiseLedgerExists) {
+    plan.push(`WRITE logs/promises/latest.json (monotonic)`);
+    if (promiseLedgerHistoryRange) {
+      plan.push(
+        `WRITE logs/promises/promise-ledger-report-vol-${pad2(volume)}-ch${pad3(promiseLedgerHistoryRange.start)}-ch${pad3(
+          promiseLedgerHistoryRange.end
+        )}.json`
+      );
+    }
   }
 
   // Update checkpoint.
@@ -1483,6 +1509,29 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(`Foreshadow visibility maintenance skipped: ${message}`);
+  }
+
+  // Post-commit (outside write-lock): promise ledger report maintenance (non-blocking).
+  if (promiseLedgerExists) {
+    try {
+      const loaded = await loadPromiseLedger(args.rootDir);
+      for (const w of loaded.warnings) warnings.push(`Promise ledger (load): ${w}`);
+      const scopeRange =
+        isVolumeEnd && volumeRange
+          ? { start: volumeRange.start, end: volumeRange.end }
+          : { start: Math.max(1, args.chapter - 9), end: args.chapter };
+      const historyRange = resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
+      const report = computePromiseLedgerReport({
+        ledger: loaded.ledger,
+        asOfChapter: args.chapter,
+        volume,
+        chapterRange: scopeRange
+      });
+      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`Promise ledger report maintenance skipped: ${message}`);
+    }
   }
 
   return { plan, warnings };
