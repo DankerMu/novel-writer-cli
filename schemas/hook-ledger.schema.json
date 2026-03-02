@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "title": "hook-ledger.json",
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_.*$": { "$ref": "#/$defs/comment_value" }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema pointer for editor tooling. Example: schemas/hook-ledger.schema.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "Schema version of hook-ledger.json (SSOT in schemas/hook-ledger.schema.json)."
+    },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hook_ledger_entry" }
+    }
+  },
+  "$defs": {
+    "comment_value": {
+      "description": "Free-form comment fields supported by templates/specs.",
+      "type": ["string", "number", "boolean", "null", "object", "array"]
+    },
+    "hook_ledger_entry": {
+      "type": "object",
+      "required": [
+        "id",
+        "chapter",
+        "hook_type",
+        "hook_strength",
+        "promise_text",
+        "status",
+        "fulfillment_window",
+        "fulfilled_chapter",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^_.*$": { "$ref": "#/$defs/comment_value" }
+      },
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "chapter": { "type": "integer", "minimum": 1 },
+        "hook_type": { "type": "string", "minLength": 1 },
+        "hook_strength": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "promise_text": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["open", "fulfilled", "lapsed"] },
+        "fulfillment_window": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "fulfilled_chapter": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "evidence_snippet": { "type": "string" },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "eval_path": { "type": "string", "minLength": 1 }
+          }
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "promise_ids": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "foreshadowing_ids": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["at", "chapter", "action"],
+            "additionalProperties": false,
+            "properties": {
+              "at": { "type": "string", "format": "date-time" },
+              "chapter": { "type": "integer", "minimum": 1 },
+              "action": { "type": "string", "minLength": 1 },
+              "detail": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+

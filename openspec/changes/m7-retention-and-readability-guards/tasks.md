@@ -12,24 +12,24 @@
 
 ## 3. Mobile Readability Lint
 
-- [ ] 3.1 Define readability issue taxonomy + severity mapping (warn/soft/hard) driven by platform profile
-- [ ] 3.2 Add deterministic lint script hook (e.g., `scripts/lint-readability.sh`) with JSON stdout contract
-- [ ] 3.3 Implement safe fallback when script missing/fails (warn-only; no blocking)
-- [ ] 3.4 Persist readability reports under `logs/readability/` (`latest.json` + history)
+- [x] 3.1 Define readability issue taxonomy + severity mapping (warn/soft/hard) driven by platform profile
+- [x] 3.2 Add deterministic lint script hook (e.g., `scripts/lint-readability.sh`) with JSON stdout contract
+- [x] 3.3 Implement safe fallback when script missing/fails (warn-only; no blocking)
+- [x] 3.4 Persist readability reports under `logs/readability/` (`latest.json` + history)
 
 ## 4. Naming Conflict Lint
 
-- [ ] 4.1 Implement name registry derivation from `characters/active/*.json` (+ optional aliases)
-- [ ] 4.2 Implement duplicate + near-duplicate + alias collision detection with configurable thresholds
-- [ ] 4.3 Integrate NER/unknown-entity signals (if available) to warn on confusing new names
-- [ ] 4.4 Persist naming reports under `logs/naming/` (`latest.json` + history)
+- [x] 4.1 Implement name registry derivation from `characters/active/*.json` (+ optional aliases)
+- [x] 4.2 Implement duplicate + near-duplicate + alias collision detection with configurable thresholds
+- [x] 4.3 Integrate NER/unknown-entity signals (if available) to warn on confusing new names
+- [x] 4.4 Persist naming reports under `logs/naming/` (`latest.json` + history)
 
 ## 5. Hook Ledger
 
-- [ ] 5.1 Define `hook-ledger.json` schema (id/type/strength/promise_text/window/status/history)
-- [ ] 5.2 Update evaluation/metadata to capture hook type + strength + compact end-of-chapter evidence
-- [ ] 5.3 Implement ledger update on commit + fulfillment window assignment + overdue detection
-- [ ] 5.4 Implement diversity checks (streak + distinct types in window) and retention reporting under `logs/retention/`
+- [x] 5.1 Define `hook-ledger.json` schema (id/type/strength/promise_text/window/status/history)
+- [x] 5.2 Update evaluation/metadata to capture hook type + strength + compact end-of-chapter evidence
+- [x] 5.3 Implement ledger update on commit + fulfillment window assignment + overdue detection
+- [x] 5.4 Implement diversity checks (streak + distinct types in window) and retention reporting under `logs/retention/`
 
 ## 6. Pipeline Integration
 
