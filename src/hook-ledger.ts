@@ -88,9 +88,10 @@ type HookEvalSignals = {
 };
 
 function pickCommentFields(obj: Record<string, unknown>): CommentFields {
-  const out: CommentFields = {};
+  const out = Object.create(null) as CommentFields;
   for (const [k, v] of Object.entries(obj)) {
     if (!k.startsWith("_")) continue;
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
     out[k as `_${string}`] = v;
   }
   return out;
@@ -133,6 +134,12 @@ function safeWindow(v: unknown): [number, number] | null {
   if (a === null || b === null) return null;
   if (a > b) return null;
   return [a, b];
+}
+
+function safeWindowAfterChapter(v: unknown, chapter: number): [number, number] | null {
+  const w = safeWindow(v);
+  if (!w) return null;
+  return w[0] > chapter ? w : null;
 }
 
 function normalizeLinks(raw: unknown): { promise_ids?: string[]; foreshadowing_ids?: string[] } | null {
@@ -257,10 +264,15 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
 
   const promise_text = safeString(obj.promise_text) ?? hookPromiseText(hook_type);
   let status = safeHookStatus(obj.status) ?? "open";
-  const window = safeWindow(obj.fulfillment_window);
+  const rawWindow = obj.fulfillment_window;
+  const window = safeWindowAfterChapter(rawWindow, chapter);
   const fulfillment_window = window ?? [chapter + 1, chapter + 1];
   if (!window && comments._needs_window_backfill === undefined) {
     comments._needs_window_backfill = true;
+  }
+  if (!window && rawWindow !== undefined && comments._invalid_fulfillment_window === undefined) {
+    comments._invalid_fulfillment_window = rawWindow;
+    warnings.push(`Hook ledger entry '${id}' has invalid fulfillment_window; will backfill.`);
   }
   const fulfilled_chapter = safePositiveInt(obj.fulfilled_chapter) ?? null;
   const didAutoFixStatus = fulfilled_chapter !== null && status !== "fulfilled";
@@ -626,10 +638,20 @@ export function computeHookLedgerUpdate(args: {
   const entries = Array.from(byChapter.values()).sort((a, b) => a.chapter - b.chapter || a.id.localeCompare(b.id, "en"));
 
   const evalSignals = extractHookSignals(args.evalRaw);
-  const hookPresent = evalSignals.present === true;
   const hookType = evalSignals.type;
   const hookStrength = evalSignals.strength;
   const hookEvidence = evalSignals.evidence;
+  const hookPresentExplicit = evalSignals.present;
+  const hookPresent =
+    hookPresentExplicit === true || (hookPresentExplicit === null && hookType !== null && hookType !== "none" && hookType.trim().length > 0);
+
+  if (hookPresentExplicit === true && (!hookType || hookType === "none")) {
+    warnings.push("Eval hook.present=true but hook.type is missing/none; skipping hook-ledger upsert.");
+  } else if (hookPresentExplicit === false && hookType && hookType !== "none") {
+    warnings.push(`Eval hook.present=false but hook.type='${hookType}'; treating as no hook.`);
+  } else if (hookPresentExplicit === null && hookType && hookType !== "none") {
+    warnings.push("Eval hook.present is missing; inferred hook.present=true from hook.type.");
+  }
 
   const existingAtChapter = entries.find((e) => e.chapter === args.chapter) ?? null;
 
@@ -648,7 +670,7 @@ export function computeHookLedgerUpdate(args: {
       const prevHistory = existing && Array.isArray(existing.history) ? (existing.history as HookLedgerHistory) : [];
       const existingPromiseText = existing ? safeString(existing.promise_text) : null;
       const existingEvidence = existing ? safeString(existing.evidence_snippet) : null;
-      const existingWindow = existing ? safeWindow(existing.fulfillment_window) : null;
+      const existingWindow = existing ? safeWindowAfterChapter(existing.fulfillment_window, args.chapter) : null;
       const needsWindowBackfill = existing ? (existing as Record<string, unknown>)._needs_window_backfill === true : false;
       const computedWindow: [number, number] = [args.chapter + 1, args.chapter + args.policy.fulfillment_window_chapters];
 
@@ -706,7 +728,7 @@ export function computeHookLedgerUpdate(args: {
     }
   } else if (existingAtChapter) {
     warnings.push(
-      `Eval indicates no hook for chapter ${args.chapter}, but hook-ledger has existing entry '${existingAtChapter.id}' (status=${existingAtChapter.status}). Ledger left unchanged.`
+      `Eval indicates no hook for chapter ${args.chapter}, but hook-ledger has existing entry '${existingAtChapter.id}' (status=${existingAtChapter.status}). Entry preserved (no upsert from eval).`
     );
   }
 
@@ -714,7 +736,7 @@ export function computeHookLedgerUpdate(args: {
   for (const e of entries) {
     const meta = e as Record<string, unknown>;
     const needsBackfill = meta._needs_window_backfill === true;
-    const window = safeWindow(e.fulfillment_window);
+    const window = safeWindowAfterChapter(e.fulfillment_window, e.chapter);
     if (window && !needsBackfill) continue;
     e.fulfillment_window = [e.chapter + 1, e.chapter + args.policy.fulfillment_window_chapters];
     e.updated_at = now;
@@ -728,7 +750,7 @@ export function computeHookLedgerUpdate(args: {
   const newlyLapsed: HookLedgerEntry[] = [];
   for (const e of entries) {
     if (e.status !== "open") continue;
-    const window = safeWindow(e.fulfillment_window);
+    const window = safeWindowAfterChapter(e.fulfillment_window, e.chapter);
     if (!window) continue;
     const windowEnd = window[1];
     if (args.chapter <= windowEnd) continue;

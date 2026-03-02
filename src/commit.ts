@@ -1199,17 +1199,24 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         });
         for (const w of hookLedgerUpdate.warnings) warnings.push(`Hook ledger: ${w}`);
 
-        if (hookLedgerUpdate.report.has_blocking_issues) {
-          const blockingIssues = hookLedgerUpdate.report.issues.filter((i) => i.severity === "hard");
-          const limit = 2;
-          const details = blockingIssues
-            .map((i) => (i.evidence ? `${i.summary} (${i.evidence})` : i.summary))
-            .slice(0, limit)
-            .join(" | ");
-          const suffix = blockingIssues.length > limit ? " …" : "";
-          const msg = details.length > 0 ? `${details}${suffix}` : "(details in logs/retention/latest.json)";
-          throw new NovelCliError(`Retention hook ledger violation: ${msg}`, 2);
-        }
+	        if (hookLedgerUpdate.report.has_blocking_issues) {
+	          const blockingIssues = hookLedgerUpdate.report.issues.filter((i) => i.severity === "hard");
+	          const limit = 2;
+	          const details = blockingIssues
+	            .map((i) => (i.evidence ? `${i.summary} (${i.evidence})` : i.summary))
+	            .slice(0, limit)
+	            .join(" | ");
+	          const suffix = blockingIssues.length > limit ? " …" : "";
+	          const msg = details.length > 0 ? `${details}${suffix}` : "(details in logs/retention/latest.json)";
+	          const blockedRel = "logs/retention/blocked.json";
+	          try {
+	            await ensureDir(join(args.rootDir, "logs/retention"));
+	            await writeJsonFile(join(args.rootDir, blockedRel), hookLedgerUpdate.report);
+	          } catch {
+	            // ignore
+	          }
+	          throw new NovelCliError(`Retention hook ledger violation: ${msg}. See ${blockedRel}.`, 2);
+	        }
 
         if (hookLedgerUpdate.report.issues.length > 0) {
           const details = hookLedgerUpdate.report.issues

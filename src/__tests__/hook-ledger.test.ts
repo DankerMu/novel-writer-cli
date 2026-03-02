@@ -559,6 +559,45 @@ test("computeHookLedgerUpdate backfills missing fulfillment_window and clears _n
   assert.ok(Array.isArray(ch10.history) && ch10.history.some((h) => h.action === "window_backfilled"));
 });
 
+test("computeHookLedgerUpdate backfills fulfillment_window when it is behind the entry chapter", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch010",
+        chapter: 10,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [1, 2],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, present: false });
+  const policy = makePolicy({ fulfillment_window_chapters: 4, diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 12,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-012-eval.json",
+    policy,
+    reportRange: { start: 1, end: 12 }
+  });
+
+  const ch10 = res.updatedLedger.entries.find((e) => e.chapter === 10);
+  assert.ok(ch10);
+  assert.deepEqual(ch10.fulfillment_window, [11, 14]);
+  assert.equal(ch10.status, "open");
+  assert.ok(res.warnings.some((w) => w.includes("invalid fulfillment_window")));
+});
+
 test("loadHookLedger normalizes unknown fields, invalid strengths, and missing windows", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-test-"));
   const abs = join(rootDir, "hook-ledger.json");
@@ -780,6 +819,29 @@ test("computeHookLedgerUpdate does not lapse on window end (inclusive)", () => {
   assert.equal(e.status, "open");
   assert.equal(res.report.debt.newly_lapsed_total, 0);
   assert.ok(!res.report.issues.some((i) => i.id === "retention.hook_ledger.hook_debt"));
+});
+
+test("computeHookLedgerUpdate warns when eval hook.present=true but hook.type is missing", () => {
+  const ledger: HookLedgerFile = { schema_version: 1, entries: [] };
+  const evalRaw = {
+    chapter: 1,
+    hook: { present: true },
+    scores: { hook_strength: { score: 4 } }
+  };
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 10,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-010-eval.json",
+    policy,
+    reportRange: { start: 1, end: 10 }
+  });
+
+  assert.equal(res.entry, null);
+  assert.ok(res.warnings.some((w) => w.includes("hook.present=true")));
 });
 
 test("computeHookLedgerUpdate skips when hook is not present", () => {
