@@ -172,9 +172,17 @@ function normalizeExistingEntry(raw: unknown, warnings: string[]): PromiseLedger
   const lastRaw = obj.last_touched_chapter;
   let last_touched_chapter = safePositiveInt(lastRaw);
   if (last_touched_chapter === null) {
+    if (lastRaw !== undefined) {
+      warnings.push(`Promise ledger entry '${id}': invalid 'last_touched_chapter' (defaulted to introduced_chapter).`);
+    }
     last_touched_chapter = introduced_chapter;
   }
-  if (last_touched_chapter < introduced_chapter) last_touched_chapter = introduced_chapter;
+  if (last_touched_chapter < introduced_chapter) {
+    warnings.push(
+      `Promise ledger entry '${id}': last_touched_chapter (${last_touched_chapter}) < introduced_chapter (${introduced_chapter}); clamped.`
+    );
+    last_touched_chapter = introduced_chapter;
+  }
 
   const statusRaw = obj.status;
   const statusParsed = safePromiseStatus(statusRaw);
@@ -183,10 +191,20 @@ function normalizeExistingEntry(raw: unknown, warnings: string[]): PromiseLedger
     warnings.push(`Promise ledger entry '${id}': invalid 'status' (defaulted to 'promised').`);
   }
 
-  const delivered_chapter =
-    obj.delivered_chapter === null ? null : obj.delivered_chapter === undefined ? undefined : safePositiveInt(obj.delivered_chapter);
-  if (delivered_chapter !== undefined && delivered_chapter === null) {
-    warnings.push(`Promise ledger entry '${id}': ignoring invalid 'delivered_chapter'.`);
+  const deliveredRaw = obj.delivered_chapter;
+  let delivered_chapter: number | null | undefined;
+  if (deliveredRaw === undefined) {
+    delivered_chapter = undefined;
+  } else if (deliveredRaw === null) {
+    delivered_chapter = null;
+  } else {
+    const parsed = safePositiveInt(deliveredRaw);
+    if (parsed === null) {
+      warnings.push(`Promise ledger entry '${id}': ignoring invalid 'delivered_chapter'.`);
+      delivered_chapter = undefined;
+    } else {
+      delivered_chapter = parsed;
+    }
   }
 
   const links = normalizeLinks(obj.links);
@@ -300,16 +318,21 @@ export function computePromiseLedgerReport(args: {
   volume: number;
   chapterRange: { start: number; end: number };
 }): PromiseLedgerReport {
-  if (!Number.isInteger(args.asOfChapter) || args.asOfChapter < 0) throw new Error(`Invalid asOfChapter: ${String(args.asOfChapter)}`);
-  if (!Number.isInteger(args.volume) || args.volume < 0) throw new Error(`Invalid volume: ${String(args.volume)}`);
-  if (!Number.isInteger(args.chapterRange.start) || !Number.isInteger(args.chapterRange.end)) {
-    throw new Error(`Invalid chapterRange: ${String(args.chapterRange.start)}-${String(args.chapterRange.end)}`);
+  const start = args.chapterRange.start;
+  const end = args.chapterRange.end;
+
+  if (!Number.isInteger(args.asOfChapter) || args.asOfChapter < 1) {
+    throw new Error(`Invalid asOfChapter: ${String(args.asOfChapter)} (expected int >= 1).`);
+  }
+  if (!Number.isInteger(args.volume) || args.volume < 0) throw new Error(`Invalid volume: ${String(args.volume)} (expected int >= 0).`);
+  if (!Number.isInteger(start) || start < 1) throw new Error(`Invalid chapterRange.start: ${String(start)} (expected int >= 1).`);
+  if (!Number.isInteger(end) || end < start) throw new Error(`Invalid chapterRange.end: ${String(end)} (expected int >= start=${start}).`);
+  if (args.asOfChapter < end) {
+    throw new Error(`Invalid asOfChapter: ${String(args.asOfChapter)} (expected int >= chapterRange.end=${end}).`);
   }
 
   const policy = args.ledger.policy ?? DEFAULT_POLICY;
   const threshold = policy.dormancy_threshold_chapters;
-  const start = args.chapterRange.start;
-  const end = args.chapterRange.end;
 
   let promised_total = 0;
   let advanced_total = 0;
@@ -503,7 +526,8 @@ function guessTypeFromHeading(heading: string): PromiseType | null {
   if (heading.includes("卖点") || heading.includes("爽点") || h.includes("selling") || h.includes("highlight")) return "selling_point";
   if (heading.includes("谜") || h.includes("mystery") || h.includes("suspense")) return "core_mystery";
   if (heading.includes("机制") || heading.includes("系统") || heading.includes("规则") || h.includes("mechanism") || h.includes("system")) return "mechanism";
-  if (heading.includes("关系") || heading.includes("感情") || h.includes("cp") || h.includes("relationship")) return "relationship_arc";
+  const hasCp = /\bcp\b/u.test(h);
+  if (heading.includes("关系") || heading.includes("感情") || hasCp || h.includes("relationship")) return "relationship_arc";
   return null;
 }
 

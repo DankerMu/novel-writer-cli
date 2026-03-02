@@ -545,7 +545,6 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   }
 
   const promiseLedgerExists = await pathExists(join(args.rootDir, "promise-ledger.json"));
-  const promiseLedgerScopeRange = isVolumeEnd && volumeRange ? { start: volumeRange.start, end: volumeRange.end } : { start: Math.max(1, args.chapter - 9), end: args.chapter };
   const promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
 
   const rel = chapterRelPaths(args.chapter);

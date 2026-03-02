@@ -278,6 +278,9 @@ function buildProgram(argv: string[]): Command {
             2
           );
         }
+        if (localOpts.asOf !== undefined && localOpts.end === undefined) {
+          throw new NovelCliError("Invalid --as-of: 0 (expected int >= 1).", 2);
+        }
         throw new NovelCliError("Invalid --end: 0 (expected int >= 1).", 2);
       }
       if (end < start) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= start).`, 2);
