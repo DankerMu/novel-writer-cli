@@ -13,6 +13,7 @@ import { commitChapter } from "./commit.js";
 import { buildInstructionPacket } from "./instructions.js";
 import { getLockStatus, clearStaleLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
+import { computeEngagementReport, loadEngagementMetricsStream, writeEngagementLogs } from "./engagement.js";
 import { computePromiseLedgerReport, ensurePromiseLedgerInitialized, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
 import { parseStepId } from "./steps.js";
 import { validateStep } from "./validate.js";
@@ -303,6 +304,69 @@ function buildProgram(argv: string[]): Command {
 
       if (ledgerWarnings.length > 0) {
         for (const w of ledgerWarnings) process.stdout.write(`WARN: ${w}\n`);
+      }
+      process.stdout.write(`Wrote ${written.latestRel}.\n`);
+      if (written.historyRel) process.stdout.write(`Wrote ${written.historyRel}.\n`);
+    });
+
+  const engagement = program.command("engagement").description("Engagement density metrics (per-chapter stream + window reports).");
+
+  engagement
+    .command("report")
+    .description("Generate an engagement density report under logs/engagement/ (latest.json + optional history).")
+    .option("--as-of <n>", "As-of chapter (defaults to checkpoint.last_completed_chapter).", (v) => Number.parseInt(String(v), 10))
+    .option("--volume <n>", "Volume number (defaults to checkpoint.current_volume).", (v) => Number.parseInt(String(v), 10))
+    .option("--start <n>", "Start chapter for report scope (defaults to max(1, end-9)).", (v) => Number.parseInt(String(v), 10))
+    .option("--end <n>", "End chapter for report scope (defaults to as-of chapter).", (v) => Number.parseInt(String(v), 10))
+    .option("--history", "Also write a history report file for the selected scope.")
+    .action(async (localOpts: { asOf?: number; volume?: number; start?: number; end?: number; history?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+      const checkpoint = await readCheckpoint(rootDir);
+
+      const volume = localOpts.volume ?? checkpoint.current_volume;
+      const end = localOpts.end ?? localOpts.asOf ?? checkpoint.last_completed_chapter;
+      const asOf = localOpts.asOf ?? end;
+      const start = localOpts.start ?? Math.max(1, end - 9);
+
+      if (!Number.isInteger(asOf) || asOf < 1) throw new NovelCliError(`Invalid --as-of: ${String(asOf)} (expected int >= 1).`, 2);
+      if (!Number.isInteger(volume) || volume < 0) throw new NovelCliError(`Invalid --volume: ${String(volume)} (expected int >= 0).`, 2);
+      if (!Number.isInteger(start) || start < 1) throw new NovelCliError(`Invalid --start: ${String(start)} (expected int >= 1).`, 2);
+      if (!Number.isInteger(end) || end < 0) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= 0).`, 2);
+      if (end === 0) {
+        if (checkpoint.last_completed_chapter === 0 && localOpts.end === undefined && localOpts.asOf === undefined) {
+          throw new NovelCliError(
+            "No committed chapters yet (checkpoint.last_completed_chapter=0). Commit at least one chapter, or pass --end/--as-of >= 1.",
+            2
+          );
+        }
+        if (localOpts.asOf !== undefined && localOpts.end === undefined) {
+          throw new NovelCliError("Invalid --as-of: 0 (expected int >= 1).", 2);
+        }
+        throw new NovelCliError("Invalid --end: 0 (expected int >= 1).", 2);
+      }
+      if (end < start) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= start).`, 2);
+      if (asOf < end) throw new NovelCliError(`Invalid --as-of: ${String(asOf)} (expected int >= --end=${end}).`, 2);
+
+      const metricsAbs = resolve(rootDir, "engagement-metrics.jsonl");
+      const streamExists = await pathExists(metricsAbs);
+
+      const loaded = await loadEngagementMetricsStream({ rootDir });
+      const streamWarnings = loaded.warnings.slice();
+      if (!streamExists) streamWarnings.unshift("Missing engagement-metrics.jsonl; report will contain empty metrics.");
+
+      const report = computeEngagementReport({ records: loaded.records, asOfChapter: asOf, volume, chapterRange: { start, end }, metricsRelPath: loaded.rel });
+      const written = await writeEngagementLogs({ rootDir, report, historyRange: localOpts.history ? { start, end } : null });
+
+      if (json) {
+        printJson(okJson("engagement report", { rootDir, report, stream_warnings: streamWarnings, ...written }));
+        return;
+      }
+
+      if (streamWarnings.length > 0) {
+        for (const w of streamWarnings) process.stdout.write(`WARN: ${w}\n`);
       }
       process.stdout.write(`Wrote ${written.latestRel}.\n`);
       if (written.historyRel) process.stdout.write(`Wrote ${written.historyRel}.\n`);

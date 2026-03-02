@@ -12,3 +12,4 @@ This directory contains machine-readable JSON Schemas that act as **single sourc
 
 - `schemas/platform-profile.schema.json` — `platform-profile.json` (M6 baseline + M7 optional extensions)
 - `schemas/hook-ledger.schema.json` — `hook-ledger.json` (M7 retention hook ledger)
+- `schemas/engagement-metrics.schema.json` — `engagement-metrics.jsonl` record (M7 engagement density stream)
