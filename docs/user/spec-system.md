@@ -155,7 +155,7 @@ project/
 
 需要启用时可从 `templates/web-novel-cliche-lint.json` 复制到项目根目录并按需微调。当前 cliché lint 由 `scripts/lint-cliche.sh` 脚本执行（通过 `platform-profile.json.compliance.script_paths.lint_cliche` 配置），尚未作为 Agent context manifest 的内联输入注入。
 
-### M7 Guardrails（留存 / 可读性 / 命名）
+### Guardrails（留存 / 可读性 / 命名）
 
 `platform-profile.json` 还包含一组可选的 Guardrails 配置（可逐项启用/关闭），并在 `novel next`/`novel commit` 阶段产出可审计报告：
 
