@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
-import { ensureDir, pathExists, readTextFile, writeJsonFile, writeTextFileIfMissing } from "./fs-utils.js";
+import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFileIfMissing } from "./fs-utils.js";
 import { loadContinuityLatestSummary } from "./consistency-auditor.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
@@ -12,6 +12,7 @@ import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, titleFixSnapshotRel, type Step } from "./steps.js";
+import { isPlainObject } from "./type-guards.js";
 
 export type InstructionPacket = {
   version: 1;
@@ -75,6 +76,8 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   await maybeAdd("quality_rubric", "skills/novel-writing/references/quality-rubric.md");
   await maybeAdd("current_state", "state/current-state.json");
   await maybeAdd("world_rules", "world/rules.json");
+  await maybeAdd("character_voice_profiles", "character-voice-profiles.json");
+  await maybeAdd("character_voice_drift", "character-voice-drift.json");
 
   // Optional: volume outline and chapter contract.
   if (await pathExists(join(args.rootDir, volumeOutlineRel))) commonPaths.volume_outline = volumeOutlineRel;
@@ -98,8 +101,57 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   const expected_outputs: InstructionPacket["expected_outputs"] = [];
   const next_actions: InstructionPacket["next_actions"] = [];
 
+  const maybeAttachCharacterVoiceDirectives = async (): Promise<void> => {
+    const driftAbs = join(args.rootDir, "character-voice-drift.json");
+    if (!(await pathExists(driftAbs))) return;
+    try {
+      const raw = await readJsonFile(driftAbs);
+      if (!isPlainObject(raw)) {
+        inline.character_voice_drift_degraded = true;
+        return;
+      }
+      const obj = raw as Record<string, unknown>;
+      if (obj.schema_version !== 1) return;
+      const charsRaw = obj.characters;
+      if (!Array.isArray(charsRaw)) return;
+
+      const safeInt = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
+      const asOf = isPlainObject(obj.as_of) ? (obj.as_of as Record<string, unknown>) : null;
+      const window = isPlainObject(obj.window) ? (obj.window as Record<string, unknown>) : null;
+
+      const directives = charsRaw
+        .filter(isPlainObject)
+        .map((it) => {
+          const character_id = typeof it.character_id === "string" && it.character_id.trim().length > 0 ? it.character_id.trim() : null;
+          if (!character_id) return null;
+          const display_name = typeof it.display_name === "string" && it.display_name.trim().length > 0 ? it.display_name.trim() : character_id;
+          const rawDirectives = (it as Record<string, unknown>).directives;
+          const lines = Array.isArray(rawDirectives)
+            ? rawDirectives.filter((d) => typeof d === "string" && d.trim().length > 0).map((d) => d.trim())
+            : [];
+          if (lines.length === 0) return null;
+          return { character_id, display_name, directives: lines };
+        })
+        .filter((it): it is { character_id: string; display_name: string; directives: string[] } => it !== null);
+
+      if (directives.length === 0) return;
+
+      inline.character_voice_drift = {
+        as_of: asOf ? { chapter: safeInt(asOf.chapter), volume: safeInt(asOf.volume) } : null,
+        window: window
+          ? { chapter_start: safeInt(window.chapter_start), chapter_end: safeInt(window.chapter_end), window_chapters: safeInt(window.window_chapters) }
+          : null,
+        directives
+      };
+    } catch {
+      inline.character_voice_drift_degraded = true;
+    }
+  };
+
   if (args.step.stage === "draft") {
     agent = { kind: "subagent", name: "chapter-writer" };
+    // Optional: inject character voice drift directives (best-effort).
+    await maybeAttachCharacterVoiceDirectives();
     // Optional: inject non-spoiler light-touch reminders for dormant foreshadowing items (best-effort).
     try {
       const loadedPlatform = await loadPlatformProfile(args.rootDir).catch(() => null);
@@ -144,6 +196,8 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
   } else if (args.step.stage === "refine") {
     agent = { kind: "subagent", name: "style-refiner" };
+    // Optional: inject character voice drift directives (best-effort).
+    await maybeAttachCharacterVoiceDirectives();
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     expected_outputs.push({ path: rel.staging.chapterMd, required: true });
     expected_outputs.push({ path: rel.staging.styleRefinerChangesJson, required: false });

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "title": "character-voice-profiles.json",
+  "type": "object",
+  "required": ["schema_version", "created_at", "selection", "policy", "profiles"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_.*$": { "$ref": "#/$defs/comment_value" }
+  },
+  "propertyNames": {
+    "not": { "enum": ["__proto__", "constructor", "prototype"] }
+  },
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema pointer for editor tooling. Example: schemas/character-voice-profiles.schema.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "Schema version of character-voice-profiles.json (SSOT in schemas/character-voice-profiles.schema.json)."
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "selection": { "$ref": "#/$defs/selection" },
+    "policy": { "$ref": "#/$defs/policy" },
+    "profiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/profile" }
+    }
+  },
+  "$defs": {
+    "comment_value": {
+      "description": "Free-form comment fields supported by templates/specs.",
+      "type": ["string", "number", "boolean", "null", "object", "array"]
+    },
+    "selection": {
+      "type": "object",
+      "required": ["protagonist_id"],
+      "additionalProperties": false,
+      "properties": {
+        "protagonist_id": { "type": "string", "minLength": 1 },
+        "core_cast_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "required": [
+        "avg_dialogue_chars_ratio_low",
+        "avg_dialogue_chars_ratio_high",
+        "exclamation_per_100_chars_delta",
+        "question_per_100_chars_delta",
+        "ellipsis_per_100_chars_delta",
+        "signature_overlap_min"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "avg_dialogue_chars_ratio_low": { "type": "number", "exclusiveMinimum": 0 },
+        "avg_dialogue_chars_ratio_high": { "type": "number", "exclusiveMinimum": 0 },
+        "exclamation_per_100_chars_delta": { "type": "number", "minimum": 0 },
+        "question_per_100_chars_delta": { "type": "number", "minimum": 0 },
+        "ellipsis_per_100_chars_delta": { "type": "number", "minimum": 0 },
+        "signature_overlap_min": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["window_chapters", "min_dialogue_samples", "drift_thresholds", "recovery_thresholds"],
+      "additionalProperties": false,
+      "properties": {
+        "window_chapters": { "type": "integer", "minimum": 1 },
+        "min_dialogue_samples": { "type": "integer", "minimum": 1 },
+        "drift_thresholds": { "$ref": "#/$defs/thresholds" },
+        "recovery_thresholds": { "$ref": "#/$defs/thresholds" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "dialogue_samples",
+        "dialogue_chars",
+        "dialogue_len_avg",
+        "dialogue_len_p25",
+        "dialogue_len_p50",
+        "dialogue_len_p75",
+        "sentence_len_avg",
+        "sentence_len_p25",
+        "sentence_len_p50",
+        "sentence_len_p75",
+        "exclamation_per_100_chars",
+        "question_per_100_chars",
+        "ellipsis_per_100_chars"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dialogue_samples": { "type": "integer", "minimum": 0 },
+        "dialogue_chars": { "type": "integer", "minimum": 0 },
+        "dialogue_len_avg": { "type": "number", "minimum": 0 },
+        "dialogue_len_p25": { "type": "integer", "minimum": 0 },
+        "dialogue_len_p50": { "type": "integer", "minimum": 0 },
+        "dialogue_len_p75": { "type": "integer", "minimum": 0 },
+        "sentence_len_avg": { "type": "number", "minimum": 0 },
+        "sentence_len_p25": { "type": "integer", "minimum": 0 },
+        "sentence_len_p50": { "type": "integer", "minimum": 0 },
+        "sentence_len_p75": { "type": "integer", "minimum": 0 },
+        "exclamation_per_100_chars": { "type": "number", "minimum": 0 },
+        "question_per_100_chars": { "type": "number", "minimum": 0 },
+        "ellipsis_per_100_chars": { "type": "number", "minimum": 0 }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "required": ["character_id", "display_name", "baseline_range", "baseline_metrics", "signature_phrases"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^_.*$": { "$ref": "#/$defs/comment_value" }
+      },
+      "propertyNames": {
+        "not": { "enum": ["__proto__", "constructor", "prototype"] }
+      },
+      "properties": {
+        "character_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string", "minLength": 1 },
+        "name_variants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "baseline_range": {
+          "type": "object",
+          "required": ["chapter_start", "chapter_end"],
+          "additionalProperties": false,
+          "properties": {
+            "chapter_start": { "type": "integer", "minimum": 1 },
+            "chapter_end": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "baseline_metrics": { "$ref": "#/$defs/metrics" },
+        "signature_phrases": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "taboo_phrases": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}
+

@@ -1,6 +1,13 @@
 import { appendFile, readdir, rename, stat, truncate, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import {
+  clearCharacterVoiceDriftFile,
+  computeCharacterVoiceDrift,
+  loadActiveCharacterVoiceDriftIds,
+  loadCharacterVoiceProfiles,
+  writeCharacterVoiceDriftFile
+} from "./character-voice.js";
 import { readCheckpoint, type Checkpoint, writeCheckpoint } from "./checkpoint.js";
 import {
   attachClicheLintToEval,
@@ -566,6 +573,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
   const engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
 
+  const characterVoiceProfilesExists = await pathExists(join(args.rootDir, "character-voice-profiles.json"));
+
   const rel = chapterRelPaths(args.chapter);
   await ensureFilePresent(args.rootDir, rel.staging.chapterMd);
   await ensureFilePresent(args.rootDir, rel.staging.summaryMd);
@@ -679,6 +688,10 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(
       `WRITE logs/engagement/engagement-report-vol-${pad2(volume)}-ch${pad3(engagementHistoryRange.start)}-ch${pad3(engagementHistoryRange.end)}.json`
     );
+  }
+
+  if (characterVoiceProfilesExists) {
+    plan.push(`WRITE character-voice-drift.json (voice drift directives; cleared on recovery)`);
   }
 
   // Optional: promise ledger report maintenance (non-blocking) when promise-ledger.json exists.
@@ -1597,6 +1610,33 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(`Engagement density maintenance skipped: ${message}`);
+  }
+
+  // Post-commit (outside write-lock): character voice drift directives (non-blocking).
+  try {
+    const loaded = await loadCharacterVoiceProfiles(args.rootDir);
+    for (const w of loaded.warnings) warnings.push(w);
+
+    if (loaded.profiles) {
+      const previousActiveCharacterIds = await loadActiveCharacterVoiceDriftIds(args.rootDir);
+      const computed = await computeCharacterVoiceDrift({
+        rootDir: args.rootDir,
+        profiles: loaded.profiles,
+        asOfChapter: args.chapter,
+        volume,
+        previousActiveCharacterIds
+      });
+      for (const w of computed.warnings) warnings.push(w);
+
+      if (computed.drift) {
+        await writeCharacterVoiceDriftFile({ rootDir: args.rootDir, drift: computed.drift });
+      } else {
+        await clearCharacterVoiceDriftFile(args.rootDir);
+      }
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    warnings.push(`Character voice drift maintenance skipped: ${message}`);
   }
 
   return { plan, warnings };
