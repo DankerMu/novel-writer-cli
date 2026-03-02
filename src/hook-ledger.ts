@@ -341,6 +341,9 @@ export async function loadHookLedger(rootDir: string): Promise<{ ledger: HookLed
 
   const now = new Date().toISOString();
   const warnings: string[] = [];
+  if (obj.entries !== undefined && !Array.isArray(obj.entries)) {
+    throw new NovelCliError(`Invalid ${rel}: 'entries' must be an array.`, 2);
+  }
   const entriesRaw = Array.isArray(obj.entries) ? obj.entries : [];
   const entries: HookLedgerEntry[] = [];
   for (const it of entriesRaw) {
@@ -519,7 +522,7 @@ export function computeHookLedgerUpdate(args: {
     if (normalized) existingEntries.push(normalized);
   }
 
-  // Unique by chapter, prefer fulfilled over open over lapsed; within same status, keep the newest timestamps.
+  // Unique by chapter: preserve "fulfilled" as user-authored state; otherwise prefer newest timestamps.
   const byChapter = new Map<number, HookLedgerEntry>();
   const dropped: Array<{ chapter: number; kept: HookLedgerEntry; dropped: HookLedgerEntry }> = [];
   for (const e of existingEntries) {
@@ -528,6 +531,40 @@ export function computeHookLedgerUpdate(args: {
       byChapter.set(e.chapter, e);
       continue;
     }
+
+    const prevIsFulfilled = prev.status === "fulfilled";
+    const nextIsFulfilled = e.status === "fulfilled";
+    if (prevIsFulfilled && !nextIsFulfilled) {
+      dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
+      continue;
+    }
+    if (!prevIsFulfilled && nextIsFulfilled) {
+      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
+      byChapter.set(e.chapter, e);
+      continue;
+    }
+
+    const prevTs = entryTimestamp(prev);
+    const nextTs = entryTimestamp(e);
+    if (prevTs !== null && nextTs !== null) {
+      if (nextTs > prevTs) {
+        dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
+        byChapter.set(e.chapter, e);
+        continue;
+      }
+      if (nextTs < prevTs) {
+        dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
+        continue;
+      }
+    } else if (prevTs === null && nextTs !== null) {
+      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
+      byChapter.set(e.chapter, e);
+      continue;
+    } else if (prevTs !== null && nextTs === null) {
+      dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
+      continue;
+    }
+
     const prevRank = statusRank(prev.status);
     const nextRank = statusRank(e.status);
     if (nextRank > prevRank) {
@@ -535,25 +572,6 @@ export function computeHookLedgerUpdate(args: {
       byChapter.set(e.chapter, e);
       continue;
     }
-    if (nextRank < prevRank) {
-      dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
-      continue;
-    }
-
-    // Same status: keep the newest timestamp when available (updated_at preferred, then created_at).
-    const prevTs = entryTimestamp(prev);
-    const nextTs = entryTimestamp(e);
-    if (prevTs !== null && nextTs !== null && nextTs > prevTs) {
-      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
-      byChapter.set(e.chapter, e);
-      continue;
-    }
-    if (prevTs === null && nextTs !== null) {
-      dropped.push({ chapter: e.chapter, kept: e, dropped: prev });
-      byChapter.set(e.chapter, e);
-      continue;
-    }
-
     dropped.push({ chapter: e.chapter, kept: prev, dropped: e });
   }
   if (dropped.length > 0) {
@@ -709,13 +727,15 @@ export function computeHookLedgerUpdate(args: {
   const maxStreak = computeMaxSameTypeStreak(typesByChapter);
   const issues: RetentionIssue[] = [];
 
-  if (newlyLapsed.length > 0) {
-    const sample = newlyLapsed[0];
+  const lapsedEntries = updatedLedger.entries.filter((e) => e.status === "lapsed");
+  if (lapsedEntries.length > 0) {
+    const sample = newlyLapsed[0] ?? lapsedEntries[0];
     const sev = args.policy.overdue_policy;
+    const newlySuffix = newlyLapsed.length > 0 ? ` (${newlyLapsed.length} newly lapsed)` : "";
     issues.push({
       id: "retention.hook_ledger.hook_debt",
       severity: sev,
-      summary: `Hook debt detected: ${newlyLapsed.length} promise(s) lapsed (window exceeded).`,
+      summary: `Hook debt outstanding: ${lapsedEntries.length} promise(s) lapsed${newlySuffix}.`,
       evidence: sample ? `e.g. ${sample.id} (ch${pad3(sample.chapter)} window ${sample.fulfillment_window[0]}-${sample.fulfillment_window[1]})` : undefined,
       suggestion: "Fulfill promises within the configured window, or mark fulfilled in hook-ledger.json when paid off."
     });
@@ -743,7 +763,7 @@ export function computeHookLedgerUpdate(args: {
   const open = updatedLedger.entries.filter((e) => e.status === "open").map(summarizeEntry);
   const lapsed = updatedLedger.entries.filter((e) => e.status === "lapsed").map(summarizeEntry);
 
-  const hasBlocking = issues.some((i) => i.id === "retention.hook_ledger.hook_debt" && i.severity === "hard");
+  const hasBlocking = issues.some((i) => i.severity === "hard");
   const report: RetentionReport = {
     schema_version: 1,
     generated_at: now,

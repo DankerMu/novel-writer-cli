@@ -115,6 +115,43 @@ test("computeHookLedgerUpdate marks overdue open promises as lapsed and reports 
   assert.equal(res.report.debt.newly_lapsed_total, 1);
 });
 
+test("computeHookLedgerUpdate still reports hook debt when debt already exists (even if nothing newly lapses)", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch020",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "lapsed",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ overdue_policy: "hard", diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 30,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-030-eval.json",
+    policy,
+    reportRange: { start: 21, end: 30 }
+  });
+
+  assert.equal(res.report.debt.newly_lapsed_total, 0);
+  assert.ok(res.report.issues.some((i) => i.id === "retention.hook_ledger.hook_debt" && i.severity === "hard"));
+  assert.equal(res.report.has_blocking_issues, true);
+});
+
 test("computeHookLedgerUpdate blocks when overdue_policy is hard and hook debt is detected", () => {
   const ledger: HookLedgerFile = {
     schema_version: 1,
@@ -310,6 +347,109 @@ test("computeHookLedgerUpdate dedupes same-status duplicates by newest timestamp
   assert.equal(ch5.id, "hook:ch005-new");
 });
 
+test("computeHookLedgerUpdate dedupes cross-status duplicates by timestamp (keeps newest)", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch020-open-old",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z"
+      },
+      {
+        id: "hook:ch020-lapsed-new",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "lapsed",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-03T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 22,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-022-eval.json",
+    policy,
+    reportRange: { start: 13, end: 22 }
+  });
+
+  assert.ok(res.warnings.some((w) => w.includes("Dropped") && w.includes("hook:ch020")));
+  assert.equal(res.updatedLedger.entries.filter((e) => e.chapter === 20).length, 1);
+  const ch20 = res.updatedLedger.entries.find((e) => e.chapter === 20);
+  assert.ok(ch20);
+  assert.equal(ch20.id, "hook:ch020-lapsed-new");
+  assert.equal(ch20.status, "lapsed");
+});
+
+test("computeHookLedgerUpdate preserves fulfilled status when deduping", () => {
+  const ledger: HookLedgerFile = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch020-fulfilled-old",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "fulfilled",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: 22,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z"
+      },
+      {
+        id: "hook:ch020-open-new",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-03T00:00:00Z"
+      }
+    ]
+  };
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 22,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-022-eval.json",
+    policy,
+    reportRange: { start: 13, end: 22 }
+  });
+
+  assert.equal(res.updatedLedger.entries.filter((e) => e.chapter === 20).length, 1);
+  const ch20 = res.updatedLedger.entries.find((e) => e.chapter === 20);
+  assert.ok(ch20);
+  assert.equal(ch20.id, "hook:ch020-fulfilled-old");
+  assert.equal(ch20.status, "fulfilled");
+});
+
 test("loadHookLedger normalizes unknown fields, invalid strengths, and missing windows", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-test-"));
   const abs = join(rootDir, "hook-ledger.json");
@@ -351,6 +491,15 @@ test("loadHookLedger normalizes unknown fields, invalid strengths, and missing w
   assert.ok(Array.isArray(e.fulfillment_window) && e.fulfillment_window.length === 2);
   assert.equal(e._needs_window_backfill, true);
   assert.ok(Array.isArray(loaded.warnings) && loaded.warnings.length > 0);
+});
+
+test("loadHookLedger rejects invalid entries type to avoid silent data loss", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-invalid-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = { schema_version: 1, entries: { bad: true } };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  await assert.rejects(() => loadHookLedger(rootDir), /entries.*array/);
 });
 
 test("computeHookLedgerUpdate refreshes auto promise_text when hook_type changes", () => {
