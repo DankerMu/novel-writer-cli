@@ -1200,14 +1200,22 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
         for (const w of hookLedgerUpdate.warnings) warnings.push(`Hook ledger: ${w}`);
 
         if (hookLedgerUpdate.report.has_blocking_issues) {
-          const details = hookLedgerUpdate.report.issues.map((i) => i.summary).slice(0, 2).join(" | ");
-          const suffix = hookLedgerUpdate.report.issues.length > 2 ? " …" : "";
+          const blockingIssues = hookLedgerUpdate.report.issues.filter((i) => i.severity === "hard");
+          const limit = 2;
+          const details = blockingIssues
+            .map((i) => (i.evidence ? `${i.summary} (${i.evidence})` : i.summary))
+            .slice(0, limit)
+            .join(" | ");
+          const suffix = blockingIssues.length > limit ? " …" : "";
           const msg = details.length > 0 ? `${details}${suffix}` : "(details in logs/retention/latest.json)";
           throw new NovelCliError(`Retention hook ledger violation: ${msg}`, 2);
         }
 
         if (hookLedgerUpdate.report.issues.length > 0) {
-          const details = hookLedgerUpdate.report.issues.map((i) => i.summary).slice(0, 2).join(" | ");
+          const details = hookLedgerUpdate.report.issues
+            .map((i) => (i.evidence ? `${i.summary} (${i.evidence})` : i.summary))
+            .slice(0, 2)
+            .join(" | ");
           const suffix = hookLedgerUpdate.report.issues.length > 2 ? " …" : "";
           warnings.push(`Retention hook ledger: ${details}${suffix}. See logs/retention/latest.json.`);
         }

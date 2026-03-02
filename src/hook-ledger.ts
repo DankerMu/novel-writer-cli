@@ -138,16 +138,23 @@ function safeWindow(v: unknown): [number, number] | null {
 function normalizeLinks(raw: unknown): { promise_ids?: string[]; foreshadowing_ids?: string[] } | null {
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
-  const promise_ids = Array.isArray(obj.promise_ids) ? obj.promise_ids.filter((v) => typeof v === "string" && v.trim().length > 0) : null;
+  const promise_ids = Array.isArray(obj.promise_ids)
+    ? Array.from(
+        new Set(obj.promise_ids.filter((v) => typeof v === "string").map((v) => (v as string).trim()).filter((v) => v.length > 0))
+      )
+    : null;
   const foreshadowing_ids = Array.isArray(obj.foreshadowing_ids)
-    ? obj.foreshadowing_ids.filter((v) => typeof v === "string" && v.trim().length > 0)
+    ? Array.from(
+        new Set(
+          obj.foreshadowing_ids.filter((v) => typeof v === "string").map((v) => (v as string).trim()).filter((v) => v.length > 0)
+        )
+      )
     : null;
 
-  if (!promise_ids && !foreshadowing_ids) return null;
-  return {
-    ...(promise_ids ? { promise_ids } : {}),
-    ...(foreshadowing_ids ? { foreshadowing_ids } : {})
-  };
+  const out: { promise_ids?: string[]; foreshadowing_ids?: string[] } = {};
+  if (promise_ids && promise_ids.length > 0) out.promise_ids = promise_ids;
+  if (foreshadowing_ids && foreshadowing_ids.length > 0) out.foreshadowing_ids = foreshadowing_ids;
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function hookPromiseText(hookType: string): string {
@@ -257,17 +264,35 @@ function normalizeExistingEntry(raw: unknown, now: string, warnings: string[]): 
   const rawCreatedAt = obj.created_at;
   let created_at = safeIso(rawCreatedAt);
   if (!created_at) {
-    if (rawCreatedAt !== undefined && comments._invalid_created_at === undefined) comments._invalid_created_at = rawCreatedAt;
-    if (rawCreatedAt !== undefined) warnings.push(`Hook ledger entry '${id}' has invalid created_at; defaulted to now.`);
+    if (rawCreatedAt === undefined) {
+      if (comments._missing_created_at === undefined) comments._missing_created_at = true;
+      warnings.push(`Hook ledger entry '${id}' is missing created_at; defaulted to now.`);
+    } else {
+      if (comments._invalid_created_at === undefined) comments._invalid_created_at = rawCreatedAt;
+      warnings.push(`Hook ledger entry '${id}' has invalid created_at; defaulted to now.`);
+    }
     created_at = now;
   }
 
   const rawUpdatedAt = obj.updated_at;
   let updated_at = safeIso(rawUpdatedAt);
   if (!updated_at) {
-    if (rawUpdatedAt !== undefined && comments._invalid_updated_at === undefined) comments._invalid_updated_at = rawUpdatedAt;
-    if (rawUpdatedAt !== undefined) warnings.push(`Hook ledger entry '${id}' has invalid updated_at; defaulted to now.`);
-    updated_at = now;
+    if (rawUpdatedAt === undefined) {
+      if (comments._missing_updated_at === undefined) comments._missing_updated_at = true;
+      warnings.push(`Hook ledger entry '${id}' is missing updated_at; defaulted to created_at.`);
+    } else {
+      if (comments._invalid_updated_at === undefined) comments._invalid_updated_at = rawUpdatedAt;
+      warnings.push(`Hook ledger entry '${id}' has invalid updated_at; defaulted to created_at.`);
+    }
+    updated_at = created_at;
+  }
+
+  const createdTs = Date.parse(created_at);
+  const updatedTs = Date.parse(updated_at);
+  if (Number.isFinite(createdTs) && Number.isFinite(updatedTs) && createdTs > updatedTs) {
+    if (comments._created_at_clamped_to_updated_at === undefined) comments._created_at_clamped_to_updated_at = true;
+    warnings.push(`Hook ledger entry '${id}' has created_at after updated_at; clamped created_at to updated_at.`);
+    created_at = updated_at;
   }
   const evidence_snippet = safeString(obj.evidence_snippet) ?? undefined;
 
@@ -334,17 +359,23 @@ export async function loadHookLedger(rootDir: string): Promise<{ ledger: HookLed
   const obj = raw as Record<string, unknown>;
   const comments = pickCommentFields(obj);
 
+  if (obj.schema_version === undefined) {
+    throw new NovelCliError(`Invalid ${rel}: missing required 'schema_version'.`, 2);
+  }
   const schemaVersion = obj.schema_version;
-  if (schemaVersion !== undefined && schemaVersion !== 1) {
+  if (schemaVersion !== 1) {
     throw new NovelCliError(`Invalid ${rel}: 'schema_version' must be 1.`, 2);
   }
 
   const now = new Date().toISOString();
   const warnings: string[] = [];
-  if (obj.entries !== undefined && !Array.isArray(obj.entries)) {
+  if (obj.entries === undefined) {
+    throw new NovelCliError(`Invalid ${rel}: missing required 'entries' array.`, 2);
+  }
+  if (!Array.isArray(obj.entries)) {
     throw new NovelCliError(`Invalid ${rel}: 'entries' must be an array.`, 2);
   }
-  const entriesRaw = Array.isArray(obj.entries) ? obj.entries : [];
+  const entriesRaw = obj.entries;
   const entries: HookLedgerEntry[] = [];
   for (const it of entriesRaw) {
     const entry = normalizeExistingEntry(it, now, warnings);
@@ -494,7 +525,7 @@ function entryTimestamp(e: HookLedgerEntry): number | null {
 }
 
 function statusRank(status: HookLedgerStatus): number {
-  return status === "fulfilled" ? 3 : status === "open" ? 2 : 1;
+  return status === "fulfilled" ? 3 : status === "lapsed" ? 2 : 1;
 }
 
 export function computeHookLedgerUpdate(args: {
@@ -592,6 +623,8 @@ export function computeHookLedgerUpdate(args: {
   const hookStrength = evalSignals.strength;
   const hookEvidence = evalSignals.evidence;
 
+  const existingAtChapter = entries.find((e) => e.chapter === args.chapter) ?? null;
+
   let entry: HookLedgerEntry | null = null;
   if (hookPresent && hookType && hookType !== "none") {
     const existing = entries.find((e) => e.chapter === args.chapter) ?? null;
@@ -663,6 +696,10 @@ export function computeHookLedgerUpdate(args: {
       if (idx >= 0) entries[idx] = entry;
       else entries.push(entry);
     }
+  } else if (existingAtChapter) {
+    warnings.push(
+      `Eval indicates no hook for chapter ${args.chapter}, but hook-ledger has existing entry '${existingAtChapter.id}' (status=${existingAtChapter.status}). Ledger left unchanged.`
+    );
   }
 
   // Backfill windows when missing/invalid.

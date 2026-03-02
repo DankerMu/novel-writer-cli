@@ -399,6 +399,56 @@ test("computeHookLedgerUpdate dedupes cross-status duplicates by timestamp (keep
   assert.equal(ch20.status, "lapsed");
 });
 
+test("computeHookLedgerUpdate dedupes cross-status duplicates when one is missing updated_at (keeps lapsed)", () => {
+  const ledger = {
+    schema_version: 1,
+    entries: [
+      {
+        id: "hook:ch020-lapsed",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "lapsed",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-03T00:00:00Z"
+      },
+      {
+        id: "hook:ch020-open-missing-updated",
+        chapter: 20,
+        hook_type: "question",
+        hook_strength: 4,
+        promise_text: "留悬念：未解之问",
+        status: "open",
+        fulfillment_window: [21, 24],
+        fulfilled_chapter: null,
+        created_at: "2026-01-02T00:00:00Z"
+      }
+    ]
+  } as unknown as HookLedgerFile;
+
+  const evalRaw = makeEval({ hookType: "none", strength: 3, evidence: "章末证据片段", present: false });
+  const policy = makePolicy({ diversity_window_chapters: 1, min_distinct_types_in_window: 1 }) as any;
+
+  const res = computeHookLedgerUpdate({
+    ledger,
+    evalRaw,
+    chapter: 22,
+    volume: 1,
+    evalRelPath: "evaluations/chapter-022-eval.json",
+    policy,
+    reportRange: { start: 13, end: 22 }
+  });
+
+  assert.ok(res.warnings.some((w) => w.includes("missing updated_at")));
+  const ch20 = res.updatedLedger.entries.find((e) => e.chapter === 20);
+  assert.ok(ch20);
+  assert.equal(ch20.id, "hook:ch020-lapsed");
+  assert.equal(ch20.status, "lapsed");
+});
+
 test("computeHookLedgerUpdate preserves fulfilled status when deduping", () => {
   const ledger: HookLedgerFile = {
     schema_version: 1,
@@ -500,6 +550,24 @@ test("loadHookLedger rejects invalid entries type to avoid silent data loss", as
   await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
 
   await assert.rejects(() => loadHookLedger(rootDir), /entries.*array/);
+});
+
+test("loadHookLedger rejects missing schema_version (schema SSOT)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-missing-sv-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = { entries: [] };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  await assert.rejects(() => loadHookLedger(rootDir), /schema_version/);
+});
+
+test("loadHookLedger rejects missing entries (schema SSOT)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-hook-ledger-load-missing-entries-test-"));
+  const abs = join(rootDir, "hook-ledger.json");
+  const raw = { schema_version: 1 };
+  await writeFile(abs, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+  await assert.rejects(() => loadHookLedger(rootDir), /entries/);
 });
 
 test("computeHookLedgerUpdate refreshes auto promise_text when hook_type changes", () => {
