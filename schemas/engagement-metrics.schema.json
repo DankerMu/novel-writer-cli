@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "title": "engagement-metrics.jsonl record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "chapter",
+    "volume",
+    "word_count",
+    "plot_progression_beats",
+    "conflict_intensity",
+    "payoff_score",
+    "new_info_load_score",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "propertyNames": {
+    "not": { "enum": ["__proto__", "constructor", "prototype"] }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "Schema version of each engagement-metrics.jsonl record."
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "chapter": { "type": "integer", "minimum": 1 },
+    "volume": { "type": "integer", "minimum": 0 },
+    "word_count": { "type": "integer", "minimum": 0 },
+    "plot_progression_beats": { "type": "integer", "minimum": 0 },
+    "conflict_intensity": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "payoff_score": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "new_info_load_score": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "notes": { "type": "string", "minLength": 1, "pattern": "\\S", "maxLength": 320 }
+  }
+}

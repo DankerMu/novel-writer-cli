@@ -12,6 +12,13 @@ import {
 import { NovelCliError } from "./errors.js";
 import { fingerprintsMatch, hashText } from "./fingerprint.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, removePath, writeJsonFile } from "./fs-utils.js";
+import {
+  appendEngagementMetricRecord,
+  computeEngagementMetricRecord,
+  computeEngagementReport,
+  loadEngagementMetricsStream,
+  writeEngagementLogs
+} from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems, writeForeshadowVisibilityLogs } from "./foreshadow-visibility.js";
 import {
   attachHookLedgerToEval,
@@ -456,6 +463,16 @@ function resolvePromiseLedgerHistoryRange(args: {
   return null;
 }
 
+function resolveEngagementHistoryRange(args: {
+  chapter: number;
+  isVolumeEnd: boolean;
+  volumeRange: { start: number; end: number } | null;
+}): { start: number; end: number } | null {
+  if (args.isVolumeEnd && args.volumeRange) return { start: args.volumeRange.start, end: args.volumeRange.end };
+  if (args.chapter % 10 === 0) return { start: Math.max(1, args.chapter - 9), end: args.chapter };
+  return null;
+}
+
 function parsePendingVolumeEndAuditMarker(raw: unknown): PendingVolumeEndAuditMarker | null {
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
@@ -546,6 +563,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
   const promiseLedgerExists = await pathExists(join(args.rootDir, "promise-ledger.json"));
   const promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
+
+  const engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
 
   const rel = chapterRelPaths(args.chapter);
   await ensureFilePresent(args.rootDir, rel.staging.chapterMd);
@@ -648,7 +667,17 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(
       `WRITE logs/foreshadowing/foreshadow-visibility-vol-${pad2(volume)}-ch${pad3(foreshadowHistoryRange.start)}-ch${pad3(
         foreshadowHistoryRange.end
-      )}.json`
+        )}.json`
+    );
+  }
+
+  // Optional: engagement density maintenance (non-blocking).
+  // This appends a per-chapter metrics record and maintains a rolling engagement window report.
+  plan.push(`APPEND engagement-metrics.jsonl (chapter metrics)`);
+  plan.push(`WRITE logs/engagement/latest.json (monotonic)`);
+  if (engagementHistoryRange) {
+    plan.push(
+      `WRITE logs/engagement/engagement-report-vol-${pad2(volume)}-ch${pad3(engagementHistoryRange.start)}-ch${pad3(engagementHistoryRange.end)}.json`
     );
   }
 
@@ -1532,6 +1561,42 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`Promise ledger report maintenance skipped: ${message}`);
     }
+  }
+
+  // Post-commit (outside write-lock): engagement density metrics + rolling window report (non-blocking).
+  try {
+    const metric = await computeEngagementMetricRecord({
+      rootDir: args.rootDir,
+      chapter: args.chapter,
+      volume,
+      chapterRel: rel.final.chapterMd,
+      summaryRel: rel.final.summaryMd,
+      evalRel: rel.final.evalJson
+    });
+    for (const w of metric.warnings) warnings.push(w);
+
+    const stream = await appendEngagementMetricRecord({ rootDir: args.rootDir, record: metric.record });
+
+    const loaded = await loadEngagementMetricsStream({ rootDir: args.rootDir, relPath: stream.rel });
+    for (const w of loaded.warnings) warnings.push(w);
+
+    const scopeRange =
+      isVolumeEnd && volumeRange
+        ? { start: volumeRange.start, end: volumeRange.end }
+        : { start: Math.max(1, args.chapter - 9), end: args.chapter };
+    const report = computeEngagementReport({
+      records: loaded.records,
+      asOfChapter: args.chapter,
+      volume,
+      chapterRange: scopeRange,
+      metricsRelPath: loaded.rel
+    });
+
+    const historyRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
+    await writeEngagementLogs({ rootDir: args.rootDir, report, historyRange });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    warnings.push(`Engagement density maintenance skipped: ${message}`);
   }
 
   return { plan, warnings };
