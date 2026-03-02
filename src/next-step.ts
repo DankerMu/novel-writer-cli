@@ -160,6 +160,8 @@ async function checkPrejudgeGuardrailsForStage(args: {
   if (!loadedProfile) return null;
 
   const chapterAbsPath = join(args.projectRootDir, args.chapterRelPath);
+  const cacheRelPath = prejudgeGuardrailsRelPath(args.inflightChapter);
+  let cacheStatus: "hit" | "miss" = "miss";
   let report = await loadPrejudgeGuardrailsReportIfFresh({
     rootDir: args.projectRootDir,
     chapter: args.inflightChapter,
@@ -167,6 +169,7 @@ async function checkPrejudgeGuardrailsForStage(args: {
     platformProfileRelPath: loadedProfile.relPath,
     platformProfile: loadedProfile.profile
   });
+  if (report) cacheStatus = "hit";
 
   if (!report) {
     try {
@@ -177,8 +180,14 @@ async function checkPrejudgeGuardrailsForStage(args: {
         platformProfileRelPath: loadedProfile.relPath,
         platformProfile: loadedProfile.profile
       });
-    } catch {
-      return null;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "review" }),
+        reason: `${args.stagePrefix}:prejudge_guardrails_error`,
+        inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+        evidence: { ...args.evidence, prejudge_guardrails: { cache: { status: cacheStatus, rel_path: cacheRelPath }, error: message } }
+      };
     }
   }
 
@@ -202,7 +211,7 @@ async function checkPrejudgeGuardrailsForStage(args: {
     evidence: {
       ...args.evidence,
       prejudge_guardrails: {
-        report_path: prejudgeGuardrailsRelPath(args.inflightChapter),
+        cache: { status: cacheStatus, rel_path: cacheRelPath },
         status: report.status,
         has_blocking_issues: report.has_blocking_issues,
         blocking_reasons: report.blocking_reasons,

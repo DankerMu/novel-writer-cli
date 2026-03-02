@@ -25,6 +25,8 @@ export type PrejudgeGuardrailsReport = {
   blocking_reasons: string[];
 };
 
+const PREJUDGE_GUARDRAILS_STATUSES = ["pass", "warn", "violation", "skipped"] as const;
+
 function isBlockingTitlePolicy(report: TitlePolicyReport): boolean {
   if (report.status === "pass" || report.status === "skipped") return false;
   if (report.has_hard_violations) return true;
@@ -134,6 +136,15 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
   const obj = raw as Record<string, unknown>;
   if (obj.schema_version !== 1) return null;
 
+  const scopeRaw = obj.scope;
+  if (!isPlainObject(scopeRaw)) return null;
+  const scopeObj = scopeRaw as Record<string, unknown>;
+  if (typeof scopeObj.chapter !== "number" || !Number.isInteger(scopeObj.chapter) || scopeObj.chapter !== args.chapter) return null;
+
+  const statusRaw = obj.status;
+  if (typeof statusRaw !== "string") return null;
+  if (!(PREJUDGE_GUARDRAILS_STATUSES as readonly string[]).includes(statusRaw)) return null;
+
   const profileRaw = obj.platform_profile;
   if (!isPlainObject(profileRaw)) return null;
   const profileObj = profileRaw as Record<string, unknown>;
@@ -149,6 +160,14 @@ export async function loadPrejudgeGuardrailsReportIfFresh(args: {
 
   if (typeof obj.has_blocking_issues !== "boolean") return null;
   if (!Array.isArray(obj.blocking_reasons) || !obj.blocking_reasons.every((v) => typeof v === "string")) return null;
+
+  const titleRaw = obj.title_policy;
+  if (!isPlainObject(titleRaw)) return null;
+  const titleObj = titleRaw as Record<string, unknown>;
+  if (titleObj.schema_version !== 1) return null;
+  if (typeof titleObj.status !== "string") return null;
+  if (!Array.isArray(titleObj.issues)) return null;
+  if (typeof titleObj.has_hard_violations !== "boolean") return null;
 
   const readability = obj.readability_lint;
   if (!isPlainObject(readability)) return null;

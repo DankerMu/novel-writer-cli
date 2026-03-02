@@ -56,7 +56,7 @@ test("computeNextStep returns review when naming lint has blocking issues", asyn
   const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
-  assert.ok(next.reason.includes("prejudge_guardrails_blocking"));
+  assert.match(next.reason, /prejudge_guardrails_blocking/u);
 });
 
 test("computeNextStep returns review when readability lint has blocking issues (deterministic script)", async () => {
@@ -86,7 +86,7 @@ test("computeNextStep returns review when readability lint has blocking issues (
   const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
-  assert.ok(next.reason.includes("readability_lint"));
+  assert.match(next.reason, /readability_lint/u);
 });
 
 test("buildInstructionPacket (judge) includes prejudge guardrails report path and writes the report file", async () => {
@@ -133,6 +133,33 @@ test("buildInstructionPacket (judge) includes prejudge guardrails report path an
 
   const inlineRef = packet?.manifest?.inline?.prejudge_guardrails?.report_path;
   assert.equal(inlineRef, guardrailRel);
+});
+
+test("computeNextStep returns review on refined stage when naming lint blocks", async () => {
+  const rootDir = await setupProjectDir();
+
+  await writeJson(
+    join(rootDir, "platform-profile.json"),
+    makePlatformProfileRaw({
+      retention: null,
+      readability: null,
+      naming: { enabled: true, near_duplicate_threshold: 0.9, blocking_conflict_types: ["duplicate"], exemptions: {} }
+    })
+  );
+
+  await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+  await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "# 标题\n正文\n", "utf8");
+  await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
+  await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
+
+  await mkdir(join(rootDir, "characters/active"), { recursive: true });
+  await writeJson(join(rootDir, "characters/active/a.json"), { id: "a", display_name: "张三", aliases: [] });
+  await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "张三", aliases: [] });
+
+  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const next = await computeNextStep(rootDir, checkpoint);
+  assert.equal(next.step, "chapter:001:review");
+  assert.match(next.reason, /^refined:prejudge_guardrails_blocking:/u);
 });
 
 test("computeNextStep returns draft (not crash) when judged but staging chapter is missing", async () => {
@@ -183,7 +210,7 @@ test("computeNextStep tolerates invalid cached prejudge guardrails JSON (recompu
   const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
-  assert.ok(next.reason.includes("prejudge_guardrails_blocking"));
+  assert.match(next.reason, /prejudge_guardrails_blocking/u);
 });
 
 test("computeNextStep does not use cached report when platform profile changes (fingerprint invalidation)", async () => {
@@ -224,4 +251,35 @@ test("computeNextStep does not use cached report when platform profile changes (
   const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
   const next = await computeNextStep(rootDir, checkpointJudged);
   assert.equal(next.step, "chapter:001:commit");
+});
+
+test("buildInstructionPacket (judge) sets prejudge_guardrails_degraded when report compute fails", async () => {
+  const rootDir = await setupProjectDir();
+
+  await writeJson(
+    join(rootDir, "platform-profile.json"),
+    makePlatformProfileRaw({
+      retention: null,
+      readability: null,
+      naming: { enabled: true, near_duplicate_threshold: 0.9, blocking_conflict_types: ["duplicate"], exemptions: {} }
+    })
+  );
+
+  await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+  // Intentionally create a directory at the chapter path to trigger fingerprint/read failure.
+  await mkdir(join(rootDir, "staging/chapters/chapter-001.md"), { recursive: true });
+
+  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const built = await buildInstructionPacket({
+    rootDir,
+    checkpoint,
+    step: { kind: "chapter", chapter: 1, stage: "judge" },
+    embedMode: null,
+    writeManifest: false
+  });
+
+  const packet = (built as { packet: any }).packet;
+  assert.equal(packet?.manifest?.inline?.prejudge_guardrails, null);
+  assert.equal(packet?.manifest?.inline?.prejudge_guardrails_degraded, true);
+  assert.equal(packet?.manifest?.paths?.prejudge_guardrails, undefined);
 });
