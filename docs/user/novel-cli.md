@@ -7,6 +7,26 @@
 - 校验 `staging/**` 产物（validate）并推进 checkpoint（advance）
 - 将 `staging/**` 事务提交到正式目录（commit），并更新 `state/` 与 `foreshadowing/`
 
+## 全局选项
+
+- `--project <dir>`：指定小说项目根目录（默认从当前目录向上查找 `.checkpoint.json`）
+- `--json`：输出单个 JSON 对象（便于执行器/脚本消费）；不加时为人类可读输出
+
+## 命令速览
+
+| 命令 | 用途 |
+|------|------|
+| `novel status` | 查看 checkpoint / lock / next（只读） |
+| `novel next` | 计算确定性的下一步 step id |
+| `novel instructions <step>` | 输出 instruction packet（JSON） |
+| `novel validate <step>` | 校验 step 产物是否齐全/合规 |
+| `novel advance <step>` | 校验通过后推进 checkpoint |
+| `novel commit --chapter N` | 提交 staging 事务到正式目录（写入） |
+| `novel lock status/clear` | 查看/清理写入锁（解决中断导致的 stale lock） |
+| `novel promises init/report` | 承诺台账：初始化与窗口报告 |
+| `novel engagement report` | 参与度密度：窗口报告 |
+| `novel voice init/check` | 角色语气画像 + 漂移检测 |
+
 ## 本仓库开发态使用
 
 ```bash
@@ -47,6 +67,12 @@ novel instructions "chapter:003:draft" --json
 
 ```bash
 novel instructions "chapter:003:draft" --json --write-manifest
+```
+
+可选：为执行器提供少量内嵌内容（当前仅支持 `brief` 模式，注入 `brief.md` 的前 2000 字预览）。使用该选项后 `packet.manifest.mode` 会变为 `paths+embed`，并携带 `packet.manifest.embed.brief_preview`：
+
+```bash
+novel instructions "chapter:003:draft" --json --write-manifest --embed brief
 ```
 
 ### 3) 用执行器跑这一步（Claude Code / Codex）
@@ -101,6 +127,29 @@ commit 会执行（见 PRD §10.4）：
 - 合并 `staging/state/chapter-XXX-delta.json` → `state/current-state.json`（并 append `state/changelog.jsonl`）
 - 从 delta 的 `foreshadow` ops 更新 `foreshadowing/global.json`
 - 更新 `.checkpoint.json`：`last_completed_chapter`、`pipeline_stage="committed"`、`inflight_chapter=null`
+
+## `status`：快速查看项目状态（只读）
+
+```bash
+novel status
+# 或：novel status --json
+```
+
+输出包含：checkpoint 摘要、lock 状态、以及当前 `novel next` 会返回的下一步。
+
+## `lock`：写入锁（解决并发与中断残留）
+
+`novel` 在需要写入项目文件时会使用项目根目录下的 `.novel.lock/` 目录作为写入锁（防止多个会话同时写导致状态损坏）。
+
+```bash
+# 查看锁状态
+novel lock status
+
+# 清理 stale lock（默认 >30min 视为 stale；活跃锁会拒绝清理）
+novel lock clear
+```
+
+> 常见场景：执行器在写入阶段中断（断电/kill/异常退出），留下 stale lock；此时可先 `novel lock status` 确认，再执行 `novel lock clear`。
 
 ## 角色语气漂移（M7H.3，可选）
 

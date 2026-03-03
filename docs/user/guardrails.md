@@ -2,7 +2,7 @@
 
 本项目的 Guardrails 是一组**确定性**检查：由 `platform-profile.json` 驱动，在 `novel next` 的关键节点生成可审计的 JSON 报告。当出现配置为 blocking 的问题时，`novel next` 会返回人工介入步骤（如 `...:review` / `...:title-fix`），阻止流水线推进到下一阶段。
 
-> **注意**：Pipeline 集成（tasks 6.1-6.3）尚在开发中，当前部分 blocking 行为可能尚未完全生效。以下描述的是设计目标行为。
+> **注意**：Guardrails 的判定发生在 CLI 层（`novel next`/`novel commit`）。当返回 `...:title-fix` / `...:review` 等步骤时，需要执行器按 instruction packet 约定运行对应 subagent，并在 `novel validate`/`novel advance` 后继续流水线。
 
 ## 配置入口：`platform-profile.json`
 
