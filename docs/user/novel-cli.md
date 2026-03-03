@@ -132,10 +132,11 @@ novel voice check --apply
 # 预览 seed（不写文件；用 --json 查看）
 novel promises init --json
 
-# 写入 promise-ledger.json
+# 写入 promise-ledger.json（可选 --max-recent-summaries <n> 控制参考摘要数量）
 novel promises init --apply
 
-# 生成窗口报告（默认 scope=最近 10 章；加 --history 同时写入 history 文件）
+# 生成窗口报告（默认 scope=最近 10 章，展示 top 5 条待唤醒承诺；加 --history 同时写入 history 文件）
+# 前提：需先执行 novel promises init --apply 生成台账
 novel promises report --history
 ```
 
@@ -145,13 +146,14 @@ novel promises report --history
 
 参与度密度用于对“推进/冲突/奖励/信息投放”的节奏做可度量的窗口化检查，避免连续多章低密度导致掉线。
 
-- 指标流：`engagement-metrics.jsonl`（每章 append 一条记录；schema：`schemas/engagement-metrics.schema.json`）
+- 指标流：`engagement-metrics.jsonl`（由 `novel commit` 每章自动 append 一条记录；schema：`schemas/engagement-metrics.schema.json`）
 - 窗口报告：`logs/engagement/latest.json`（可选 history：`logs/engagement/engagement-report-vol-{V:02d}-ch{start:03d}-ch{end:03d}.json`）
 
 常用命令：
 
 ```bash
 # 生成窗口报告（若 engagement-metrics.jsonl 缺失会给出 WARN，并写入一个空指标报告）
+# 指标流由 novel commit 自动填充，首次 commit 后即可使用
 novel engagement report --history
 ```
 
