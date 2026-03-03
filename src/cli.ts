@@ -18,7 +18,7 @@ import { errJson, okJson, printJson } from "./output.js";
 import { pathExists } from "./fs-utils.js";
 import { resolveProjectRoot } from "./project.js";
 import { readCheckpoint } from "./checkpoint.js";
-import { initProject, resolveInitRootDir } from "./init.js";
+import { initProject, normalizePlatformId, resolveInitRootDir } from "./init.js";
 import { advanceCheckpointForStep } from "./advance.js";
 import { commitChapter } from "./commit.js";
 import { buildInstructionPacket } from "./instructions.js";
@@ -76,11 +76,12 @@ function buildProgram(argv: string[]): Command {
       const json = Boolean(opts.json);
 
       const rootDir = resolveInitRootDir({ cwd: process.cwd(), projectOverride: opts.project });
+      const platform = localOpts.platform ? normalizePlatformId(localOpts.platform) : undefined;
       const result = await initProject({
         rootDir,
         force: Boolean(localOpts.force),
         minimal: Boolean(localOpts.minimal),
-        ...(localOpts.platform ? { platform: localOpts.platform } : {})
+        platform
       });
 
       if (json) {
@@ -89,15 +90,10 @@ function buildProgram(argv: string[]): Command {
       }
 
       process.stdout.write(`Project: ${rootDir}\n`);
-      if (result.created.length > 0) {
-        for (const p of result.created) process.stdout.write(`CREATE ${p}\n`);
-      }
-      if (result.overwritten.length > 0) {
-        for (const p of result.overwritten) process.stdout.write(`OVERWRITE ${p}\n`);
-      }
-      if (result.skipped.length > 0) {
-        for (const p of result.skipped) process.stdout.write(`SKIP ${p}\n`);
-      }
+      for (const d of result.ensuredDirs) process.stdout.write(`MKDIR ${d}\n`);
+      for (const p of result.created) process.stdout.write(`CREATE ${p}\n`);
+      for (const p of result.overwritten) process.stdout.write(`OVERWRITE ${p}\n`);
+      for (const p of result.skipped) process.stdout.write(`SKIP ${p}\n`);
       process.stdout.write(`Next: novel next\n`);
     });
 

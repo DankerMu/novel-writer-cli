@@ -20,6 +20,19 @@ export type Checkpoint = Record<string, unknown> & {
   last_checkpoint_time?: string;
 };
 
+export function createDefaultCheckpoint(nowIso?: string): Checkpoint {
+  return {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    pipeline_stage: "committed",
+    inflight_chapter: null,
+    revision_count: 0,
+    hook_fix_count: 0,
+    title_fix_count: 0,
+    last_checkpoint_time: nowIso ?? new Date().toISOString()
+  };
+}
+
 function asInt(value: unknown): number | null {
   if (typeof value !== "number") return null;
   if (!Number.isInteger(value)) return null;
