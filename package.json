@@ -1,6 +1,6 @@
 {
   "name": "novel-writer-cli",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Executor-agnostic novel orchestration CLI",
   "license": "MIT",
   "type": "module",

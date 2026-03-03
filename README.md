@@ -46,7 +46,15 @@ node dist/cli.js --help
 
 ## 最小工作流：跑通一章
 
-在**小说项目根目录**（含 `.checkpoint.json`）运行：
+如果你是从零开始，在空目录先执行初始化（会创建 `.checkpoint.json` + `staging/**`，并写入若干可选模板文件）：
+
+```bash
+mkdir my-novel && cd my-novel
+novel init                      # --platform qidian|tomato 可选
+novel status
+```
+
+之后在**小说项目根目录**（含 `.checkpoint.json`）运行：
 
 ```bash
 # 1) 计算下一步

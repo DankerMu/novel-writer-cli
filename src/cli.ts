@@ -18,6 +18,7 @@ import { errJson, okJson, printJson } from "./output.js";
 import { pathExists } from "./fs-utils.js";
 import { resolveProjectRoot } from "./project.js";
 import { readCheckpoint } from "./checkpoint.js";
+import { initProject, normalizePlatformId, resolveInitRootDir } from "./init.js";
 import { advanceCheckpointForStep } from "./advance.js";
 import { commitChapter } from "./commit.js";
 import { buildInstructionPacket } from "./instructions.js";
@@ -63,6 +64,38 @@ function buildProgram(argv: string[]): Command {
   program.showHelpAfterError(false);
   program.showSuggestionAfterError(false);
   program.exitOverride();
+
+  program
+    .command("init")
+    .description("Initialize a new novel project directory (.checkpoint.json + staging/** + optional templates).")
+    .option("--force", "Overwrite existing files when present.")
+    .option("--minimal", "Only create .checkpoint.json + staging/** (skip templates).")
+    .option("--platform <id>", "Also write platform-profile.json (+ genre-weight-profiles.json). Supported: qidian|tomato.")
+    .action(async (localOpts: { force?: boolean; minimal?: boolean; platform?: string }) => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = resolveInitRootDir({ cwd: process.cwd(), projectOverride: opts.project });
+      const platform = localOpts.platform ? normalizePlatformId(localOpts.platform) : undefined;
+      const result = await initProject({
+        rootDir,
+        force: Boolean(localOpts.force),
+        minimal: Boolean(localOpts.minimal),
+        platform
+      });
+
+      if (json) {
+        printJson(okJson("init", result));
+        return;
+      }
+
+      process.stdout.write(`Project: ${rootDir}\n`);
+      for (const d of result.ensuredDirs) process.stdout.write(`MKDIR ${d}\n`);
+      for (const p of result.created) process.stdout.write(`CREATE ${p}\n`);
+      for (const p of result.overwritten) process.stdout.write(`OVERWRITE ${p}\n`);
+      for (const p of result.skipped) process.stdout.write(`SKIP ${p}\n`);
+      process.stdout.write(`Next: novel next\n`);
+    });
 
   program
     .command("status")
