@@ -2,6 +2,8 @@
 
 30 分钟内创建项目并试写 3 章。
 
+> 本指南以 Claude Code 的 Skill 入口（`/novel:start` 等）为主；底层会调用 `novel` CLI 并运行各 subagent。若你只想手动跑 CLI 编排，见 [`novel` CLI](novel-cli.md)。
+
 ## 准备
 
 - 安装 Claude Code CLI 并配置 `novel` CLI

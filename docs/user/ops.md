@@ -2,6 +2,8 @@
 
 项目创建后的日常操作指南。
 
+> 本文描述的是 Claude Code Skill 入口（`/novel:*`）。这些入口会在底层调用 `novel` CLI，并通过执行器运行各 subagent。纯 CLI 编排参考见 [`novel` CLI](novel-cli.md)。
+
 ## 续写下一章
 
 ```
