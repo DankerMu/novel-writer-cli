@@ -21,9 +21,9 @@
 
 ## 4. Cadence & Injection
 
-- [ ] 4.1 Add periodic trigger cadence (every 10 chapters + volume end) without blocking commit by default
-- [ ] 4.2 Inject compact summaries into PlotArchitect/ChapterWriter/StyleRefiner manifests as optional context
-- [ ] 4.3 Ensure injection is null-safe and backwards compatible
+- [x] 4.1 Add periodic trigger cadence (every 10 chapters + volume end) without blocking commit by default
+- [x] 4.2 Inject compact summaries into PlotArchitect/ChapterWriter/StyleRefiner manifests as optional context
+- [x] 4.3 Ensure injection is null-safe and backwards compatible
 
 ## 5. Documentation
 

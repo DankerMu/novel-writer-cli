@@ -1575,15 +1575,13 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     try {
       const loaded = await loadPromiseLedger(args.rootDir);
       for (const w of loaded.warnings) warnings.push(`Promise ledger (load): ${w}`);
-      const scopeRange = promiseLedgerHistoryRange;
-      const historyRange = promiseLedgerHistoryRange;
       const report = computePromiseLedgerReport({
         ledger: loaded.ledger,
         asOfChapter: args.chapter,
         volume,
-        chapterRange: scopeRange
+        chapterRange: promiseLedgerHistoryRange
       });
-      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange });
+      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange: promiseLedgerHistoryRange });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`Promise ledger report maintenance skipped: ${message}`);
