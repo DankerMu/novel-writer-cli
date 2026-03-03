@@ -8,6 +8,7 @@ import {
   buildPromiseLedgerSeed,
   computePromiseLedgerReport,
   loadPromiseLedger,
+  summarizePromiseLedgerReport,
   writePromiseLedgerLogs,
   type PromiseLedgerFile,
   type PromiseLedgerReport
@@ -195,4 +196,52 @@ test("writePromiseLedgerLogs writes latest + history when requested", async () =
   assert.equal(latestRaw.schema_version, 1);
   const historyRaw = JSON.parse(await readFile(join(rootDir, written.historyRel), "utf8")) as any;
   assert.equal(historyRaw.schema_version, 1);
+});
+
+test("summarizePromiseLedgerReport caps lists and truncates surrogate-pair-safe", () => {
+  const longPromiseText = `${"x".repeat(158)}😀${"y".repeat(30)}`;
+  const raw = {
+    schema_version: 1,
+    as_of: { chapter: 10, volume: 1 },
+    scope: { volume: 1, chapter_start: 1, chapter_end: 10 },
+    ledger_path: "promise-ledger.json",
+    policy: { dormancy_threshold_chapters: 12 },
+    stats: {
+      total_promises: 2,
+      promised_total: 2,
+      advanced_total: 0,
+      delivered_total: 0,
+      open_total: 2,
+      dormant_total: 1
+    },
+    dormant_promises: Array.from({ length: 7 }).map((_, i) => ({
+      id: `promise.${i + 1}`,
+      type: "core_mystery",
+      promise_text: i === 0 ? `  ${longPromiseText}  ` : `承诺 ${i + 1}`,
+      status: "promised",
+      chapters_since_last_touch: i,
+      suggestion: "轻触谜团：加入一个微小线索（不要揭示答案）。"
+    })),
+    issues: Array.from({ length: 7 }).map((_, i) => ({
+      id: `promise_ledger.issue.${i + 1}`,
+      severity: "warn",
+      summary: `Issue ${i + 1}`,
+      suggestion: "Keep promises alive with light-touch reminders."
+    })),
+    has_blocking_issues: false
+  };
+
+  const summary = summarizePromiseLedgerReport(raw) as any;
+  assert.equal(summary.as_of.chapter, 10);
+  assert.equal(summary.stats.total_promises, 2);
+  assert.equal(summary.has_blocking_issues, false);
+  assert.equal(summary.dormant_promises.length, 5);
+  assert.equal(summary.issues.length, 5);
+
+  const truncated = String(summary.dormant_promises[0]?.promise_text ?? "");
+  assert.ok(truncated.endsWith("…"));
+  const lastBeforeEllipsis = truncated.charCodeAt(Math.max(0, truncated.length - 2));
+  assert.ok(lastBeforeEllipsis < 0xd800 || lastBeforeEllipsis > 0xdbff);
+
+  assert.equal(summarizePromiseLedgerReport({ schema_version: 2 }), null);
 });

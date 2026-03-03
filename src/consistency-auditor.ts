@@ -5,6 +5,7 @@ import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from
 import type { NerMention, NerOutput } from "./ner.js";
 import { runNer } from "./ner.js";
 import { pad2, pad3 } from "./steps.js";
+import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
 
 type Severity = "high" | "medium" | "low";
@@ -84,10 +85,7 @@ function idSafe(s: string): string {
 
 function truncateSnippet(snippet: string, maxLen: number = 160): string {
   const trimmed = snippet.trim();
-  if (trimmed.length <= maxLen) return trimmed;
-  if (maxLen <= 0) return "";
-  if (maxLen === 1) return "…";
-  return `${trimmed.slice(0, maxLen - 1)}…`;
+  return truncateWithEllipsis(trimmed, maxLen);
 }
 
 function compareStrings(a: string, b: string): number {

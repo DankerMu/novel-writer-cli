@@ -1,11 +1,12 @@
-import { appendFile, realpath, rename, rm, stat } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { appendFile, rename, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
+import { loadLatestJsonSummary } from "./latest-summary-loader.js";
 import type { SeverityPolicy } from "./platform-profile.js";
-import { assertInsideProjectRoot } from "./safe-path.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
+import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
 
 export type EngagementScore = 1 | 2 | 3 | 4 | 5;
@@ -122,22 +123,6 @@ function clampScore(n: number): EngagementScore {
 function countNonWhitespaceChars(text: string): number {
   const compact = text.replace(/\s+/gu, "");
   return Array.from(compact).length;
-}
-
-function truncateWithEllipsis(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  if (maxLen <= 0) return "";
-  if (maxLen === 1) return "…";
-
-  let end = Math.max(0, maxLen - 1);
-  if (end > 0) {
-    const last = text.charCodeAt(end - 1);
-    if (last >= 0xd800 && last <= 0xdbff) {
-      const next = text.charCodeAt(end);
-      if (next >= 0xdc00 && next <= 0xdfff) end -= 1;
-    }
-  }
-  return `${text.slice(0, end)}…`;
 }
 
 function normalizeEventText(text: string): string {
@@ -734,25 +719,12 @@ export async function writeEngagementLogs(args: {
 }
 
 export async function loadEngagementLatestSummary(rootDir: string): Promise<Record<string, unknown> | null> {
-  const rel = "logs/engagement/latest.json";
-  const abs = join(rootDir, rel);
-  if (!(await pathExists(abs))) return null;
-  try {
-    const rootReal = await realpath(rootDir);
-    const absReal = await realpath(abs);
-    // Ensure the resolved path stays under the project root (defense against symlink escapes).
-    assertInsideProjectRoot(rootReal, absReal);
-    // Also guard against pathological cases where realpath changes drive letters/roots.
-    if (relative(rootReal, absReal).startsWith("..")) return null;
-    const st = await stat(absReal);
-    if (!st.isFile()) return null;
-    if (st.size > MAX_LATEST_JSON_BYTES) return null;
-
-    const raw = await readJsonFile(absReal);
-    return summarizeEngagementReport(raw);
-  } catch {
-    return null;
-  }
+  return loadLatestJsonSummary({
+    rootDir,
+    relPath: "logs/engagement/latest.json",
+    maxBytes: MAX_LATEST_JSON_BYTES,
+    summarize: summarizeEngagementReport
+  });
 }
 
 export function summarizeEngagementReport(raw: unknown): Record<string, unknown> | null {

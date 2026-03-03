@@ -9,6 +9,7 @@ import {
   computeEngagementMetricRecord,
   computeEngagementReport,
   loadEngagementMetricsStream,
+  summarizeEngagementReport,
   writeEngagementLogs,
   type EngagementMetricRecord,
   type EngagementReport
@@ -413,4 +414,41 @@ test("loadEngagementMetricsStream rejects invalid calendar dates (no Date.parse 
   const loaded = await loadEngagementMetricsStream({ rootDir });
   assert.equal(loaded.records.length, 0);
   assert.equal(loaded.warnings.length, 1);
+});
+
+test("summarizeEngagementReport trims, caps issues, and truncates surrogate-pair-safe", () => {
+  const longSummary = `${"x".repeat(238)}😀${"y".repeat(20)}`;
+  const raw = {
+    schema_version: 1,
+    as_of: { chapter: 10, volume: 1 },
+    scope: { volume: 1, chapter_start: 1, chapter_end: 10 },
+    stats: {
+      chapters: 10,
+      avg_word_count: 3000,
+      avg_plot_progression_beats: 2,
+      avg_conflict_intensity: 3,
+      avg_payoff_score: 2,
+      avg_new_info_load_score: 3
+    },
+    issues: Array.from({ length: 7 }).map((_, i) => ({
+      id: `engagement.issue.${i + 1}`,
+      severity: "warn",
+      summary: i === 0 ? `  ${longSummary}  ` : `Issue ${i + 1}`,
+      suggestion: "Add a small reveal or reward beat in the next chapter."
+    })),
+    has_blocking_issues: false
+  };
+
+  const summary = summarizeEngagementReport(raw) as any;
+  assert.equal(summary.as_of.chapter, 10);
+  assert.equal(summary.stats.chapters, 10);
+  assert.equal(summary.has_blocking_issues, false);
+  assert.equal(summary.issues.length, 5);
+
+  const truncated = String(summary.issues[0]?.summary ?? "");
+  assert.ok(truncated.endsWith("…"));
+  const lastBeforeEllipsis = truncated.charCodeAt(Math.max(0, truncated.length - 2));
+  assert.ok(lastBeforeEllipsis < 0xd800 || lastBeforeEllipsis > 0xdbff);
+
+  assert.equal(summarizeEngagementReport({ schema_version: 2 }), null);
 });

@@ -1,11 +1,12 @@
-import { readdir, realpath, rename, rm, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readdir, rename, rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
+import { loadLatestJsonSummary } from "./latest-summary-loader.js";
 import type { SeverityPolicy } from "./platform-profile.js";
-import { assertInsideProjectRoot } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
+import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
 
 export type PromiseType = "selling_point" | "core_mystery" | "mechanism" | "relationship_arc";
@@ -513,44 +514,18 @@ export async function writePromiseLedgerLogs(args: {
 }
 
 export async function loadPromiseLedgerLatestSummary(rootDir: string): Promise<Record<string, unknown> | null> {
-  const rel = "logs/promises/latest.json";
-  const abs = join(rootDir, rel);
-  if (!(await pathExists(abs))) return null;
-  try {
-    const rootReal = await realpath(rootDir);
-    const absReal = await realpath(abs);
-    assertInsideProjectRoot(rootReal, absReal);
-    if (relative(rootReal, absReal).startsWith("..")) return null;
-    const st = await stat(absReal);
-    if (!st.isFile()) return null;
-    if (st.size > MAX_LATEST_JSON_BYTES) return null;
-
-    const raw = await readJsonFile(absReal);
-    return summarizePromiseLedgerReport(raw);
-  } catch {
-    return null;
-  }
+  return loadLatestJsonSummary({
+    rootDir,
+    relPath: "logs/promises/latest.json",
+    maxBytes: MAX_LATEST_JSON_BYTES,
+    summarize: summarizePromiseLedgerReport
+  });
 }
 
 export function summarizePromiseLedgerReport(raw: unknown): Record<string, unknown> | null {
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
   if (obj.schema_version !== 1) return null;
-
-  const truncateWithEllipsis = (text: string, maxLen: number): string => {
-    if (text.length <= maxLen) return text;
-    if (maxLen <= 0) return "";
-    if (maxLen === 1) return "…";
-    let end = Math.max(0, maxLen - 1);
-    if (end > 0) {
-      const last = text.charCodeAt(end - 1);
-      if (last >= 0xd800 && last <= 0xdbff) {
-        const next = text.charCodeAt(end);
-        if (next >= 0xdc00 && next <= 0xdfff) end -= 1;
-      }
-    }
-    return `${text.slice(0, end)}…`;
-  };
 
   const safePositiveIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null);
   const safeNonNegativeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
