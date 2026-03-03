@@ -119,6 +119,57 @@ novel voice check --apply
 
 一旦存在 `character-voice-drift.json`，后续 `chapter:*:draft` / `chapter:*:refine` 的 instruction packet 会自动注入纠偏指令（`packet.manifest.inline.character_voice_drift` + `packet.manifest.paths.character_voice_drift`）。
 
+## 长周期承诺台账（M7H.1，可选）
+
+承诺台账用于跟踪跨章/跨卷的“卖点/谜团/机制/关系弧”等长周期承诺，避免长时间不触碰导致读者遗忘。
+
+- 台账文件：`promise-ledger.json`（schema：`schemas/promise-ledger.schema.json`）
+- 窗口报告：`logs/promises/latest.json`（可选 history：`logs/promises/promise-ledger-report-vol-{V:02d}-ch{start:03d}-ch{end:03d}.json`）
+
+常用命令：
+
+```bash
+# 初始化（dry-run 预览；加 --apply 写入 promise-ledger.json）
+novel promises init --apply
+
+# 生成窗口报告（默认 scope=最近 10 章；加 --history 同时写入 history 文件）
+novel promises report --history
+```
+
+> `promise-ledger.json` 是用户可维护的台账；窗口报告是基于台账计算得到的“可执行建议”，用于规划/写作时参考（默认不阻断流水线）。
+
+## 参与度密度指标（M7H.2，可选）
+
+参与度密度用于对“推进/冲突/奖励/信息投放”的节奏做可度量的窗口化检查，避免连续多章低密度导致掉线。
+
+- 指标流：`engagement-metrics.jsonl`（每章 append 一条记录；schema：`schemas/engagement-metrics.schema.json`）
+- 窗口报告：`logs/engagement/latest.json`（可选 history：`logs/engagement/engagement-report-vol-{V:02d}-ch{start:03d}-ch{end:03d}.json`）
+
+常用命令：
+
+```bash
+# 生成窗口报告（若 engagement-metrics.jsonl 缺失会给出 WARN，并写入一个空指标报告）
+novel engagement report --history
+```
+
+## 审计节奏与“非阻断”语义（M7H.4，可选）
+
+默认情况下，叙事健康相关输出都是 **best-effort**：
+
+- `novel commit` 每章都会 append `engagement-metrics.jsonl`（如可计算）
+- `logs/engagement/latest.json` 与 `logs/promises/latest.json` 默认按**周期性审计**维护（每 10 章 + 卷末），并且不会阻断 commit（失败时只产生 WARN）
+
+> 因此注入到 instruction packet 的 `*_report_summary` 在非审计章之间可能会滞后；把它视为“近期窗口提示”，而不是每章实时信号。
+
+## engagement 的 warn vs hard violations（默认 advisory-only）
+
+Engagement/Promises 的报告 `issues[]` 默认用于提示节奏风险与规划建议：
+
+- 目前 engagement 的 issues 均为 `severity:\"warn\"`，`novel` 默认**不会**因为这些问题阻断流水线推进
+- 真正会阻断流水线（触发 `...:title-fix` / `...:hook-fix` / `...:review`）的是 Guardrails（Retention/Readability/Naming 等）产生的 `severity:\"soft\"|\"hard\"` 级问题
+
+详见 [Guardrails（留存 / 可读性 / 命名）](guardrails.md)。
+
 ## 中断恢复示例
 
 场景：你在 `chapter:048:draft` 后中断了执行器。

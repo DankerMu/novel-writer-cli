@@ -27,5 +27,5 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Document new ledgers/metrics files and their schemas
-- [ ] 5.2 Document how to interpret engagement warnings vs hard violations (default advisory-only)
+- [x] 5.1 Document new ledgers/metrics files and their schemas
+- [x] 5.2 Document how to interpret engagement warnings vs hard violations (default advisory-only)
