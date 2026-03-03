@@ -1,6 +1,13 @@
 import { appendFile, readdir, rename, stat, truncate, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import {
+  clearCharacterVoiceDriftFile,
+  computeCharacterVoiceDrift,
+  loadActiveCharacterVoiceDriftIds,
+  loadCharacterVoiceProfiles,
+  writeCharacterVoiceDriftFile
+} from "./character-voice.js";
 import { readCheckpoint, type Checkpoint, writeCheckpoint } from "./checkpoint.js";
 import {
   attachClicheLintToEval,
@@ -116,6 +123,11 @@ async function appendJsonl(rootDir: string, relPath: string, payload: unknown): 
   await appendFile(abs, `${JSON.stringify(payload)}\n`, "utf8");
 }
 
+const FORBIDDEN_PATH_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+function isForbiddenPathSegment(key: string): boolean {
+  return FORBIDDEN_PATH_SEGMENTS.has(key);
+}
+
 function validateOps(ops: unknown[], warnings: string[]): Array<Record<string, unknown>> {
   const allowedTop = new Set(["characters", "items", "locations", "factions", "world_state", "active_foreshadowing"]);
   const out: Array<Record<string, unknown>> = [];
@@ -150,6 +162,11 @@ function validateOps(ops: unknown[], warnings: string[]): Array<Record<string, u
       warnings.push(`Dropped op with invalid top-level path: ${path}`);
       continue;
     }
+    const forbidden = parts.find(isForbiddenPathSegment);
+    if (forbidden) {
+      warnings.push(`Dropped op with forbidden path segment: ${forbidden}`);
+      continue;
+    }
 
     out.push(op);
   }
@@ -160,6 +177,10 @@ function validateOps(ops: unknown[], warnings: string[]): Array<Record<string, u
 function ensureObjectAtPath(root: Record<string, unknown>, pathParts: string[], warnings: string[]): Record<string, unknown> | null {
   let cursor: Record<string, unknown> = root;
   for (const key of pathParts) {
+    if (isForbiddenPathSegment(key)) {
+      warnings.push(`Dropped op with forbidden path segment: ${key}`);
+      return null;
+    }
     const current = cursor[key];
     if (current === undefined) {
       cursor[key] = {};
@@ -191,6 +212,11 @@ function applyStateOps(state: StateFile, ops: Array<Record<string, unknown>>, wa
     const leaf = parts.pop();
     if (!leaf) {
       warnings.push(`Dropped op with empty leaf path: ${path}`);
+      continue;
+    }
+    const forbidden = parts.find(isForbiddenPathSegment);
+    if (forbidden || isForbiddenPathSegment(leaf)) {
+      warnings.push(`Dropped op with forbidden path segment: ${forbidden ?? leaf}`);
       continue;
     }
     const parent = ensureObjectAtPath(state, parts, warnings);
@@ -566,6 +592,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
   const engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
 
+  const characterVoiceProfilesExists = await pathExists(join(args.rootDir, "character-voice-profiles.json"));
+
   const rel = chapterRelPaths(args.chapter);
   await ensureFilePresent(args.rootDir, rel.staging.chapterMd);
   await ensureFilePresent(args.rootDir, rel.staging.summaryMd);
@@ -679,6 +707,10 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(
       `WRITE logs/engagement/engagement-report-vol-${pad2(volume)}-ch${pad3(engagementHistoryRange.start)}-ch${pad3(engagementHistoryRange.end)}.json`
     );
+  }
+
+  if (characterVoiceProfilesExists) {
+    plan.push(`WRITE character-voice-drift.json (voice drift directives; cleared on recovery)`);
   }
 
   // Optional: promise ledger report maintenance (non-blocking) when promise-ledger.json exists.
@@ -1597,6 +1629,35 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(`Engagement density maintenance skipped: ${message}`);
+  }
+
+  // Post-commit (outside write-lock): character voice drift directives (non-blocking).
+  try {
+    await withWriteLock(args.rootDir, { chapter: args.chapter }, async () => {
+      const loaded = await loadCharacterVoiceProfiles(args.rootDir);
+      for (const w of loaded.warnings) warnings.push(w);
+
+      if (!loaded.profiles) return;
+
+      const previousActiveCharacterIds = await loadActiveCharacterVoiceDriftIds(args.rootDir);
+      const computed = await computeCharacterVoiceDrift({
+        rootDir: args.rootDir,
+        profiles: loaded.profiles,
+        asOfChapter: args.chapter,
+        volume,
+        previousActiveCharacterIds
+      });
+      for (const w of computed.warnings) warnings.push(w);
+
+      if (computed.drift) {
+        await writeCharacterVoiceDriftFile({ rootDir: args.rootDir, drift: computed.drift });
+        return;
+      }
+      await clearCharacterVoiceDriftFile(args.rootDir);
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    warnings.push(`Character voice drift maintenance skipped: ${message}`);
   }
 
   return { plan, warnings };

@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": 1,
+  "title": "character-voice-drift.json",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "as_of", "window", "profiles_path", "characters"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema pointer for editor tooling. Example: schemas/character-voice-drift.schema.json"
+    },
+    "schema_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "Schema version of character-voice-drift.json (SSOT in schemas/character-voice-drift.schema.json)."
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "as_of": {
+      "type": "object",
+      "required": ["chapter", "volume"],
+      "additionalProperties": false,
+      "properties": {
+        "chapter": { "type": "integer", "minimum": 1 },
+        "volume": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "window": {
+      "type": "object",
+      "required": ["chapter_start", "chapter_end", "window_chapters"],
+      "additionalProperties": false,
+      "properties": {
+        "chapter_start": { "type": "integer", "minimum": 1 },
+        "chapter_end": { "type": "integer", "minimum": 1 },
+        "window_chapters": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "profiles_path": { "type": "string", "minLength": 1 },
+    "characters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/character" }
+    }
+  },
+  "$defs": {
+    "drifted_metric": {
+      "type": "object",
+      "required": ["id", "baseline", "current", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "baseline": { "type": "number" },
+        "current": { "type": "number" },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "signature_phrases": {
+      "type": "object",
+      "required": ["baseline", "current", "overlap"],
+      "additionalProperties": false,
+      "properties": {
+        "baseline": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "current": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "overlap": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "dialogue_samples",
+        "dialogue_chars",
+        "dialogue_len_avg",
+        "dialogue_len_p25",
+        "dialogue_len_p50",
+        "dialogue_len_p75",
+        "sentence_len_avg",
+        "sentence_len_p25",
+        "sentence_len_p50",
+        "sentence_len_p75",
+        "exclamation_per_100_chars",
+        "question_per_100_chars",
+        "ellipsis_per_100_chars"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dialogue_samples": { "type": "integer", "minimum": 0 },
+        "dialogue_chars": { "type": "integer", "minimum": 0 },
+        "dialogue_len_avg": { "type": "number", "minimum": 0 },
+        "dialogue_len_p25": { "type": "integer", "minimum": 0 },
+        "dialogue_len_p50": { "type": "integer", "minimum": 0 },
+        "dialogue_len_p75": { "type": "integer", "minimum": 0 },
+        "sentence_len_avg": { "type": "number", "minimum": 0 },
+        "sentence_len_p25": { "type": "integer", "minimum": 0 },
+        "sentence_len_p50": { "type": "integer", "minimum": 0 },
+        "sentence_len_p75": { "type": "integer", "minimum": 0 },
+        "exclamation_per_100_chars": { "type": "number", "minimum": 0 },
+        "question_per_100_chars": { "type": "number", "minimum": 0 },
+        "ellipsis_per_100_chars": { "type": "number", "minimum": 0 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["chapter", "excerpt"],
+      "additionalProperties": false,
+      "properties": {
+        "chapter": { "type": "integer", "minimum": 1 },
+        "excerpt": { "type": "string", "minLength": 1 }
+      }
+    },
+    "character": {
+      "type": "object",
+      "required": [
+        "character_id",
+        "display_name",
+        "drifted_metrics",
+        "signature_phrases",
+        "baseline_metrics",
+        "current_metrics",
+        "evidence",
+        "directives"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "character_id": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string", "minLength": 1 },
+        "drifted_metrics": { "type": "array", "items": { "$ref": "#/$defs/drifted_metric" } },
+        "signature_phrases": { "$ref": "#/$defs/signature_phrases" },
+        "baseline_metrics": { "$ref": "#/$defs/metrics" },
+        "current_metrics": { "$ref": "#/$defs/metrics" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "directives": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}
+

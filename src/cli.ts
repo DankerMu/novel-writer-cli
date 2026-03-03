@@ -3,6 +3,15 @@ import { Command, CommanderError } from "commander";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import {
+  buildCharacterVoiceProfiles,
+  clearCharacterVoiceDriftFile,
+  computeCharacterVoiceDrift,
+  loadActiveCharacterVoiceDriftIds,
+  loadCharacterVoiceProfiles,
+  writeCharacterVoiceDriftFile,
+  writeCharacterVoiceProfilesFile
+} from "./character-voice.js";
 import { NovelCliError } from "./errors.js";
 import { errJson, okJson, printJson } from "./output.js";
 import { pathExists } from "./fs-utils.js";
@@ -11,7 +20,7 @@ import { readCheckpoint } from "./checkpoint.js";
 import { advanceCheckpointForStep } from "./advance.js";
 import { commitChapter } from "./commit.js";
 import { buildInstructionPacket } from "./instructions.js";
-import { getLockStatus, clearStaleLock } from "./lock.js";
+import { getLockStatus, clearStaleLock, withWriteLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
 import { computeEngagementReport, loadEngagementMetricsStream, writeEngagementLogs } from "./engagement.js";
 import { computePromiseLedgerReport, ensurePromiseLedgerInitialized, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
@@ -370,6 +379,188 @@ function buildProgram(argv: string[]): Command {
       }
       process.stdout.write(`Wrote ${written.latestRel}.\n`);
       if (written.historyRel) process.stdout.write(`Wrote ${written.historyRel}.\n`);
+    });
+
+  const voice = program.command("voice").description("Character voice profiles + drift directives (M7H.3).");
+
+  voice
+    .command("init")
+    .description("Initialize character-voice-profiles.json from early chapters (baseline calibration).")
+    .requiredOption("--protagonist <id>", "Protagonist character id.")
+    .option("--core-cast <ids>", "Comma-separated core cast character ids (optional).")
+    .option("--start <n>", "Baseline start chapter (default: 1).", (v) => Number.parseInt(String(v), 10))
+    .option("--end <n>", "Baseline end chapter (default: min(10, checkpoint.last_completed_chapter)).", (v) => Number.parseInt(String(v), 10))
+    .option("--window-chapters <n>", "Rolling window chapters for drift detection (default: 10).", (v) => Number.parseInt(String(v), 10))
+    .option("--force", "Allow overwriting character-voice-profiles.json (requires --apply; use with care).")
+    .option("--apply", "Write character-voice-profiles.json (otherwise preview-only).")
+    .action(
+      async (localOpts: {
+        protagonist: string;
+        coreCast?: string;
+        start?: number;
+        end?: number;
+        windowChapters?: number;
+        force?: boolean;
+        apply?: boolean;
+      }) => {
+        const opts = program.opts<GlobalOpts>();
+        const json = Boolean(opts.json);
+
+        const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+        const checkpoint = await readCheckpoint(rootDir);
+
+        const existingAbs = resolve(rootDir, "character-voice-profiles.json");
+        if (await pathExists(existingAbs)) {
+          const force = Boolean(localOpts.force);
+          if (!force) {
+            const loaded = await loadCharacterVoiceProfiles(rootDir);
+            if (json) {
+              printJson(okJson("voice init", { rootDir, wrote: false, rel: loaded.rel, warnings: loaded.warnings, profiles: loaded.profiles }));
+              return;
+            }
+            process.stdout.write(`character-voice-profiles.json already exists.\n`);
+            for (const w of loaded.warnings) process.stdout.write(`WARN: ${w}\n`);
+            process.stdout.write(`Use --json to inspect, or re-run with --force --apply to overwrite.\n`);
+            return;
+          }
+        }
+
+        if (checkpoint.last_completed_chapter < 1) {
+          throw new NovelCliError(
+            "No committed chapters yet (checkpoint.last_completed_chapter=0). Commit at least one chapter before voice init, or create character-voice-profiles.json manually.",
+            2
+          );
+        }
+
+        const start = localOpts.start ?? 1;
+        const end = localOpts.end ?? Math.min(10, checkpoint.last_completed_chapter);
+        const windowChapters = localOpts.windowChapters;
+
+        if (!Number.isInteger(start) || start < 1) throw new NovelCliError(`Invalid --start: ${String(start)} (expected int >= 1).`, 2);
+        if (!Number.isInteger(end) || end < 1) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= 1).`, 2);
+        if (end < start) throw new NovelCliError(`Invalid --end: ${String(end)} (expected int >= start=${start}).`, 2);
+        if (end > checkpoint.last_completed_chapter) {
+          throw new NovelCliError(
+            `Invalid --end: ${String(end)} (expected <= checkpoint.last_completed_chapter=${checkpoint.last_completed_chapter}).`,
+            2
+          );
+        }
+        if (windowChapters !== undefined) {
+          if (!Number.isInteger(windowChapters) || windowChapters < 1) {
+            throw new NovelCliError(`Invalid --window-chapters: ${String(windowChapters)} (expected int >= 1).`, 2);
+          }
+        }
+
+        const coreCastIds =
+          typeof localOpts.coreCast === "string"
+            ? Array.from(new Set(localOpts.coreCast.split(",").map((s) => s.trim()).filter((s) => s.length > 0)))
+            : [];
+
+        const result = await buildCharacterVoiceProfiles({
+          rootDir,
+          protagonistId: localOpts.protagonist,
+          coreCastIds,
+          baselineRange: { start, end },
+          ...(windowChapters !== undefined ? { windowChapters } : {})
+        });
+
+        let wrote = false;
+        if (localOpts.apply) {
+          await withWriteLock(rootDir, { chapter: checkpoint.last_completed_chapter }, async () => {
+            await writeCharacterVoiceProfilesFile({ rootDir, profiles: result.profiles });
+          });
+          wrote = true;
+        }
+
+        if (json) {
+          printJson(okJson("voice init", { rootDir, wrote, ...result }));
+          return;
+        }
+
+        for (const w of result.warnings) process.stdout.write(`WARN: ${w}\n`);
+        if (wrote) {
+          process.stdout.write(`Wrote ${result.rel}.\n`);
+          return;
+        }
+        process.stdout.write(`Preview-only. Use --apply to write ${result.rel}.\n`);
+      }
+    );
+
+  voice
+    .command("check")
+    .description("Compute voice drift from character-voice-profiles.json (optionally write/clear character-voice-drift.json).")
+    .option("--as-of <n>", "As-of chapter (defaults to checkpoint.last_completed_chapter).", (v) => Number.parseInt(String(v), 10))
+    .option("--volume <n>", "Volume number (defaults to checkpoint.current_volume).", (v) => Number.parseInt(String(v), 10))
+    .option("--apply", "Write/clear character-voice-drift.json (otherwise preview-only).")
+    .action(async (localOpts: { asOf?: number; volume?: number; apply?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+      const checkpoint = await readCheckpoint(rootDir);
+
+      const asOf = localOpts.asOf ?? checkpoint.last_completed_chapter;
+      const volume = localOpts.volume ?? checkpoint.current_volume;
+
+      if (!Number.isInteger(asOf) || asOf < 1) throw new NovelCliError(`Invalid --as-of: ${String(asOf)} (expected int >= 1).`, 2);
+      if (!Number.isInteger(volume) || volume < 0) throw new NovelCliError(`Invalid --volume: ${String(volume)} (expected int >= 0).`, 2);
+
+      const profilesAbs = resolve(rootDir, "character-voice-profiles.json");
+      if (!(await pathExists(profilesAbs))) {
+        throw new NovelCliError("Missing character-voice-profiles.json. Run: novel voice init --protagonist <id> --apply", 2);
+      }
+
+      const loaded = await loadCharacterVoiceProfiles(rootDir);
+      if (!loaded.profiles) throw new NovelCliError("Invalid character-voice-profiles.json: failed to load.", 2);
+
+      const previousActiveCharacterIds = await loadActiveCharacterVoiceDriftIds(rootDir);
+      const computed = await computeCharacterVoiceDrift({ rootDir, profiles: loaded.profiles, asOfChapter: asOf, volume, previousActiveCharacterIds });
+
+      let wrote = false;
+      let cleared = false;
+      if (localOpts.apply) {
+        await withWriteLock(rootDir, { chapter: asOf }, async () => {
+          if (computed.drift) {
+            await writeCharacterVoiceDriftFile({ rootDir, drift: computed.drift });
+            wrote = true;
+            return;
+          }
+          cleared = await clearCharacterVoiceDriftFile(rootDir);
+        });
+      }
+
+      const allWarnings = [...loaded.warnings, ...computed.warnings];
+      if (json) {
+        const action = wrote ? "wrote" : cleared ? "cleared" : localOpts.apply ? "noop" : computed.drift ? "preview_would_write" : "preview_no_drift";
+        printJson(
+          okJson("voice check", {
+            rootDir,
+            drift: computed.drift,
+            warnings: allWarnings,
+            drift_rel: "character-voice-drift.json",
+            action,
+            applied: Boolean(localOpts.apply),
+            wrote,
+            cleared
+          })
+        );
+        return;
+      }
+
+      for (const w of allWarnings) process.stdout.write(`WARN: ${w}\n`);
+      if (!computed.drift) {
+        process.stdout.write(`No active voice drift.\n`);
+        if (cleared) process.stdout.write(`Cleared character-voice-drift.json.\n`);
+        else if (!localOpts.apply) process.stdout.write(`Preview-only. Use --apply to clear character-voice-drift.json on recovery.\n`);
+        return;
+      }
+
+      for (const c of computed.drift.characters) {
+        process.stdout.write(`\n[${c.character_id}] ${c.display_name}\n`);
+        for (const d of c.directives) process.stdout.write(`- ${d}\n`);
+      }
+      if (wrote) process.stdout.write(`\nWrote character-voice-drift.json.\n`);
+      else if (!localOpts.apply) process.stdout.write(`\nPreview-only. Use --apply to write character-voice-drift.json.\n`);
     });
 
   const lock = program.command("lock").description("Manage project lock (.novel.lock).");
