@@ -730,3 +730,84 @@ export async function writeEngagementLogs(args: {
 
   return result;
 }
+
+export async function loadEngagementLatestSummary(rootDir: string): Promise<Record<string, unknown> | null> {
+  const rel = "logs/engagement/latest.json";
+  const abs = join(rootDir, rel);
+  if (!(await pathExists(abs))) return null;
+  try {
+    const raw = await readJsonFile(abs);
+    return summarizeEngagementReport(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function summarizeEngagementReport(raw: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.schema_version !== 1) return null;
+
+  const safeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
+  const safeFiniteOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const safeStringOrNull = (v: unknown, maxLen: number): string | null => {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    if (t.length === 0) return null;
+    return truncateWithEllipsis(t, maxLen);
+  };
+
+  const asOfRaw = isPlainObject(obj.as_of) ? (obj.as_of as Record<string, unknown>) : null;
+  const scopeRaw = isPlainObject(obj.scope) ? (obj.scope as Record<string, unknown>) : null;
+  const statsRaw = isPlainObject(obj.stats) ? (obj.stats as Record<string, unknown>) : null;
+  const issuesRaw = Array.isArray(obj.issues) ? (obj.issues as unknown[]) : [];
+
+  const as_of = asOfRaw
+    ? {
+        chapter: safeIntOrNull(asOfRaw.chapter),
+        volume: safeIntOrNull(asOfRaw.volume)
+      }
+    : null;
+
+  const scope = scopeRaw
+    ? {
+        volume: safeIntOrNull(scopeRaw.volume),
+        chapter_start: safeIntOrNull(scopeRaw.chapter_start),
+        chapter_end: safeIntOrNull(scopeRaw.chapter_end)
+      }
+    : null;
+
+  const stats = statsRaw
+    ? {
+        chapters: safeIntOrNull(statsRaw.chapters),
+        avg_word_count: safeFiniteOrNull(statsRaw.avg_word_count),
+        avg_plot_progression_beats: safeFiniteOrNull(statsRaw.avg_plot_progression_beats),
+        avg_conflict_intensity: safeFiniteOrNull(statsRaw.avg_conflict_intensity),
+        avg_payoff_score: safeFiniteOrNull(statsRaw.avg_payoff_score),
+        avg_new_info_load_score: safeFiniteOrNull(statsRaw.avg_new_info_load_score)
+      }
+    : null;
+
+  const issues = issuesRaw
+    .filter(isPlainObject)
+    .slice(0, 5)
+    .map((it) => {
+      const issue = it as Record<string, unknown>;
+      return {
+        id: safeStringOrNull(issue.id, 240),
+        severity: safeStringOrNull(issue.severity, 32),
+        summary: safeStringOrNull(issue.summary, 240),
+        suggestion: safeStringOrNull(issue.suggestion, 200)
+      };
+    });
+
+  const has_blocking_issues = typeof obj.has_blocking_issues === "boolean" ? obj.has_blocking_issues : null;
+
+  return {
+    as_of,
+    scope,
+    stats,
+    issues,
+    has_blocking_issues
+  };
+}

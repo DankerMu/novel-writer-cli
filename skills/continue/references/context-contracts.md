@@ -39,6 +39,8 @@ chapter_writer_manifest = {
   foreshadow_light_touch_degraded?: bool, # 可选：若为 true 表示“轻触提醒”注入降级（如伏笔数据不可读），不等同于“没有需要提醒的条目”
   ai_blacklist_top10: [str],           # 有效黑名单前 10 词
   style_drift_directives: [str] | null, # 漂移纠偏指令（active 时注入）
+  engagement_report_summary?: obj,     # 可选：爽点/信息密度窗口报告摘要（logs/engagement/latest.json 裁剪）
+  promise_ledger_report_summary?: obj, # 可选：承诺台账窗口报告摘要（logs/promises/latest.json 裁剪）
 
   # ── paths（subagent 自读） ──
   paths: {
@@ -55,6 +57,8 @@ chapter_writer_manifest = {
     character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取
     project_brief: "brief.md",
     writing_methodology: "skills/novel-writing/references/style-guide.md",  # 可选
+    engagement_report_latest: "logs/engagement/latest.json",                # 可选（如存在；用于读取完整报告）
+    promise_ledger_report_latest: "logs/promises/latest.json",              # 可选（如存在；用于读取完整报告）
   }
 }
 ```
@@ -106,6 +110,8 @@ style_refiner_manifest = {
   # ── inline ──
   chapter: int,
   style_drift_directives: [str] | null,
+  engagement_report_summary?: obj,     # 可选：爽点/信息密度窗口报告摘要（logs/engagement/latest.json 裁剪）
+  promise_ledger_report_summary?: obj, # 可选：承诺台账窗口报告摘要（logs/promises/latest.json 裁剪）
 
   # ── paths ──
   paths: {
@@ -115,6 +121,8 @@ style_refiner_manifest = {
     ai_blacklist: "ai-blacklist.json",
     style_guide: "skills/novel-writing/references/style-guide.md",
     previous_change_log: "staging/logs/style-refiner-chapter-{C:03d}-changes.json",  # 仅二次润色时出现；首次润色不含此字段
+    engagement_report_latest: "logs/engagement/latest.json",                         # 可选
+    promise_ledger_report_latest: "logs/promises/latest.json",                       # 可选
   }
 }
 ```

@@ -25,6 +25,8 @@
 - concurrent_state（其他线并发状态）
 - transition_hint（切线过渡提示）
 - style_drift_directives（可选，漂移纠偏指令；与 writing_directives 叠加）
+- engagement_report_summary（可选；爽点/信息密度窗口报告摘要：issues + suggestions，非阻断）
+- promise_ledger_report_summary（可选；承诺台账窗口报告摘要：dormant_promises + suggestions，非剧透、不兑现）
 
 **B. 文件路径**（你需要用 Read 工具自行读取）：
 - `paths.style_profile` → 风格指纹 JSON（**必读**，含 style_exemplars 和 writing_directives）
@@ -42,6 +44,8 @@
 - `paths.character_contracts[]` → 裁剪后的角色契约 JSON
 - `paths.project_brief` → 项目 brief
 - `paths.writing_methodology` → 去 AI 化方法论参考
+- `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取以获得更完整上下文）
+- `paths.promise_ledger_report_latest` → 承诺台账窗口报告（可选；存在时读取以获得更完整上下文）
 
 > **读取优先级**：先读 `style_profile`（获取 style_exemplars 作为写作基调），若存在再读 `platform_profile`（明确平台字数/钩子策略），再读 `chapter_contract` + `recent_summaries`（明确要写什么），最后读其余文件。
 

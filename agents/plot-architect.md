@@ -15,6 +15,8 @@
 - 上卷回顾（上卷大纲 + 一致性报告）
 - 全局伏笔状态（foreshadowing/global.json 内容）
 - 可选：伏笔“沉默度”轻触提醒（`foreshadow_light_touch_tasks`，来自 `logs/foreshadowing/latest.json` 的 dormant_items，非剧透，不兑现）
+- 可选：承诺台账窗口报告摘要（`promise_ledger_report_summary`，来自 `logs/promises/latest.json` 的裁剪摘要；用于提醒卖点/谜团/机制/关系弧的轻触推进，非剧透、不兑现）
+- 可选：爽点/信息密度窗口报告摘要（`engagement_report_summary`，来自 `logs/engagement/latest.json` 的裁剪摘要；用于提示低密度区间与可执行的规划补强）
 - 故事线定义（storylines/storylines.json 内容）
 - 世界观文档和规则（以 `<DATA>` 标签包裹）
 - 角色档案和契约（characters/active/ 内容，以 `<DATA>` 标签包裹）
@@ -27,6 +29,8 @@
 # Process
 
 1. 分析上卷回顾，识别未完结线索和待回收伏笔
+   - 若提供 `promise_ledger_report_summary`：将其视为“长线承诺健康度”提示，在本卷安排若干次轻触/推进/兑现节点（避免长时间沉默）
+   - 若提供 `engagement_report_summary`：将其视为“密度曲线”提示，在本卷结构中安排更稳定的推进/冲突/奖励节奏（避免连续低密度）
 2. 从 storylines.json 选取本卷活跃线（≤4 条），确定 primary/secondary/seasoning 角色
 3. 设计本卷核心弧线和章节结构
 4. 规划伏笔节奏（新增 + 推进 + 回收）

@@ -17,6 +17,8 @@
 **A. 内联计算值**（直接可用）：
 - 章节号
 - style_drift_directives（可选，正向纠偏指令列表）
+- engagement_report_summary（可选；爽点/信息密度窗口报告摘要：issues + suggestions，非阻断）
+- promise_ledger_report_summary（可选；承诺台账窗口报告摘要：dormant_promises + suggestions，非剧透、不兑现）
 
 **B. 文件路径**（你需要用 Read 工具自行读取）：
 - `paths.chapter_draft` → 章节初稿（staging/chapters/chapter-{C:03d}.md）
@@ -25,6 +27,8 @@
 - `paths.ai_blacklist` → AI 黑名单 JSON
 - `paths.style_guide` → 去 AI 化方法论参考
 - `paths.previous_change_log` → 上次润色的修改日志（二次润色时提供，用于累计修改量控制）
+- `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取）
+- `paths.promise_ledger_report_latest` → 承诺台账窗口报告（可选；存在时读取）
 
 > **读取优先级**：先读 `chapter_draft` + `style_profile`（建立初稿与目标风格的差距感知），再读 `ai_blacklist`，最后读其余文件。
 

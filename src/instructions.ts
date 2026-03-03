@@ -4,11 +4,13 @@ import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFileIfMissing } from "./fs-utils.js";
 import { loadContinuityLatestSummary } from "./consistency-auditor.js";
+import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
 import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
+import { loadPromiseLedgerLatestSummary } from "./promise-ledger.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, titleFixSnapshotRel, type Step } from "./steps.js";
@@ -76,6 +78,10 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   await maybeAdd("quality_rubric", "skills/novel-writing/references/quality-rubric.md");
   await maybeAdd("current_state", "state/current-state.json");
   await maybeAdd("world_rules", "world/rules.json");
+  await maybeAdd("promise_ledger", "promise-ledger.json");
+  await maybeAdd("promise_ledger_report_latest", "logs/promises/latest.json");
+  await maybeAdd("engagement_metrics", "engagement-metrics.jsonl");
+  await maybeAdd("engagement_report_latest", "logs/engagement/latest.json");
   await maybeAdd("character_voice_profiles", "character-voice-profiles.json");
   await maybeAdd("character_voice_drift", "character-voice-drift.json");
 
@@ -148,10 +154,28 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     }
   };
 
+  const maybeAttachNarrativeHealthSummaries = async (): Promise<void> => {
+    const engagementLatestAbs = join(args.rootDir, "logs/engagement/latest.json");
+    if (await pathExists(engagementLatestAbs)) {
+      const summary = await loadEngagementLatestSummary(args.rootDir);
+      if (summary) inline.engagement_report_summary = summary;
+      else inline.engagement_report_summary_degraded = true;
+    }
+
+    const promiseLatestAbs = join(args.rootDir, "logs/promises/latest.json");
+    if (await pathExists(promiseLatestAbs)) {
+      const summary = await loadPromiseLedgerLatestSummary(args.rootDir);
+      if (summary) inline.promise_ledger_report_summary = summary;
+      else inline.promise_ledger_report_summary_degraded = true;
+    }
+  };
+
   if (args.step.stage === "draft") {
     agent = { kind: "subagent", name: "chapter-writer" };
     // Optional: inject character voice drift directives (best-effort).
     await maybeAttachCharacterVoiceDirectives();
+    // Optional: inject compact narrative health summaries (best-effort).
+    await maybeAttachNarrativeHealthSummaries();
     // Optional: inject non-spoiler light-touch reminders for dormant foreshadowing items (best-effort).
     try {
       const loadedPlatform = await loadPlatformProfile(args.rootDir).catch(() => null);
@@ -198,6 +222,8 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     agent = { kind: "subagent", name: "style-refiner" };
     // Optional: inject character voice drift directives (best-effort).
     await maybeAttachCharacterVoiceDirectives();
+    // Optional: inject compact narrative health summaries (best-effort).
+    await maybeAttachNarrativeHealthSummaries();
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     expected_outputs.push({ path: rel.staging.chapterMd, required: true });
     expected_outputs.push({ path: rel.staging.styleRefinerChangesJson, required: false });
