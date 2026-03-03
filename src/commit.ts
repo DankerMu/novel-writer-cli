@@ -1633,10 +1633,12 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
   // Post-commit (outside write-lock): character voice drift directives (non-blocking).
   try {
-    const loaded = await loadCharacterVoiceProfiles(args.rootDir);
-    for (const w of loaded.warnings) warnings.push(w);
+    await withWriteLock(args.rootDir, { chapter: args.chapter }, async () => {
+      const loaded = await loadCharacterVoiceProfiles(args.rootDir);
+      for (const w of loaded.warnings) warnings.push(w);
 
-    if (loaded.profiles) {
+      if (!loaded.profiles) return;
+
       const previousActiveCharacterIds = await loadActiveCharacterVoiceDriftIds(args.rootDir);
       const computed = await computeCharacterVoiceDrift({
         rootDir: args.rootDir,
@@ -1649,10 +1651,10 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
       if (computed.drift) {
         await writeCharacterVoiceDriftFile({ rootDir: args.rootDir, drift: computed.drift });
-      } else {
-        await clearCharacterVoiceDriftFile(args.rootDir);
+        return;
       }
-    }
+      await clearCharacterVoiceDriftFile(args.rootDir);
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(`Character voice drift maintenance skipped: ${message}`);

@@ -77,6 +77,7 @@ export type CharacterVoiceDriftCharacter = {
 };
 
 export type CharacterVoiceDriftFile = {
+  $schema?: string;
   schema_version: 1;
   generated_at: string;
   as_of: { chapter: number; volume: number };
@@ -207,7 +208,10 @@ function attributeSpeaker(args: {
   const WINDOW_CHARS = 80;
   const before = Math.max(0, args.sample.start - WINDOW_CHARS);
   const after = Math.min(args.chapterText.length, args.sample.end + WINDOW_CHARS);
-  const ctx = args.chapterText.slice(before, after);
+  // Exclude quoted dialogues from the context to avoid mis-attribution when dialogues mention other characters.
+  const ctxRaw = args.chapterText.slice(before, after);
+  const dialogueRe = /“[^”]{0,2000}”|「[^」]{0,2000}」|『[^』]{0,2000}』|"[^"]{0,2000}"/gu;
+  const ctx = ctxRaw.replace(dialogueRe, " ");
 
   const matched: string[] = [];
   for (const [id, variants] of args.characterVariants) {
@@ -880,6 +884,7 @@ export async function computeCharacterVoiceDrift(args: {
   }
 
   const drift: CharacterVoiceDriftFile = {
+    $schema: "schemas/character-voice-drift.schema.json",
     schema_version: 1,
     generated_at: new Date().toISOString(),
     as_of: { chapter: args.asOfChapter, volume: args.volume },

@@ -110,6 +110,9 @@ commit 会执行（见 PRD §10.4）：
 # 初始化基线画像（建议在 quick-start 章节后）
 novel voice init --protagonist <character_id> --core-cast a,b,c --apply
 
+# 若 character-voice-profiles.json 已存在：用 --force --apply 覆盖（--force 仅在 --apply 时生效）
+novel voice init --protagonist <character_id> --core-cast a,b,c --force --apply
+
 # 手动检测/更新漂移文件（预览：不写文件；加 --apply 则写/清理）
 novel voice check --apply
 ```

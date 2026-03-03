@@ -391,7 +391,7 @@ function buildProgram(argv: string[]): Command {
     .option("--start <n>", "Baseline start chapter (default: 1).", (v) => Number.parseInt(String(v), 10))
     .option("--end <n>", "Baseline end chapter (default: min(10, checkpoint.last_completed_chapter)).", (v) => Number.parseInt(String(v), 10))
     .option("--window-chapters <n>", "Rolling window chapters for drift detection (default: 10).", (v) => Number.parseInt(String(v), 10))
-    .option("--force", "Overwrite character-voice-profiles.json if it exists (use with care).")
+    .option("--force", "Allow overwriting character-voice-profiles.json (requires --apply; use with care).")
     .option("--apply", "Write character-voice-profiles.json (otherwise preview-only).")
     .action(
       async (localOpts: {
@@ -420,7 +420,7 @@ function buildProgram(argv: string[]): Command {
             }
             process.stdout.write(`character-voice-profiles.json already exists.\n`);
             for (const w of loaded.warnings) process.stdout.write(`WARN: ${w}\n`);
-            process.stdout.write(`Use --json to inspect, or re-run with --force to overwrite.\n`);
+            process.stdout.write(`Use --json to inspect, or re-run with --force --apply to overwrite.\n`);
             return;
           }
         }
@@ -519,12 +519,14 @@ function buildProgram(argv: string[]): Command {
       let wrote = false;
       let cleared = false;
       if (localOpts.apply) {
-        if (computed.drift) {
-          await writeCharacterVoiceDriftFile({ rootDir, drift: computed.drift });
-          wrote = true;
-        } else {
+        await withWriteLock(rootDir, { chapter: asOf }, async () => {
+          if (computed.drift) {
+            await writeCharacterVoiceDriftFile({ rootDir, drift: computed.drift });
+            wrote = true;
+            return;
+          }
           cleared = await clearCharacterVoiceDriftFile(rootDir);
-        }
+        });
       }
 
       const allWarnings = [...loaded.warnings, ...computed.warnings];

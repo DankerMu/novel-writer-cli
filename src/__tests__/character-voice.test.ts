@@ -93,6 +93,45 @@ test("buildCharacterVoiceProfiles attributes dialogue to characters and extracts
   assert.ok(side.signature_phrases.includes("哼"));
 });
 
+test("buildCharacterVoiceProfiles ignores addressed names inside dialogue when attributing speaker", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-attr-"));
+
+  await writeJson(join(rootDir, "state/current-state.json"), {
+    schema_version: 1,
+    state_version: 1,
+    last_updated_chapter: 1,
+    characters: {
+      hero: { display_name: "阿宁" },
+      side: { display_name: "老周" }
+    }
+  });
+
+  await writeText(
+    join(rootDir, "chapters/chapter-001.md"),
+    `# 第1章\n\n` +
+      `阿宁说：“老周，你听我说。”\n\n` +
+      `阿宁说：“老周，别急。”\n\n` +
+      `阿宁说：“老周，我们走。”\n\n` +
+      `阿宁说：“老周，先等等。”\n\n` +
+      `阿宁说：“老周，跟上。”\n`
+  );
+
+  const result = await buildCharacterVoiceProfiles({
+    rootDir,
+    protagonistId: "hero",
+    coreCastIds: ["side"],
+    baselineRange: { start: 1, end: 1 },
+    windowChapters: 3
+  });
+
+  const hero = result.profiles.profiles.find((p) => p.character_id === "hero");
+  const side = result.profiles.profiles.find((p) => p.character_id === "side");
+  assert.ok(hero);
+  assert.ok(side);
+  assert.ok(hero.baseline_metrics.dialogue_samples >= 5);
+  assert.equal(side.baseline_metrics.dialogue_samples, 0);
+});
+
 test("computeCharacterVoiceDrift flags drift and clears on recovery", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-drift-"));
 
@@ -421,6 +460,7 @@ test("buildInstructionPacket injects character voice drift directives into draft
   assert.ok(draftInline?.character_voice_drift);
   assert.equal(draftInline.character_voice_drift.directives.length, 1);
   assert.equal(draftInline.character_voice_drift.directives[0]?.character_id, "hero");
+  assert.equal(draftOut.packet?.manifest?.paths?.character_voice_drift, "character-voice-drift.json");
 
   const refineOut = (await buildInstructionPacket({
     rootDir,
@@ -432,6 +472,7 @@ test("buildInstructionPacket injects character voice drift directives into draft
 
   const refineInline = refineOut.packet?.manifest?.inline;
   assert.ok(refineInline?.character_voice_drift);
+  assert.equal(refineOut.packet?.manifest?.paths?.character_voice_drift, "character-voice-drift.json");
 
   // Clearing drift removes injection.
   await rm(join(rootDir, "character-voice-drift.json"), { force: true });
@@ -444,4 +485,5 @@ test("buildInstructionPacket injects character voice drift directives into draft
   })) as any;
   assert.equal(draftOut2.packet?.manifest?.inline?.character_voice_drift, undefined);
   assert.equal(draftOut2.packet?.manifest?.inline?.character_voice_drift_degraded, undefined);
+  assert.equal(draftOut2.packet?.manifest?.paths?.character_voice_drift, undefined);
 });
