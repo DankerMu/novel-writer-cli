@@ -588,9 +588,9 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   }
 
   const promiseLedgerExists = await pathExists(join(args.rootDir, "promise-ledger.json"));
-  const promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
+  let promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
 
-  const engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
+  let engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
 
   const characterVoiceProfilesExists = await pathExists(join(args.rootDir, "character-voice-profiles.json"));
 
@@ -700,10 +700,10 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   }
 
   // Optional: engagement density maintenance (non-blocking).
-  // This appends a per-chapter metrics record and maintains a rolling engagement window report.
+  // This appends a per-chapter metrics record and periodically maintains a rolling engagement window report.
   plan.push(`APPEND engagement-metrics.jsonl (chapter metrics)`);
-  plan.push(`WRITE logs/engagement/latest.json (monotonic)`);
   if (engagementHistoryRange) {
+    plan.push(`WRITE logs/engagement/latest.json (monotonic)`);
     plan.push(
       `WRITE logs/engagement/engagement-report-vol-${pad2(volume)}-ch${pad3(engagementHistoryRange.start)}-ch${pad3(engagementHistoryRange.end)}.json`
     );
@@ -713,16 +713,12 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(`WRITE character-voice-drift.json (voice drift directives; cleared on recovery)`);
   }
 
-  // Optional: promise ledger report maintenance (non-blocking) when promise-ledger.json exists.
-  if (promiseLedgerExists) {
+  // Optional: periodic promise ledger report maintenance (non-blocking) on a fixed cadence when promise-ledger.json exists.
+  if (promiseLedgerExists && promiseLedgerHistoryRange) {
     plan.push(`WRITE logs/promises/latest.json (monotonic)`);
-    if (promiseLedgerHistoryRange) {
-      plan.push(
-        `WRITE logs/promises/promise-ledger-report-vol-${pad2(volume)}-ch${pad3(promiseLedgerHistoryRange.start)}-ch${pad3(
-          promiseLedgerHistoryRange.end
-        )}.json`
-      );
-    }
+    plan.push(
+      `WRITE logs/promises/promise-ledger-report-vol-${pad2(volume)}-ch${pad3(promiseLedgerHistoryRange.start)}-ch${pad3(promiseLedgerHistoryRange.end)}.json`
+    );
   }
 
   // Update checkpoint.
@@ -1487,6 +1483,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     }
     isVolumeEnd = volumeRange !== null && args.chapter === volumeRange.end;
     shouldPeriodicContinuityAudit = args.chapter % 5 === 0 && !isVolumeEnd;
+    promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
+    engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
   }
 
   // Crash compensation for volume-end audits:
@@ -1573,22 +1571,17 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   }
 
   // Post-commit (outside write-lock): promise ledger report maintenance (non-blocking).
-  if (promiseLedgerExists) {
+  if (promiseLedgerHistoryRange) {
     try {
       const loaded = await loadPromiseLedger(args.rootDir);
       for (const w of loaded.warnings) warnings.push(`Promise ledger (load): ${w}`);
-      const scopeRange =
-        isVolumeEnd && volumeRange
-          ? { start: volumeRange.start, end: volumeRange.end }
-          : { start: Math.max(1, args.chapter - 9), end: args.chapter };
-      const historyRange = resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
       const report = computePromiseLedgerReport({
         ledger: loaded.ledger,
         asOfChapter: args.chapter,
         volume,
-        chapterRange: scopeRange
+        chapterRange: promiseLedgerHistoryRange
       });
-      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange });
+      await writePromiseLedgerLogs({ rootDir: args.rootDir, report, historyRange: promiseLedgerHistoryRange });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`Promise ledger report maintenance skipped: ${message}`);
@@ -1609,23 +1602,20 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
 
     const stream = await appendEngagementMetricRecord({ rootDir: args.rootDir, record: metric.record });
 
-    const loaded = await loadEngagementMetricsStream({ rootDir: args.rootDir, relPath: stream.rel });
-    for (const w of loaded.warnings) warnings.push(w);
+    if (engagementHistoryRange) {
+      const loaded = await loadEngagementMetricsStream({ rootDir: args.rootDir, relPath: stream.rel });
+      for (const w of loaded.warnings) warnings.push(w);
 
-    const scopeRange =
-      isVolumeEnd && volumeRange
-        ? { start: volumeRange.start, end: volumeRange.end }
-        : { start: Math.max(1, args.chapter - 9), end: args.chapter };
-    const report = computeEngagementReport({
-      records: loaded.records,
-      asOfChapter: args.chapter,
-      volume,
-      chapterRange: scopeRange,
-      metricsRelPath: loaded.rel
-    });
+      const report = computeEngagementReport({
+        records: loaded.records,
+        asOfChapter: args.chapter,
+        volume,
+        chapterRange: engagementHistoryRange,
+        metricsRelPath: loaded.rel
+      });
 
-    const historyRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
-    await writeEngagementLogs({ rootDir: args.rootDir, report, historyRange });
+      await writeEngagementLogs({ rootDir: args.rootDir, report, historyRange: engagementHistoryRange });
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     warnings.push(`Engagement density maintenance skipped: ${message}`);

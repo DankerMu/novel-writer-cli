@@ -2,10 +2,19 @@ import { appendFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
+import { loadLatestJsonSummary, MAX_LATEST_JSON_BYTES } from "./latest-summary-loader.js";
 import type { SeverityPolicy } from "./platform-profile.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
+import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
+import {
+  parseSummaryIssues,
+  safeNonNegativeFiniteOrNull,
+  safeNonNegativeIntOrNull,
+  safePositiveIntOrNull,
+  safeStringOrNull
+} from "./safe-parse.js";
 
 export type EngagementScore = 1 | 2 | 3 | 4 | 5;
 
@@ -120,22 +129,6 @@ function clampScore(n: number): EngagementScore {
 function countNonWhitespaceChars(text: string): number {
   const compact = text.replace(/\s+/gu, "");
   return Array.from(compact).length;
-}
-
-function truncateWithEllipsis(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  if (maxLen <= 0) return "";
-  if (maxLen === 1) return "…";
-
-  let end = Math.max(0, maxLen - 1);
-  if (end > 0) {
-    const last = text.charCodeAt(end - 1);
-    if (last >= 0xd800 && last <= 0xdbff) {
-      const next = text.charCodeAt(end);
-      if (next >= 0xdc00 && next <= 0xdfff) end -= 1;
-    }
-  }
-  return `${text.slice(0, end)}…`;
 }
 
 function normalizeEventText(text: string): string {
@@ -729,4 +722,62 @@ export async function writeEngagementLogs(args: {
   }
 
   return result;
+}
+
+export async function loadEngagementLatestSummary(rootDir: string): Promise<Record<string, unknown> | null> {
+  return loadLatestJsonSummary({
+    rootDir,
+    relPath: "logs/engagement/latest.json",
+    summarize: summarizeEngagementReport
+  });
+}
+
+export function summarizeEngagementReport(raw: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.schema_version !== 1) return null;
+
+  const asOfRaw = isPlainObject(obj.as_of) ? (obj.as_of as Record<string, unknown>) : null;
+  const scopeRaw = isPlainObject(obj.scope) ? (obj.scope as Record<string, unknown>) : null;
+  const statsRaw = isPlainObject(obj.stats) ? (obj.stats as Record<string, unknown>) : null;
+  const issuesRaw = Array.isArray(obj.issues) ? (obj.issues as unknown[]) : [];
+
+  const as_of = asOfRaw
+    ? {
+        chapter: safePositiveIntOrNull(asOfRaw.chapter),
+        volume: safeNonNegativeIntOrNull(asOfRaw.volume)
+      }
+    : null;
+
+  let scope = scopeRaw
+    ? {
+        volume: safeNonNegativeIntOrNull(scopeRaw.volume),
+        chapter_start: safePositiveIntOrNull(scopeRaw.chapter_start),
+        chapter_end: safePositiveIntOrNull(scopeRaw.chapter_end)
+      }
+    : null;
+  if (scope && scope.chapter_start !== null && scope.chapter_end !== null && scope.chapter_start > scope.chapter_end) scope = null;
+
+  const stats = statsRaw
+    ? {
+        chapters: safeNonNegativeIntOrNull(statsRaw.chapters),
+        avg_word_count: safeNonNegativeFiniteOrNull(statsRaw.avg_word_count),
+        avg_plot_progression_beats: safeNonNegativeFiniteOrNull(statsRaw.avg_plot_progression_beats),
+        avg_conflict_intensity: safeNonNegativeFiniteOrNull(statsRaw.avg_conflict_intensity),
+        avg_payoff_score: safeNonNegativeFiniteOrNull(statsRaw.avg_payoff_score),
+        avg_new_info_load_score: safeNonNegativeFiniteOrNull(statsRaw.avg_new_info_load_score)
+      }
+    : null;
+
+  const issues = parseSummaryIssues(issuesRaw);
+
+  const has_blocking_issues = typeof obj.has_blocking_issues === "boolean" ? obj.has_blocking_issues : null;
+
+  return {
+    as_of,
+    scope,
+    stats,
+    issues,
+    has_blocking_issues
+  };
 }

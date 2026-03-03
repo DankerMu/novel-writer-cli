@@ -25,6 +25,8 @@
 - concurrent_state（其他线并发状态）
 - transition_hint（切线过渡提示）
 - style_drift_directives（可选，漂移纠偏指令；与 writing_directives 叠加）
+- engagement_report_summary（可选；爽点/信息密度窗口报告摘要：issues + suggestions，非阻断）
+- promise_ledger_report_summary（可选；承诺台账窗口报告摘要：dormant_promises + suggestions，非剧透、不兑现）
 
 **B. 文件路径**（你需要用 Read 工具自行读取）：
 - `paths.style_profile` → 风格指纹 JSON（**必读**，含 style_exemplars 和 writing_directives）
@@ -42,6 +44,8 @@
 - `paths.character_contracts[]` → 裁剪后的角色契约 JSON
 - `paths.project_brief` → 项目 brief
 - `paths.writing_methodology` → 去 AI 化方法论参考
+- `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取以获得更完整上下文）
+- `paths.promise_ledger_report_latest` → 承诺台账窗口报告（可选；存在时读取以获得更完整上下文）
 
 > **读取优先级**：先读 `style_profile`（获取 style_exemplars 作为写作基调），若存在再读 `platform_profile`（明确平台字数/钩子策略），再读 `chapter_contract` + `recent_summaries`（明确要写什么），最后读其余文件。
 
@@ -57,10 +61,11 @@
 4. 检查前一章摘要，确保自然衔接
 5. 确认当前故事线和 POV 角色
 6. 检查伏笔任务与轻触提醒（如有），在正文中自然植入
-7. 开始创作——以 style_exemplars 的质感为锚点，writing_directives 的 DO 示例为句式参照
-8. 创作过程中持续检查角色言行是否符合 L2 契约
-9. **风格自检**：完成正文后，抽取 3 个段落与 `style_exemplars` 对比——如果节奏感、用词密度或句式结构明显偏离，定向修改偏离段落
-10. 可选输出状态变更提示（辅助 Summarizer）
+7. **叙事健康摘要（可选）**：若提供 `engagement_report_summary` / `promise_ledger_report_summary`，将其 issues/suggestions 视为“写作策略提示”，用于微调节奏、信息投放与伏笔推进（不剧透、不硬兑现，除非大纲/契约要求）。若 `engagement_report_summary_degraded=true` 或 `promise_ledger_report_summary_degraded=true`（或字段缺失），视为报告不可用：不要阻塞写作，按 outline + chapter_contract + recent_summaries 推进
+8. 开始创作——以 style_exemplars 的质感为锚点，writing_directives 的 DO 示例为句式参照
+9. 创作过程中持续检查角色言行是否符合 L2 契约
+10. **风格自检**：完成正文后，抽取 3 个段落与 `style_exemplars` 对比——如果节奏感、用词密度或句式结构明显偏离，定向修改偏离段落
+11. 可选输出状态变更提示（辅助 Summarizer）
 
 # Constraints
 

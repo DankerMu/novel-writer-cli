@@ -4,11 +4,13 @@ import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFileIfMissing } from "./fs-utils.js";
 import { loadContinuityLatestSummary } from "./consistency-auditor.js";
+import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
 import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
+import { loadPromiseLedgerLatestSummary } from "./promise-ledger.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, titleFixSnapshotRel, type Step } from "./steps.js";
@@ -61,23 +63,23 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
   const commonPaths: Record<string, unknown> = {};
 
-  const maybeAdd = async (key: string, relPath: string): Promise<void> => {
+  const maybeAddPath = async (target: Record<string, unknown>, key: string, relPath: string): Promise<void> => {
     const absPath = join(args.rootDir, relPath);
-    if (await pathExists(absPath)) commonPaths[key] = relPath;
+    if (await pathExists(absPath)) target[key] = relPath;
   };
 
-  await maybeAdd("project_brief", "brief.md");
-  await maybeAdd("style_profile", "style-profile.json");
-  await maybeAdd("platform_profile", "platform-profile.json");
-  await maybeAdd("ai_blacklist", "ai-blacklist.json");
-  await maybeAdd("web_novel_cliche_lint", "web-novel-cliche-lint.json");
-  await maybeAdd("genre_weight_profiles", "genre-weight-profiles.json");
-  await maybeAdd("style_guide", "skills/novel-writing/references/style-guide.md");
-  await maybeAdd("quality_rubric", "skills/novel-writing/references/quality-rubric.md");
-  await maybeAdd("current_state", "state/current-state.json");
-  await maybeAdd("world_rules", "world/rules.json");
-  await maybeAdd("character_voice_profiles", "character-voice-profiles.json");
-  await maybeAdd("character_voice_drift", "character-voice-drift.json");
+  await maybeAddPath(commonPaths, "project_brief", "brief.md");
+  await maybeAddPath(commonPaths, "style_profile", "style-profile.json");
+  await maybeAddPath(commonPaths, "platform_profile", "platform-profile.json");
+  await maybeAddPath(commonPaths, "ai_blacklist", "ai-blacklist.json");
+  await maybeAddPath(commonPaths, "web_novel_cliche_lint", "web-novel-cliche-lint.json");
+  await maybeAddPath(commonPaths, "genre_weight_profiles", "genre-weight-profiles.json");
+  await maybeAddPath(commonPaths, "style_guide", "skills/novel-writing/references/style-guide.md");
+  await maybeAddPath(commonPaths, "quality_rubric", "skills/novel-writing/references/quality-rubric.md");
+  await maybeAddPath(commonPaths, "current_state", "state/current-state.json");
+  await maybeAddPath(commonPaths, "world_rules", "world/rules.json");
+  await maybeAddPath(commonPaths, "character_voice_profiles", "character-voice-profiles.json");
+  await maybeAddPath(commonPaths, "character_voice_drift", "character-voice-drift.json");
 
   // Optional: volume outline and chapter contract.
   if (await pathExists(join(args.rootDir, volumeOutlineRel))) commonPaths.volume_outline = volumeOutlineRel;
@@ -148,10 +150,38 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     }
   };
 
+  const maybeAttachNarrativeHealthSummaries = async (): Promise<void> => {
+    const engagementLatestAbs = join(args.rootDir, "logs/engagement/latest.json");
+    if (await pathExists(engagementLatestAbs)) {
+      const summary = await loadEngagementLatestSummary(args.rootDir);
+      if (summary) inline.engagement_report_summary = summary;
+      else inline.engagement_report_summary_degraded = true;
+    }
+
+    const promiseLatestAbs = join(args.rootDir, "logs/promises/latest.json");
+    if (await pathExists(promiseLatestAbs)) {
+      const summary = await loadPromiseLedgerLatestSummary(args.rootDir);
+      if (summary) inline.promise_ledger_report_summary = summary;
+      else inline.promise_ledger_report_summary_degraded = true;
+    }
+  };
+
   if (args.step.stage === "draft") {
     agent = { kind: "subagent", name: "chapter-writer" };
     // Optional: inject character voice drift directives (best-effort).
     await maybeAttachCharacterVoiceDirectives();
+    // Optional: include narrative health source files (best-effort).
+    await maybeAddPath(paths, "promise_ledger", "promise-ledger.json");
+    await maybeAddPath(paths, "engagement_metrics", "engagement-metrics.jsonl");
+    await maybeAddPath(paths, "engagement_report_latest", "logs/engagement/latest.json");
+    await maybeAddPath(paths, "promise_ledger_report_latest", "logs/promises/latest.json");
+    // Optional: inject compact narrative health summaries (best-effort).
+    try {
+      await maybeAttachNarrativeHealthSummaries();
+    } catch {
+      inline.engagement_report_summary_degraded = true;
+      inline.promise_ledger_report_summary_degraded = true;
+    }
     // Optional: inject non-spoiler light-touch reminders for dormant foreshadowing items (best-effort).
     try {
       const loadedPlatform = await loadPlatformProfile(args.rootDir).catch(() => null);
@@ -198,6 +228,18 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     agent = { kind: "subagent", name: "style-refiner" };
     // Optional: inject character voice drift directives (best-effort).
     await maybeAttachCharacterVoiceDirectives();
+    // Optional: include narrative health source files (best-effort).
+    await maybeAddPath(paths, "promise_ledger", "promise-ledger.json");
+    await maybeAddPath(paths, "engagement_metrics", "engagement-metrics.jsonl");
+    await maybeAddPath(paths, "engagement_report_latest", "logs/engagement/latest.json");
+    await maybeAddPath(paths, "promise_ledger_report_latest", "logs/promises/latest.json");
+    // Optional: inject compact narrative health summaries (best-effort).
+    try {
+      await maybeAttachNarrativeHealthSummaries();
+    } catch {
+      inline.engagement_report_summary_degraded = true;
+      inline.promise_ledger_report_summary_degraded = true;
+    }
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     expected_outputs.push({ path: rel.staging.chapterMd, required: true });
     expected_outputs.push({ path: rel.staging.styleRefinerChangesJson, required: false });

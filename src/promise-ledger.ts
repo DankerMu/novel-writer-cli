@@ -3,9 +3,12 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
+import { loadLatestJsonSummary, MAX_LATEST_JSON_BYTES } from "./latest-summary-loader.js";
 import type { SeverityPolicy } from "./platform-profile.js";
 import { pad2, pad3 } from "./steps.js";
+import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
+import { parseSummaryIssues, safeNonNegativeIntOrNull, safePositiveIntOrNull, safeStringOrNull } from "./safe-parse.js";
 
 export type PromiseType = "selling_point" | "core_mystery" | "mechanism" | "relationship_arc";
 export type PromiseStatus = "promised" | "advanced" | "delivered";
@@ -508,6 +511,96 @@ export async function writePromiseLedgerLogs(args: {
   }
 
   return result;
+}
+
+export async function loadPromiseLedgerLatestSummary(rootDir: string): Promise<Record<string, unknown> | null> {
+  return loadLatestJsonSummary({
+    rootDir,
+    relPath: "logs/promises/latest.json",
+    summarize: summarizePromiseLedgerReport
+  });
+}
+
+export function summarizePromiseLedgerReport(raw: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.schema_version !== 1) return null;
+
+  const asOfRaw = isPlainObject(obj.as_of) ? (obj.as_of as Record<string, unknown>) : null;
+  const scopeRaw = isPlainObject(obj.scope) ? (obj.scope as Record<string, unknown>) : null;
+  const statsRaw = isPlainObject(obj.stats) ? (obj.stats as Record<string, unknown>) : null;
+  const policyRaw = isPlainObject(obj.policy) ? (obj.policy as Record<string, unknown>) : null;
+  const issuesRaw = Array.isArray(obj.issues) ? (obj.issues as unknown[]) : [];
+  const dormantRaw = Array.isArray(obj.dormant_promises) ? (obj.dormant_promises as unknown[]) : [];
+
+  const as_of = asOfRaw
+    ? {
+        chapter: safePositiveIntOrNull(asOfRaw.chapter),
+        volume: safeNonNegativeIntOrNull(asOfRaw.volume)
+      }
+    : null;
+
+  let scope = scopeRaw
+    ? {
+        volume: safeNonNegativeIntOrNull(scopeRaw.volume),
+        chapter_start: safePositiveIntOrNull(scopeRaw.chapter_start),
+        chapter_end: safePositiveIntOrNull(scopeRaw.chapter_end)
+      }
+    : null;
+  if (scope && scope.chapter_start !== null && scope.chapter_end !== null && scope.chapter_start > scope.chapter_end) scope = null;
+
+  const policy = policyRaw
+    ? {
+        dormancy_threshold_chapters: safePositiveIntOrNull(policyRaw.dormancy_threshold_chapters)
+      }
+    : null;
+
+  const stats = statsRaw
+    ? {
+        total_promises: safeNonNegativeIntOrNull(statsRaw.total_promises),
+        promised_total: safeNonNegativeIntOrNull(statsRaw.promised_total),
+        advanced_total: safeNonNegativeIntOrNull(statsRaw.advanced_total),
+        delivered_total: safeNonNegativeIntOrNull(statsRaw.delivered_total),
+        open_total: safeNonNegativeIntOrNull(statsRaw.open_total),
+        dormant_total: safeNonNegativeIntOrNull(statsRaw.dormant_total)
+      }
+    : null;
+
+  const issues = parseSummaryIssues(issuesRaw);
+
+  const dormant_promises: Array<{
+    id: string | null;
+    type: string | null;
+    promise_text: string | null;
+    status: string | null;
+    chapters_since_last_touch: number | null;
+    suggestion: string | null;
+  }> = [];
+  for (const it of dormantRaw) {
+    if (!isPlainObject(it)) continue;
+    const d = it as Record<string, unknown>;
+    dormant_promises.push({
+      id: safeStringOrNull(d.id, 80),
+      type: safeStringOrNull(d.type, 40),
+      promise_text: safeStringOrNull(d.promise_text, 160),
+      status: safeStringOrNull(d.status, 40),
+      chapters_since_last_touch: safeNonNegativeIntOrNull(d.chapters_since_last_touch),
+      suggestion: safeStringOrNull(d.suggestion, 200)
+    });
+    if (dormant_promises.length >= 5) break;
+  }
+
+  const has_blocking_issues = typeof obj.has_blocking_issues === "boolean" ? obj.has_blocking_issues : null;
+
+  return {
+    as_of,
+    scope,
+    policy,
+    stats,
+    dormant_promises,
+    issues,
+    has_blocking_issues
+  };
 }
 
 export type PromiseSeedCandidate = {
