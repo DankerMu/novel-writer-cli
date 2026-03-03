@@ -129,14 +129,17 @@ novel voice check --apply
 常用命令：
 
 ```bash
-# 初始化（dry-run 预览；加 --apply 写入 promise-ledger.json）
+# 预览 seed（不写文件；用 --json 查看）
+novel promises init --json
+
+# 写入 promise-ledger.json
 novel promises init --apply
 
 # 生成窗口报告（默认 scope=最近 10 章；加 --history 同时写入 history 文件）
 novel promises report --history
 ```
 
-> `promise-ledger.json` 是用户可维护的台账；窗口报告是基于台账计算得到的“可执行建议”，用于规划/写作时参考（默认不阻断流水线）。
+> `promise-ledger.json` 是用户可维护的台账；窗口报告是基于台账计算得到的“可执行建议”，用于规划/写作时参考（默认仅提示 / 不参与 blocking 判定）。
 
 ## 参与度密度指标（M7H.2，可选）
 
@@ -157,18 +160,17 @@ novel engagement report --history
 默认情况下，叙事健康相关输出都是 **best-effort**：
 
 - `novel commit` 每章都会 append `engagement-metrics.jsonl`（如可计算）
-- `logs/engagement/latest.json` 与 `logs/promises/latest.json` 默认按**周期性审计**维护（每 10 章 + 卷末），并且不会阻断 commit（失败时只产生 WARN）
+- `logs/engagement/latest.json` 与 `logs/promises/latest.json` 默认按**周期性审计**维护（每 10 章 + 卷末），并且不会因为这些审计维护失败而阻断 `novel commit`（失败时只产生 WARN）
+
+在 `chapter:*:draft` / `chapter:*:refine` 的 instruction packet 中，上述报告在可用时会以 `engagement_report_summary` / `promise_ledger_report_summary`（以及 `*_degraded`）的形式被裁剪注入，供写作/润色参考。
 
 > 因此注入到 instruction packet 的 `*_report_summary` 在非审计章之间可能会滞后；把它视为“近期窗口提示”，而不是每章实时信号。
 
-## engagement 的 warn vs hard violations（默认 advisory-only）
+## Engagement/Promises：advisory warnings vs Guardrails blocking（默认仅提示）
 
-Engagement/Promises 的报告 `issues[]` 默认用于提示节奏风险与规划建议：
+Engagement/Promises 报告的 `issues[]` 目前仅用于节奏提示（`issues[].severity` 仅为 `warn`），不会影响 `novel next` 的 step 选择，也不会让 `novel commit` 因此失败。
 
-- 目前 engagement 的 issues 均为 `severity:\"warn\"`，`novel` 默认**不会**因为这些问题阻断流水线推进
-- 真正会阻断流水线（触发 `...:title-fix` / `...:hook-fix` / `...:review`）的是 Guardrails（Retention/Readability/Naming 等）产生的 `severity:\"soft\"|\"hard\"` 级问题
-
-详见 [Guardrails（留存 / 可读性 / 命名）](guardrails.md)。
+会触发 `...:title-fix` / `...:review` 等人工步骤的是 Guardrails 的 blocking 判定（见 [Guardrails（留存 / 可读性 / 命名）](guardrails.md)）；`...:hook-fix` 来自 `platform-profile.json.hook_policy`（见 [规范体系](spec-system.md)）。
 
 ## 中断恢复示例
 

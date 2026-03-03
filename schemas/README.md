@@ -1,6 +1,6 @@
 # JSON Schemas
 
-This directory contains machine-readable JSON Schemas that act as **single sources of truth** (SSOT) for project-facing JSON files.
+This directory contains machine-readable JSON Schemas that act as **single sources of truth** (SSOT) for project-facing JSON/JSONL files.
 
 ## Integration plan
 
