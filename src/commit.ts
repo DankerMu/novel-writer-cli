@@ -588,9 +588,9 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   }
 
   const promiseLedgerExists = await pathExists(join(args.rootDir, "promise-ledger.json"));
-  const promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
+  let promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
 
-  const engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
+  let engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
 
   const characterVoiceProfilesExists = await pathExists(join(args.rootDir, "character-voice-profiles.json"));
 
@@ -713,7 +713,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     plan.push(`WRITE character-voice-drift.json (voice drift directives; cleared on recovery)`);
   }
 
-  // Optional: promise ledger report maintenance (non-blocking) when promise-ledger.json exists.
+  // Optional: periodic promise ledger report maintenance (non-blocking) on a fixed cadence when promise-ledger.json exists.
   if (promiseLedgerExists && promiseLedgerHistoryRange) {
     plan.push(`WRITE logs/promises/latest.json (monotonic)`);
     plan.push(
@@ -1483,6 +1483,8 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
     }
     isVolumeEnd = volumeRange !== null && args.chapter === volumeRange.end;
     shouldPeriodicContinuityAudit = args.chapter % 5 === 0 && !isVolumeEnd;
+    promiseLedgerHistoryRange = promiseLedgerExists ? resolvePromiseLedgerHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange }) : null;
+    engagementHistoryRange = resolveEngagementHistoryRange({ chapter: args.chapter, isVolumeEnd, volumeRange });
   }
 
   // Crash compensation for volume-end audits:
