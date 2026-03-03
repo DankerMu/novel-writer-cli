@@ -1,6 +1,6 @@
 {
   "name": "novel-writer-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Executor-agnostic novel orchestration CLI",
   "license": "MIT",
   "type": "module",
@@ -30,6 +30,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/__tests__/*.test.js"

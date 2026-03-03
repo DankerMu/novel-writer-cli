@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   buildCharacterVoiceProfiles,
@@ -653,7 +654,25 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 }
 
 const entryPath = process.argv[1] ? resolve(process.argv[1]) : null;
-if (entryPath && import.meta.url === pathToFileURL(entryPath).href) {
+const selfPath = fileURLToPath(import.meta.url);
+const safeRealpath = (p: string): string | null => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return null;
+  }
+};
+const entryUrl = entryPath ? pathToFileURL(entryPath).href : null;
+const isEntrypoint =
+  entryPath !== null &&
+  (entryUrl === import.meta.url ||
+    (() => {
+      const a = safeRealpath(entryPath);
+      const b = safeRealpath(selfPath);
+      return a !== null && b !== null && a === b;
+    })());
+
+if (isEntrypoint) {
   main()
     .then((code) => {
       process.exitCode = code;
