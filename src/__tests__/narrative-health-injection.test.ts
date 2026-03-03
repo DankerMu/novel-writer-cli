@@ -336,3 +336,78 @@ test("buildInstructionPacket marks promise ledger degraded on schema_version mis
   assert.equal(inline.promise_ledger_report_summary, undefined);
   assert.equal(inline.promise_ledger_report_summary_degraded, true);
 });
+
+test("buildInstructionPacket marks both degraded when both latest files are invalid", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-narrative-health-both-degraded-"));
+
+  await writeText(join(rootDir, "logs/engagement/latest.json"), "not-json");
+  await writeText(join(rootDir, "logs/promises/latest.json"), "not-json");
+
+  await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n（占位）\n");
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+
+  const out = (await buildInstructionPacket({
+    rootDir,
+    checkpoint,
+    step: { kind: "chapter", chapter: 1, stage: "draft" },
+    embedMode: null,
+    writeManifest: false
+  })) as any;
+
+  const inline = out.packet?.manifest?.inline;
+  assert.equal(inline.engagement_report_summary, undefined);
+  assert.equal(inline.engagement_report_summary_degraded, true);
+  assert.equal(inline.promise_ledger_report_summary, undefined);
+  assert.equal(inline.promise_ledger_report_summary_degraded, true);
+});
+
+test("buildInstructionPacket treats oversized latest.json as degraded", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-narrative-health-oversized-"));
+
+  // Write a latest.json that exceeds 512KB
+  const oversizedContent = JSON.stringify({
+    schema_version: 1,
+    generated_at: "2026-03-03T00:00:00.000Z",
+    as_of: { chapter: 10, volume: 1 },
+    scope: { volume: 1, chapter_start: 1, chapter_end: 10 },
+    metrics_stream_path: "engagement-metrics.jsonl",
+    metrics: [],
+    stats: { chapters: 10, avg_word_count: 3000, avg_plot_progression_beats: 2, avg_conflict_intensity: 3, avg_payoff_score: 2, avg_new_info_load_score: 3 },
+    issues: [{ id: "pad", severity: "warn", summary: "x".repeat(600000), suggestion: "y" }],
+    has_blocking_issues: false
+  });
+  await writeText(join(rootDir, "logs/engagement/latest.json"), oversizedContent);
+
+  // Promise latest is valid and small
+  await writeJson(join(rootDir, "logs/promises/latest.json"), {
+    schema_version: 1,
+    generated_at: "2026-03-03T00:00:00.000Z",
+    as_of: { chapter: 10, volume: 1 },
+    scope: { volume: 1, chapter_start: 1, chapter_end: 10 },
+    ledger_path: "promise-ledger.json",
+    policy: { dormancy_threshold_chapters: 12 },
+    stats: { total_promises: 0, promised_total: 0, advanced_total: 0, delivered_total: 0, open_total: 0, dormant_total: 0 },
+    dormant_promises: [],
+    issues: [],
+    has_blocking_issues: false
+  });
+
+  await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n（占位）\n");
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+
+  const out = (await buildInstructionPacket({
+    rootDir,
+    checkpoint,
+    step: { kind: "chapter", chapter: 1, stage: "draft" },
+    embedMode: null,
+    writeManifest: false
+  })) as any;
+
+  const inline = out.packet?.manifest?.inline;
+  // Engagement should be degraded due to oversized file
+  assert.equal(inline.engagement_report_summary, undefined);
+  assert.equal(inline.engagement_report_summary_degraded, true);
+  // Promise should be fine
+  assert.ok(inline.promise_ledger_report_summary);
+  assert.equal(inline.promise_ledger_report_summary_degraded, undefined);
+});

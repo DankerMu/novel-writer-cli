@@ -2,6 +2,7 @@ import { readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
+import { loadLatestJsonSummary } from "./latest-summary-loader.js";
 import type { NerMention, NerOutput } from "./ner.js";
 import { runNer } from "./ner.js";
 import { pad2, pad3 } from "./steps.js";
@@ -574,15 +575,7 @@ export async function writeVolumeContinuityReport(args: {
 }
 
 export async function loadContinuityLatestSummary(rootDir: string): Promise<Record<string, unknown> | null> {
-  const rel = "logs/continuity/latest.json";
-  const abs = join(rootDir, rel);
-  if (!(await pathExists(abs))) return null;
-  try {
-    const raw = await readJsonFile(abs);
-    return summarizeContinuityForJudge(raw);
-  } catch {
-    return null;
-  }
+  return loadLatestJsonSummary({ rootDir, relPath: "logs/continuity/latest.json", summarize: summarizeContinuityForJudge });
 }
 
 export function summarizeContinuityForJudge(raw: unknown): Record<string, unknown> | null {

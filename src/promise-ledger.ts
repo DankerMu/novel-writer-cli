@@ -3,11 +3,12 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
-import { loadLatestJsonSummary } from "./latest-summary-loader.js";
+import { loadLatestJsonSummary, MAX_LATEST_JSON_BYTES } from "./latest-summary-loader.js";
 import type { SeverityPolicy } from "./platform-profile.js";
 import { pad2, pad3 } from "./steps.js";
 import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
+import { parseSummaryIssues, safeNonNegativeIntOrNull, safePositiveIntOrNull, safeStringOrNull } from "./safe-parse.js";
 
 export type PromiseType = "selling_point" | "core_mystery" | "mechanism" | "relationship_arc";
 export type PromiseStatus = "promised" | "advanced" | "delivered";
@@ -84,7 +85,6 @@ export type PromiseLedgerReport = {
 const DEFAULT_POLICY: PromiseLedgerPolicy = { dormancy_threshold_chapters: 12 };
 const PROMISE_TYPES: PromiseType[] = ["selling_point", "core_mystery", "mechanism", "relationship_arc"];
 const PROMISE_STATUSES: PromiseStatus[] = ["promised", "advanced", "delivered"];
-const MAX_LATEST_JSON_BYTES = 512 * 1024;
 
 function pickCommentFields(obj: Record<string, unknown>): CommentFields {
   const out = Object.create(null) as CommentFields;
@@ -517,7 +517,6 @@ export async function loadPromiseLedgerLatestSummary(rootDir: string): Promise<R
   return loadLatestJsonSummary({
     rootDir,
     relPath: "logs/promises/latest.json",
-    maxBytes: MAX_LATEST_JSON_BYTES,
     summarize: summarizePromiseLedgerReport
   });
 }
@@ -526,15 +525,6 @@ export function summarizePromiseLedgerReport(raw: unknown): Record<string, unkno
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
   if (obj.schema_version !== 1) return null;
-
-  const safePositiveIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null);
-  const safeNonNegativeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
-  const safeStringOrNull = (v: unknown, maxLen: number): string | null => {
-    if (typeof v !== "string") return null;
-    const t = v.trim();
-    if (t.length === 0) return null;
-    return truncateWithEllipsis(t, maxLen);
-  };
 
   const asOfRaw = isPlainObject(obj.as_of) ? (obj.as_of as Record<string, unknown>) : null;
   const scopeRaw = isPlainObject(obj.scope) ? (obj.scope as Record<string, unknown>) : null;
@@ -576,18 +566,7 @@ export function summarizePromiseLedgerReport(raw: unknown): Record<string, unkno
       }
     : null;
 
-  const issues: Array<{ id: string | null; severity: string | null; summary: string | null; suggestion: string | null }> = [];
-  for (const it of issuesRaw) {
-    if (!isPlainObject(it)) continue;
-    const issue = it as Record<string, unknown>;
-    issues.push({
-      id: safeStringOrNull(issue.id, 240),
-      severity: safeStringOrNull(issue.severity, 32),
-      summary: safeStringOrNull(issue.summary, 240),
-      suggestion: safeStringOrNull(issue.suggestion, 200)
-    });
-    if (issues.length >= 5) break;
-  }
+  const issues = parseSummaryIssues(issuesRaw);
 
   const dormant_promises: Array<{
     id: string | null;

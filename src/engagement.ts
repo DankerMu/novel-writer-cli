@@ -2,12 +2,19 @@ import { appendFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
-import { loadLatestJsonSummary } from "./latest-summary-loader.js";
+import { loadLatestJsonSummary, MAX_LATEST_JSON_BYTES } from "./latest-summary-loader.js";
 import type { SeverityPolicy } from "./platform-profile.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
 import { truncateWithEllipsis } from "./text-utils.js";
 import { isPlainObject } from "./type-guards.js";
+import {
+  parseSummaryIssues,
+  safeNonNegativeFiniteOrNull,
+  safeNonNegativeIntOrNull,
+  safePositiveIntOrNull,
+  safeStringOrNull
+} from "./safe-parse.js";
 
 export type EngagementScore = 1 | 2 | 3 | 4 | 5;
 
@@ -52,7 +59,6 @@ export type EngagementReport = {
 };
 
 const DEFAULT_METRICS_REL = "engagement-metrics.jsonl";
-const MAX_LATEST_JSON_BYTES = 512 * 1024;
 
 function safeInt(v: unknown): number | null {
   if (typeof v !== "number" || !Number.isInteger(v)) return null;
@@ -722,7 +728,6 @@ export async function loadEngagementLatestSummary(rootDir: string): Promise<Reco
   return loadLatestJsonSummary({
     rootDir,
     relPath: "logs/engagement/latest.json",
-    maxBytes: MAX_LATEST_JSON_BYTES,
     summarize: summarizeEngagementReport
   });
 }
@@ -731,16 +736,6 @@ export function summarizeEngagementReport(raw: unknown): Record<string, unknown>
   if (!isPlainObject(raw)) return null;
   const obj = raw as Record<string, unknown>;
   if (obj.schema_version !== 1) return null;
-
-  const safePositiveIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null);
-  const safeNonNegativeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
-  const safeNonNegativeFiniteOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
-  const safeStringOrNull = (v: unknown, maxLen: number): string | null => {
-    if (typeof v !== "string") return null;
-    const t = v.trim();
-    if (t.length === 0) return null;
-    return truncateWithEllipsis(t, maxLen);
-  };
 
   const asOfRaw = isPlainObject(obj.as_of) ? (obj.as_of as Record<string, unknown>) : null;
   const scopeRaw = isPlainObject(obj.scope) ? (obj.scope as Record<string, unknown>) : null;
@@ -774,18 +769,7 @@ export function summarizeEngagementReport(raw: unknown): Record<string, unknown>
       }
     : null;
 
-  const issues: Array<{ id: string | null; severity: string | null; summary: string | null; suggestion: string | null }> = [];
-  for (const it of issuesRaw) {
-    if (!isPlainObject(it)) continue;
-    const issue = it as Record<string, unknown>;
-    issues.push({
-      id: safeStringOrNull(issue.id, 240),
-      severity: safeStringOrNull(issue.severity, 32),
-      summary: safeStringOrNull(issue.summary, 240),
-      suggestion: safeStringOrNull(issue.suggestion, 200)
-    });
-    if (issues.length >= 5) break;
-  }
+  const issues = parseSummaryIssues(issuesRaw);
 
   const has_blocking_issues = typeof obj.has_blocking_issues === "boolean" ? obj.has_blocking_issues : null;
 
