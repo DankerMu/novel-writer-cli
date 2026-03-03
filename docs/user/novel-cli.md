@@ -16,6 +16,7 @@
 
 | 命令 | 用途 |
 |------|------|
+| `novel init` | 初始化项目骨架（写入 `.checkpoint.json`、创建 `staging/**`，并可选写入模板配置） |
 | `novel status` | 查看 checkpoint / lock / next（只读） |
 | `novel next` | 计算确定性的下一步 step id |
 | `novel instructions <step>` | 输出 instruction packet（JSON） |
@@ -49,6 +50,33 @@ npm run dev -- --help
 # 或构建后运行
 npm run build
 node dist/cli.js --help
+```
+
+## 初始化项目（init）
+
+`novel` 的大多数命令都要求项目根目录存在 `.checkpoint.json`（用于确定项目边界与当前进度）。从零开始时，先在空目录执行一次：
+
+```bash
+mkdir my-novel && cd my-novel
+novel init --platform tomato
+```
+
+默认会：
+
+- 写入 `.checkpoint.json`
+- 创建 `staging/**` 必要目录
+- 写入若干模板文件（如 `brief.md`、`style-profile.json`、`ai-blacklist.json`、`web-novel-cliche-lint.json`）
+
+常用选项：
+
+- `--minimal`：只创建 `.checkpoint.json` + `staging/**`（跳过模板文件）
+- `--force`：覆盖已有文件（谨慎使用）
+- `--platform qidian|tomato`：写入 `platform-profile.json`，并同时写入 `genre-weight-profiles.json`（用于 QualityJudge 动态权重）
+
+也可指定目标目录（会在目录不存在时创建）：
+
+```bash
+novel init --project ./my-novel --platform tomato
 ```
 
 ## 最短路径：跑通“一章的确定性编排”
