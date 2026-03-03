@@ -471,6 +471,7 @@ test("computeCharacterVoiceDrift freezes active state when current window has in
     previousActiveCharacterIds: new Set<string>(["hero"])
   });
   assert.equal(fullyRecovered.drift, null, "should recover when samples are sufficient and metrics stable");
+  assert.equal(fullyRecovered.activeCharacterIds.size, 0, "should clear active set on full recovery");
 });
 
 test("loadCharacterVoiceProfiles defaults invalid thresholds and drops invalid profile entries", async () => {
