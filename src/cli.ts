@@ -391,6 +391,7 @@ function buildProgram(argv: string[]): Command {
     .option("--start <n>", "Baseline start chapter (default: 1).", (v) => Number.parseInt(String(v), 10))
     .option("--end <n>", "Baseline end chapter (default: min(10, checkpoint.last_completed_chapter)).", (v) => Number.parseInt(String(v), 10))
     .option("--window-chapters <n>", "Rolling window chapters for drift detection (default: 10).", (v) => Number.parseInt(String(v), 10))
+    .option("--force", "Overwrite character-voice-profiles.json if it exists (use with care).")
     .option("--apply", "Write character-voice-profiles.json (otherwise preview-only).")
     .action(
       async (localOpts: {
@@ -399,6 +400,7 @@ function buildProgram(argv: string[]): Command {
         start?: number;
         end?: number;
         windowChapters?: number;
+        force?: boolean;
         apply?: boolean;
       }) => {
         const opts = program.opts<GlobalOpts>();
@@ -409,15 +411,18 @@ function buildProgram(argv: string[]): Command {
 
         const existingAbs = resolve(rootDir, "character-voice-profiles.json");
         if (await pathExists(existingAbs)) {
-          const loaded = await loadCharacterVoiceProfiles(rootDir);
-          if (json) {
-            printJson(okJson("voice init", { rootDir, wrote: false, rel: loaded.rel, warnings: loaded.warnings, profiles: loaded.profiles }));
+          const force = Boolean(localOpts.force);
+          if (!force) {
+            const loaded = await loadCharacterVoiceProfiles(rootDir);
+            if (json) {
+              printJson(okJson("voice init", { rootDir, wrote: false, rel: loaded.rel, warnings: loaded.warnings, profiles: loaded.profiles }));
+              return;
+            }
+            process.stdout.write(`character-voice-profiles.json already exists.\n`);
+            for (const w of loaded.warnings) process.stdout.write(`WARN: ${w}\n`);
+            process.stdout.write(`Use --json to inspect, or re-run with --force to overwrite.\n`);
             return;
           }
-          process.stdout.write(`character-voice-profiles.json already exists.\n`);
-          for (const w of loaded.warnings) process.stdout.write(`WARN: ${w}\n`);
-          process.stdout.write(`Use --json to inspect, or delete the file to re-initialize.\n`);
-          return;
         }
 
         if (checkpoint.last_completed_chapter < 1) {

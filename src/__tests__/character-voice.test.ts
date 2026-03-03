@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -216,9 +216,20 @@ test("computeCharacterVoiceDrift uses recovery thresholds for active drift (hyst
     }
   });
 
-  // Baseline: no exclamation.
-  await writeText(join(rootDir, "chapters/chapter-001.md"), `# 1\n\n阿宁说：“嗯，我知道了。”\n\n阿宁说：“嗯，我们走吧。”\n\n阿宁说：“嗯，别急。”\n`);
-  await writeText(join(rootDir, "chapters/chapter-002.md"), `# 2\n\n阿宁说：“嗯，按计划。”\n\n阿宁说：“嗯，我会的。”\n`);
+  // Baseline: similar dialogue length, no exclamation.
+  await writeText(
+    join(rootDir, "chapters/chapter-001.md"),
+    `# 1\n\n` +
+      `阿宁说：“嗯，我们先按计划走，别急着出手，等我给信号再动。”\n\n` +
+      `阿宁说：“嗯，你盯紧后门，我去前面探路，听到风声就撤回。”\n\n` +
+      `阿宁说：“嗯，稳住呼吸，把话说清楚，别被情绪带跑偏。”\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-002.md"),
+    `# 2\n\n` +
+      `阿宁说：“嗯，记住每个细节，别漏掉任何一步，出错会很麻烦。”\n\n` +
+      `阿宁说：“嗯，到了就停，先看清对方底牌，再决定怎么收尾。”\n`
+  );
 
   const built = await buildCharacterVoiceProfiles({
     rootDir,
@@ -243,25 +254,35 @@ test("computeCharacterVoiceDrift uses recovery thresholds for active drift (hyst
   assert.ok(first.drift);
   assert.ok(first.activeCharacterIds.has("hero"));
 
-  // Window (6..8): improved but not fully recovered (keeps some exclamation).
+  // Window (6..8): exclamation density between drift vs recovery thresholds:
+  // - drift: abs_delta must be > 3.5 (should NOT trigger)
+  // - recovery: abs_delta must be > 2.0 (should remain active)
   await writeText(
     join(rootDir, "chapters/chapter-006.md"),
     `# 6\n\n` +
-      `阿宁说：“嗯，我们得把他们引到巷口再动手，别打草惊蛇，先稳住阵脚！”\n\n` +
-      `阿宁说：“嗯，照我说的做，先把后路封住，再慢慢逼他们露出破绽！”\n`
+      `阿宁说：“嗯，我们先按计划走，别急着出手，等我给信号再动！”\n\n` +
+      `阿宁说：“嗯，你盯紧后门，我去前面探路，听到风声就撤回。”\n`
   );
   await writeText(
     join(rootDir, "chapters/chapter-007.md"),
     `# 7\n\n` +
-      `阿宁说：“嗯，你盯紧后门，我去前面探路，听到风声就立刻撤回！”\n\n` +
-      `阿宁说：“嗯，跟上节奏，别被情绪带跑偏，稳住呼吸，把话说清楚！”\n`
+      `阿宁说：“嗯，稳住呼吸，把话说清楚，别被情绪带跑偏！”\n\n` +
+      `阿宁说：“嗯，记住每个细节，别漏掉任何一步，出错会很麻烦！”\n`
   );
   await writeText(
     join(rootDir, "chapters/chapter-008.md"),
     `# 8\n\n` +
-      `阿宁说：“嗯，记住我刚才说的每个细节，别漏掉任何一步，出错就会死人！”\n\n` +
-      `阿宁说：“嗯，到了就停，别冒进，先看清对方底牌，再决定我们怎么收尾！”\n`
+      `阿宁说：“嗯，到了就停，先看清对方底牌，再决定怎么收尾！”\n`
   );
+
+  const wouldNotTrigger = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 8,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>()
+  });
+  assert.equal(wouldNotTrigger.drift, null);
 
   const stillActive = await computeCharacterVoiceDrift({
     rootDir,
@@ -274,9 +295,24 @@ test("computeCharacterVoiceDrift uses recovery thresholds for active drift (hyst
   assert.ok(stillActive.activeCharacterIds.has("hero"));
 
   // Window (9..11): fully recovered (no exclamation).
-  await writeText(join(rootDir, "chapters/chapter-009.md"), `# 9\n\n阿宁说：“嗯，回去吧。”\n\n阿宁说：“嗯。”\n`);
-  await writeText(join(rootDir, "chapters/chapter-010.md"), `# 10\n\n阿宁说：“嗯，明白。”\n\n阿宁说：“嗯，行。”\n`);
-  await writeText(join(rootDir, "chapters/chapter-011.md"), `# 11\n\n阿宁说：“嗯，别急。”\n\n阿宁说：“嗯，就这样。”\n`);
+  await writeText(
+    join(rootDir, "chapters/chapter-009.md"),
+    `# 9\n\n` +
+      `阿宁说：“嗯，我们先按计划走，别急着出手，等我给信号再动。”\n\n` +
+      `阿宁说：“嗯，你盯紧后门，我去前面探路，听到风声就撤回。”\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-010.md"),
+    `# 10\n\n` +
+      `阿宁说：“嗯，稳住呼吸，把话说清楚，别被情绪带跑偏。”\n\n` +
+      `阿宁说：“嗯，记住每个细节，别漏掉任何一步，出错会很麻烦。”\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-011.md"),
+    `# 11\n\n` +
+      `阿宁说：“嗯，到了就停，先看清对方底牌，再决定怎么收尾。”\n\n` +
+      `阿宁说：“嗯，照我说的做，先把后路封住，再慢慢逼他们露出破绽。”\n`
+  );
 
   const recovered = await computeCharacterVoiceDrift({
     rootDir,
@@ -398,7 +434,7 @@ test("buildInstructionPacket injects character voice drift directives into draft
   assert.ok(refineInline?.character_voice_drift);
 
   // Clearing drift removes injection.
-  await writeText(join(rootDir, "character-voice-drift.json"), "");
+  await rm(join(rootDir, "character-voice-drift.json"), { force: true });
   const draftOut2 = (await buildInstructionPacket({
     rootDir,
     checkpoint,
@@ -407,4 +443,5 @@ test("buildInstructionPacket injects character voice drift directives into draft
     writeManifest: false
   })) as any;
   assert.equal(draftOut2.packet?.manifest?.inline?.character_voice_drift, undefined);
+  assert.equal(draftOut2.packet?.manifest?.inline?.character_voice_drift_degraded, undefined);
 });

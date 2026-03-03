@@ -123,10 +123,14 @@ async function appendJsonl(rootDir: string, relPath: string, payload: unknown): 
   await appendFile(abs, `${JSON.stringify(payload)}\n`, "utf8");
 }
 
+const FORBIDDEN_PATH_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+function isForbiddenPathSegment(key: string): boolean {
+  return FORBIDDEN_PATH_SEGMENTS.has(key);
+}
+
 function validateOps(ops: unknown[], warnings: string[]): Array<Record<string, unknown>> {
   const allowedTop = new Set(["characters", "items", "locations", "factions", "world_state", "active_foreshadowing"]);
   const out: Array<Record<string, unknown>> = [];
-  const isForbiddenKey = (key: string): boolean => key === "__proto__" || key === "constructor" || key === "prototype";
 
   for (const opRaw of ops) {
     if (!isPlainObject(opRaw)) {
@@ -158,7 +162,7 @@ function validateOps(ops: unknown[], warnings: string[]): Array<Record<string, u
       warnings.push(`Dropped op with invalid top-level path: ${path}`);
       continue;
     }
-    const forbidden = parts.find(isForbiddenKey);
+    const forbidden = parts.find(isForbiddenPathSegment);
     if (forbidden) {
       warnings.push(`Dropped op with forbidden path segment: ${forbidden}`);
       continue;
@@ -171,10 +175,9 @@ function validateOps(ops: unknown[], warnings: string[]): Array<Record<string, u
 }
 
 function ensureObjectAtPath(root: Record<string, unknown>, pathParts: string[], warnings: string[]): Record<string, unknown> | null {
-  const isForbiddenKey = (key: string): boolean => key === "__proto__" || key === "constructor" || key === "prototype";
   let cursor: Record<string, unknown> = root;
   for (const key of pathParts) {
-    if (isForbiddenKey(key)) {
+    if (isForbiddenPathSegment(key)) {
       warnings.push(`Dropped op with forbidden path segment: ${key}`);
       return null;
     }
@@ -196,7 +199,6 @@ function ensureObjectAtPath(root: Record<string, unknown>, pathParts: string[], 
 function applyStateOps(state: StateFile, ops: Array<Record<string, unknown>>, warnings: string[]): { applied: number; foreshadowOps: Array<Record<string, unknown>> } {
   let applied = 0;
   const foreshadowOps: Array<Record<string, unknown>> = [];
-  const isForbiddenKey = (key: string): boolean => key === "__proto__" || key === "constructor" || key === "prototype";
 
   for (const op of ops) {
     const opType = op.op;
@@ -212,8 +214,9 @@ function applyStateOps(state: StateFile, ops: Array<Record<string, unknown>>, wa
       warnings.push(`Dropped op with empty leaf path: ${path}`);
       continue;
     }
-    if (isForbiddenKey(leaf)) {
-      warnings.push(`Dropped op with forbidden path segment: ${leaf}`);
+    const forbidden = parts.find(isForbiddenPathSegment);
+    if (forbidden || isForbiddenPathSegment(leaf)) {
+      warnings.push(`Dropped op with forbidden path segment: ${forbidden ?? leaf}`);
       continue;
     }
     const parent = ensureObjectAtPath(state, parts, warnings);

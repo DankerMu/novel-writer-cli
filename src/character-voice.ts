@@ -187,9 +187,9 @@ type DialogueSample = { chapter: number; character_id: string | null; text: stri
 
 function extractDialogueSamples(chapterText: string, chapter: number): Array<{ chapter: number; start: number; end: number; text: string }> {
   const out: Array<{ chapter: number; start: number; end: number; text: string }> = [];
-  const re = /“([^”]{2,2000})”|「([^」]{2,2000})」|"([^"]{2,2000})"/gu;
+  const re = /“([^”]{2,2000})”|「([^」]{2,2000})」|『([^』]{2,2000})』|"([^"]{2,2000})"/gu;
   for (const m of chapterText.matchAll(re)) {
-    const raw = (m[1] ?? m[2] ?? m[3] ?? "").trim();
+    const raw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? "").trim();
     const text = raw.replace(/\s+/gu, " ");
     if (text.length < 2) continue;
     const idx = m.index ?? -1;
@@ -204,8 +204,9 @@ function attributeSpeaker(args: {
   sample: { start: number; end: number };
   characterVariants: Map<string, string[]>;
 }): string | null {
-  const before = Math.max(0, args.sample.start - 24);
-  const after = Math.min(args.chapterText.length, args.sample.end + 24);
+  const WINDOW_CHARS = 80;
+  const before = Math.max(0, args.sample.start - WINDOW_CHARS);
+  const after = Math.min(args.chapterText.length, args.sample.end + WINDOW_CHARS);
   const ctx = args.chapterText.slice(before, after);
 
   const matched: string[] = [];
@@ -368,6 +369,7 @@ export async function loadCharacterVoiceProfiles(rootDir: string): Promise<{ pro
   if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${rel}: expected a JSON object.`, 2);
   const obj = raw as Record<string, unknown>;
   const comments = pickCommentFields(obj);
+  const canonicalSchema = "schemas/character-voice-profiles.schema.json";
 
   if (obj.schema_version === undefined) throw new NovelCliError(`Invalid ${rel}: missing required 'schema_version'.`, 2);
   if (obj.schema_version !== 1) throw new NovelCliError(`Invalid ${rel}: 'schema_version' must be 1.`, 2);
@@ -383,6 +385,11 @@ export async function loadCharacterVoiceProfiles(rootDir: string): Promise<{ pro
   const core_cast_ids = normalizeStringIds(selectionObj.core_cast_ids);
 
   const warnings: string[] = [];
+
+  const rawSchema = safeString(obj.$schema);
+  if (rawSchema && rawSchema !== canonicalSchema) {
+    warnings.push(`Character voice profiles: ignoring non-canonical '$schema' value; using ${canonicalSchema}.`);
+  }
 
   let policy: CharacterVoicePolicy = { ...DEFAULT_POLICY };
   if (obj.policy !== undefined) {
@@ -499,7 +506,7 @@ export async function loadCharacterVoiceProfiles(rootDir: string): Promise<{ pro
     rel,
     warnings,
     profiles: {
-      $schema: typeof obj.$schema === "string" ? obj.$schema : "schemas/character-voice-profiles.schema.json",
+      $schema: canonicalSchema,
       schema_version: 1,
       created_at,
       selection: { protagonist_id, ...(core_cast_ids.length > 0 ? { core_cast_ids } : {}) },
