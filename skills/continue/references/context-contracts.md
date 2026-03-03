@@ -41,6 +41,8 @@ chapter_writer_manifest = {
   style_drift_directives: [str] | null, # 漂移纠偏指令（active 时注入）
   engagement_report_summary?: obj,     # 可选：爽点/信息密度窗口报告摘要（logs/engagement/latest.json 裁剪）
   promise_ledger_report_summary?: obj, # 可选：承诺台账窗口报告摘要（logs/promises/latest.json 裁剪）
+  engagement_report_summary_degraded?: bool,     # 可选：为 true 表示 latest.json 存在但摘要裁剪失败
+  promise_ledger_report_summary_degraded?: bool, # 可选：为 true 表示 latest.json 存在但摘要裁剪失败
 
   # ── paths（subagent 自读） ──
   paths: {
@@ -112,6 +114,8 @@ style_refiner_manifest = {
   style_drift_directives: [str] | null,
   engagement_report_summary?: obj,     # 可选：爽点/信息密度窗口报告摘要（logs/engagement/latest.json 裁剪）
   promise_ledger_report_summary?: obj, # 可选：承诺台账窗口报告摘要（logs/promises/latest.json 裁剪）
+  engagement_report_summary_degraded?: bool,
+  promise_ledger_report_summary_degraded?: bool,
 
   # ── paths ──
   paths: {

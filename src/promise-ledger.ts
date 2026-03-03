@@ -1,9 +1,10 @@
-import { readdir, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { join, relative } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
 import type { SeverityPolicy } from "./platform-profile.js";
+import { assertInsideProjectRoot } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 
@@ -82,6 +83,7 @@ export type PromiseLedgerReport = {
 const DEFAULT_POLICY: PromiseLedgerPolicy = { dormancy_threshold_chapters: 12 };
 const PROMISE_TYPES: PromiseType[] = ["selling_point", "core_mystery", "mechanism", "relationship_arc"];
 const PROMISE_STATUSES: PromiseStatus[] = ["promised", "advanced", "delivered"];
+const MAX_LATEST_JSON_BYTES = 512 * 1024;
 
 function pickCommentFields(obj: Record<string, unknown>): CommentFields {
   const out = Object.create(null) as CommentFields;
@@ -515,7 +517,15 @@ export async function loadPromiseLedgerLatestSummary(rootDir: string): Promise<R
   const abs = join(rootDir, rel);
   if (!(await pathExists(abs))) return null;
   try {
-    const raw = await readJsonFile(abs);
+    const rootReal = await realpath(rootDir);
+    const absReal = await realpath(abs);
+    assertInsideProjectRoot(rootReal, absReal);
+    if (relative(rootReal, absReal).startsWith("..")) return null;
+    const st = await stat(absReal);
+    if (!st.isFile()) return null;
+    if (st.size > MAX_LATEST_JSON_BYTES) return null;
+
+    const raw = await readJsonFile(absReal);
     return summarizePromiseLedgerReport(raw);
   } catch {
     return null;
@@ -542,7 +552,8 @@ export function summarizePromiseLedgerReport(raw: unknown): Record<string, unkno
     return `${text.slice(0, end)}…`;
   };
 
-  const safeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
+  const safePositiveIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null);
+  const safeNonNegativeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
   const safeStringOrNull = (v: unknown, maxLen: number): string | null => {
     if (typeof v !== "string") return null;
     const t = v.trim();
@@ -559,63 +570,71 @@ export function summarizePromiseLedgerReport(raw: unknown): Record<string, unkno
 
   const as_of = asOfRaw
     ? {
-        chapter: safeIntOrNull(asOfRaw.chapter),
-        volume: safeIntOrNull(asOfRaw.volume)
+        chapter: safePositiveIntOrNull(asOfRaw.chapter),
+        volume: safeNonNegativeIntOrNull(asOfRaw.volume)
       }
     : null;
 
-  const scope = scopeRaw
+  let scope = scopeRaw
     ? {
-        volume: safeIntOrNull(scopeRaw.volume),
-        chapter_start: safeIntOrNull(scopeRaw.chapter_start),
-        chapter_end: safeIntOrNull(scopeRaw.chapter_end)
+        volume: safeNonNegativeIntOrNull(scopeRaw.volume),
+        chapter_start: safePositiveIntOrNull(scopeRaw.chapter_start),
+        chapter_end: safePositiveIntOrNull(scopeRaw.chapter_end)
       }
     : null;
+  if (scope && scope.chapter_start !== null && scope.chapter_end !== null && scope.chapter_start > scope.chapter_end) scope = null;
 
   const policy = policyRaw
     ? {
-        dormancy_threshold_chapters: safeIntOrNull(policyRaw.dormancy_threshold_chapters)
+        dormancy_threshold_chapters: safePositiveIntOrNull(policyRaw.dormancy_threshold_chapters)
       }
     : null;
 
   const stats = statsRaw
     ? {
-        total_promises: safeIntOrNull(statsRaw.total_promises),
-        promised_total: safeIntOrNull(statsRaw.promised_total),
-        advanced_total: safeIntOrNull(statsRaw.advanced_total),
-        delivered_total: safeIntOrNull(statsRaw.delivered_total),
-        open_total: safeIntOrNull(statsRaw.open_total),
-        dormant_total: safeIntOrNull(statsRaw.dormant_total)
+        total_promises: safeNonNegativeIntOrNull(statsRaw.total_promises),
+        promised_total: safeNonNegativeIntOrNull(statsRaw.promised_total),
+        advanced_total: safeNonNegativeIntOrNull(statsRaw.advanced_total),
+        delivered_total: safeNonNegativeIntOrNull(statsRaw.delivered_total),
+        open_total: safeNonNegativeIntOrNull(statsRaw.open_total),
+        dormant_total: safeNonNegativeIntOrNull(statsRaw.dormant_total)
       }
     : null;
 
-  const issues = issuesRaw
-    .filter(isPlainObject)
-    .slice(0, 5)
-    .map((it) => {
-      const issue = it as Record<string, unknown>;
-      return {
-        id: safeStringOrNull(issue.id, 240),
-        severity: safeStringOrNull(issue.severity, 32),
-        summary: safeStringOrNull(issue.summary, 240),
-        suggestion: safeStringOrNull(issue.suggestion, 200)
-      };
+  const issues: Array<{ id: string | null; severity: string | null; summary: string | null; suggestion: string | null }> = [];
+  for (const it of issuesRaw) {
+    if (!isPlainObject(it)) continue;
+    const issue = it as Record<string, unknown>;
+    issues.push({
+      id: safeStringOrNull(issue.id, 240),
+      severity: safeStringOrNull(issue.severity, 32),
+      summary: safeStringOrNull(issue.summary, 240),
+      suggestion: safeStringOrNull(issue.suggestion, 200)
     });
+    if (issues.length >= 5) break;
+  }
 
-  const dormant_promises = dormantRaw
-    .filter(isPlainObject)
-    .slice(0, 5)
-    .map((it) => {
-      const d = it as Record<string, unknown>;
-      return {
-        id: safeStringOrNull(d.id, 80),
-        type: safeStringOrNull(d.type, 40),
-        promise_text: safeStringOrNull(d.promise_text, 160),
-        status: safeStringOrNull(d.status, 40),
-        chapters_since_last_touch: safeIntOrNull(d.chapters_since_last_touch),
-        suggestion: safeStringOrNull(d.suggestion, 200)
-      };
+  const dormant_promises: Array<{
+    id: string | null;
+    type: string | null;
+    promise_text: string | null;
+    status: string | null;
+    chapters_since_last_touch: number | null;
+    suggestion: string | null;
+  }> = [];
+  for (const it of dormantRaw) {
+    if (!isPlainObject(it)) continue;
+    const d = it as Record<string, unknown>;
+    dormant_promises.push({
+      id: safeStringOrNull(d.id, 80),
+      type: safeStringOrNull(d.type, 40),
+      promise_text: safeStringOrNull(d.promise_text, 160),
+      status: safeStringOrNull(d.status, 40),
+      chapters_since_last_touch: safeNonNegativeIntOrNull(d.chapters_since_last_touch),
+      suggestion: safeStringOrNull(d.suggestion, 200)
     });
+    if (dormant_promises.length >= 5) break;
+  }
 
   const has_blocking_issues = typeof obj.has_blocking_issues === "boolean" ? obj.has_blocking_issues : null;
 

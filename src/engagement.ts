@@ -1,8 +1,9 @@
-import { appendFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { appendFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile } from "./fs-utils.js";
 import type { SeverityPolicy } from "./platform-profile.js";
+import { assertInsideProjectRoot } from "./safe-path.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { pad2, pad3 } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
@@ -50,6 +51,7 @@ export type EngagementReport = {
 };
 
 const DEFAULT_METRICS_REL = "engagement-metrics.jsonl";
+const MAX_LATEST_JSON_BYTES = 512 * 1024;
 
 function safeInt(v: unknown): number | null {
   if (typeof v !== "number" || !Number.isInteger(v)) return null;
@@ -736,7 +738,17 @@ export async function loadEngagementLatestSummary(rootDir: string): Promise<Reco
   const abs = join(rootDir, rel);
   if (!(await pathExists(abs))) return null;
   try {
-    const raw = await readJsonFile(abs);
+    const rootReal = await realpath(rootDir);
+    const absReal = await realpath(abs);
+    // Ensure the resolved path stays under the project root (defense against symlink escapes).
+    assertInsideProjectRoot(rootReal, absReal);
+    // Also guard against pathological cases where realpath changes drive letters/roots.
+    if (relative(rootReal, absReal).startsWith("..")) return null;
+    const st = await stat(absReal);
+    if (!st.isFile()) return null;
+    if (st.size > MAX_LATEST_JSON_BYTES) return null;
+
+    const raw = await readJsonFile(absReal);
     return summarizeEngagementReport(raw);
   } catch {
     return null;
@@ -748,8 +760,9 @@ export function summarizeEngagementReport(raw: unknown): Record<string, unknown>
   const obj = raw as Record<string, unknown>;
   if (obj.schema_version !== 1) return null;
 
-  const safeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
-  const safeFiniteOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const safePositiveIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null);
+  const safeNonNegativeIntOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
+  const safeNonNegativeFiniteOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
   const safeStringOrNull = (v: unknown, maxLen: number): string | null => {
     if (typeof v !== "string") return null;
     const t = v.trim();
@@ -764,42 +777,43 @@ export function summarizeEngagementReport(raw: unknown): Record<string, unknown>
 
   const as_of = asOfRaw
     ? {
-        chapter: safeIntOrNull(asOfRaw.chapter),
-        volume: safeIntOrNull(asOfRaw.volume)
+        chapter: safePositiveIntOrNull(asOfRaw.chapter),
+        volume: safeNonNegativeIntOrNull(asOfRaw.volume)
       }
     : null;
 
-  const scope = scopeRaw
+  let scope = scopeRaw
     ? {
-        volume: safeIntOrNull(scopeRaw.volume),
-        chapter_start: safeIntOrNull(scopeRaw.chapter_start),
-        chapter_end: safeIntOrNull(scopeRaw.chapter_end)
+        volume: safeNonNegativeIntOrNull(scopeRaw.volume),
+        chapter_start: safePositiveIntOrNull(scopeRaw.chapter_start),
+        chapter_end: safePositiveIntOrNull(scopeRaw.chapter_end)
       }
     : null;
+  if (scope && scope.chapter_start !== null && scope.chapter_end !== null && scope.chapter_start > scope.chapter_end) scope = null;
 
   const stats = statsRaw
     ? {
-        chapters: safeIntOrNull(statsRaw.chapters),
-        avg_word_count: safeFiniteOrNull(statsRaw.avg_word_count),
-        avg_plot_progression_beats: safeFiniteOrNull(statsRaw.avg_plot_progression_beats),
-        avg_conflict_intensity: safeFiniteOrNull(statsRaw.avg_conflict_intensity),
-        avg_payoff_score: safeFiniteOrNull(statsRaw.avg_payoff_score),
-        avg_new_info_load_score: safeFiniteOrNull(statsRaw.avg_new_info_load_score)
+        chapters: safeNonNegativeIntOrNull(statsRaw.chapters),
+        avg_word_count: safeNonNegativeFiniteOrNull(statsRaw.avg_word_count),
+        avg_plot_progression_beats: safeNonNegativeFiniteOrNull(statsRaw.avg_plot_progression_beats),
+        avg_conflict_intensity: safeNonNegativeFiniteOrNull(statsRaw.avg_conflict_intensity),
+        avg_payoff_score: safeNonNegativeFiniteOrNull(statsRaw.avg_payoff_score),
+        avg_new_info_load_score: safeNonNegativeFiniteOrNull(statsRaw.avg_new_info_load_score)
       }
     : null;
 
-  const issues = issuesRaw
-    .filter(isPlainObject)
-    .slice(0, 5)
-    .map((it) => {
-      const issue = it as Record<string, unknown>;
-      return {
-        id: safeStringOrNull(issue.id, 240),
-        severity: safeStringOrNull(issue.severity, 32),
-        summary: safeStringOrNull(issue.summary, 240),
-        suggestion: safeStringOrNull(issue.suggestion, 200)
-      };
+  const issues: Array<{ id: string | null; severity: string | null; summary: string | null; suggestion: string | null }> = [];
+  for (const it of issuesRaw) {
+    if (!isPlainObject(it)) continue;
+    const issue = it as Record<string, unknown>;
+    issues.push({
+      id: safeStringOrNull(issue.id, 240),
+      severity: safeStringOrNull(issue.severity, 32),
+      summary: safeStringOrNull(issue.summary, 240),
+      suggestion: safeStringOrNull(issue.suggestion, 200)
     });
+    if (issues.length >= 5) break;
+  }
 
   const has_blocking_issues = typeof obj.has_blocking_issues === "boolean" ? obj.has_blocking_issues : null;
 
