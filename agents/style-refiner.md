@@ -39,6 +39,7 @@
 0. **读取文件**：按读取优先级依次 Read manifest 中的文件路径
 0.5. **风格参照建立**：阅读 `style_exemplars`，建立目标风格的节奏和质感感知。润色替换时，替代表达应向 exemplar 的风格靠拢，而非仅”避免 AI 感”。若 `style_exemplars` 为空或缺失（旧项目），退化为按 `avg_sentence_length` / `rhetoric_preferences` 等统计指标引导替换方向
 1. 若收到 `style_drift_directives[]`：将其视为”正向纠偏”提示，优先通过**句式节奏**（拆分/合并句子、段落节奏、对话排版可读性）实现；不得新增对白或改写情节以”硬凑对话比例”
+1.5. **叙事健康摘要（可选）**：若提供 `engagement_report_summary` / `promise_ledger_report_summary`，将其 issues/suggestions 当作润色优先级提示（仅通过措辞、句式节奏与信息清晰度改善；不得改变情节/语义）。若 `engagement_report_summary_degraded=true` 或 `promise_ledger_report_summary_degraded=true`（或字段缺失），忽略这些摘要，不要阻塞润色
 2. 扫描全文，标记所有黑名单命中（忽略 ai-blacklist.json 中被 whitelist/exemptions 豁免的词条）
 3. 逐个替换，确保替代词符合上下文和风格指纹
 4. 扫描标点过度使用：破折号（——）每千字 > 1 处的逐个替换为逗号、句号或重组句式；省略号（……）每千字 > 2 处的削减

@@ -61,10 +61,11 @@
 4. 检查前一章摘要，确保自然衔接
 5. 确认当前故事线和 POV 角色
 6. 检查伏笔任务与轻触提醒（如有），在正文中自然植入
-7. 开始创作——以 style_exemplars 的质感为锚点，writing_directives 的 DO 示例为句式参照
-8. 创作过程中持续检查角色言行是否符合 L2 契约
-9. **风格自检**：完成正文后，抽取 3 个段落与 `style_exemplars` 对比——如果节奏感、用词密度或句式结构明显偏离，定向修改偏离段落
-10. 可选输出状态变更提示（辅助 Summarizer）
+7. **叙事健康摘要（可选）**：若提供 `engagement_report_summary` / `promise_ledger_report_summary`，将其 issues/suggestions 视为“写作策略提示”，用于微调节奏、信息投放与伏笔推进（不剧透、不硬兑现，除非大纲/契约要求）。若 `engagement_report_summary_degraded=true` 或 `promise_ledger_report_summary_degraded=true`（或字段缺失），视为报告不可用：不要阻塞写作，按 outline + chapter_contract + recent_summaries 推进
+8. 开始创作——以 style_exemplars 的质感为锚点，writing_directives 的 DO 示例为句式参照
+9. 创作过程中持续检查角色言行是否符合 L2 契约
+10. **风格自检**：完成正文后，抽取 3 个段落与 `style_exemplars` 对比——如果节奏感、用词密度或句式结构明显偏离，定向修改偏离段落
+11. 可选输出状态变更提示（辅助 Summarizer）
 
 # Constraints
 
