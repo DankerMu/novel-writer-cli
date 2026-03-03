@@ -363,6 +363,116 @@ test("computeCharacterVoiceDrift uses recovery thresholds for active drift (hyst
   assert.equal(recovered.drift, null);
 });
 
+test("computeCharacterVoiceDrift freezes active state when current window has insufficient samples", async () => {
+  // Covers the !enough && wasActive path: character should stay active (frozen),
+  // not spuriously recover due to lack of data.
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-frozen-"));
+
+  await writeJson(join(rootDir, "state/current-state.json"), {
+    schema_version: 1,
+    state_version: 1,
+    last_updated_chapter: 5,
+    characters: { hero: { display_name: "阿宁" } }
+  });
+
+  // Baseline (ch1-2): stable, no exclamation.
+  await writeText(
+    join(rootDir, "chapters/chapter-001.md"),
+    `# 1\n\n` +
+      `阿宁说："嗯，我们先按计划走，别急着出手，等我给信号再动。" 她把袖口拢了拢。\n\n` +
+      `阿宁说："嗯，你盯紧后门，我去前面探路，听到风声就撤回。" 她抜腹起身。\n\n` +
+      `阿宁说："嗯，稳住呼吸，把话说清楚，别被情绪带跑偏。"
+`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-002.md"),
+    `# 2\n\n` +
+      `阿宁说："嗯，记住每个细节，别漏掉任何一步，出错会很麻烦。" 她不再多言。\n\n` +
+      `阿宁说："嗯，到了就停，先看清对方底牌，再决定怎么收尾。"
+`
+  );
+
+  const built = await buildCharacterVoiceProfiles({
+    rootDir,
+    protagonistId: "hero",
+    coreCastIds: [],
+    baselineRange: { start: 1, end: 2 },
+    windowChapters: 3
+  });
+  assert.equal(built.warnings.length, 0);
+
+  // Drift window (ch3-5): heavy exclamation triggers active state.
+  await writeText(
+    join(rootDir, "chapters/chapter-003.md"),
+    `# 3\n\n阿宁怒道："够了！！！" 她弹身而起。\n\n阿宁喚："快走！！！" 她一手推开门。\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-004.md"),
+    `# 4\n\n阿宁厉声："别再逃我！！！" 她的声音像刻刀。\n\n阿宁咋牙："我说过了！！！" 话音落下，空气都震了一下。\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-005.md"),
+    `# 5\n\n阿宁冷笑："你听清楚！！！" 她一步一步逢近。\n`
+  );
+
+  const drifted = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 5,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>()
+  });
+  assert.ok(drifted.drift, "should detect drift");
+  assert.ok(drifted.activeCharacterIds.has("hero"));
+
+  // Sparse window (ch6-8): only 2 dialogue samples — below min_dialogue_samples=5.
+  // With wasActive=true and !enough, character must FREEZE active (not spuriously recover).
+  await writeText(join(rootDir, "chapters/chapter-006.md"), `# 6\n\n阿宁说："嗯。" 她只回了一个音节。\n`);
+  await writeText(join(rootDir, "chapters/chapter-007.md"), `# 7\n\n阿宁说："嗯，行。"\n`);
+  await writeText(join(rootDir, "chapters/chapter-008.md"), `# 8\n\n`);
+
+  const frozen = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 8,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>(["hero"])
+  });
+  // Must remain active (frozen), even though current samples are insufficient.
+  assert.ok(frozen.drift, "should freeze active when samples insufficient");
+  assert.ok(frozen.activeCharacterIds.has("hero"));
+  const frozenHero = frozen.drift?.characters[0];
+  assert.ok(frozenHero?.directives.some((d) => d.includes("数据不足")), "should warn about insufficient data");
+
+  // Full recovery window (ch9-11): stable, no exclamation, sufficient samples.
+  await writeText(
+    join(rootDir, "chapters/chapter-009.md"),
+    `# 9\n\n` +
+      `阿宁说："嗯，我们先按计划走，别急着出手，等我给信号再动。"\n\n` +
+      `阿宁说："嗯，你盯紧后门，我去前面探路，听到风声就撤回。"\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-010.md"),
+    `# 10\n\n` +
+      `阿宁说："嗯，稳住呼吸，把话说清楚，别被情绪带跑偏。"\n\n` +
+      `阿宁说："嗯，记住每个细节，别漏掉任何一步，出错会很麺烦。"\n`
+  );
+  await writeText(
+    join(rootDir, "chapters/chapter-011.md"),
+    `# 11\n\n` +
+      `阿宁说："嗯，到了就停，先看清对方底牌，再决定怎么收尾。"\n`
+  );
+
+  const fullyRecovered = await computeCharacterVoiceDrift({
+    rootDir,
+    profiles: built.profiles,
+    asOfChapter: 11,
+    volume: 1,
+    previousActiveCharacterIds: new Set<string>(["hero"])
+  });
+  assert.equal(fullyRecovered.drift, null, "should recover when samples are sufficient and metrics stable");
+});
+
 test("loadCharacterVoiceProfiles defaults invalid thresholds and drops invalid profile entries", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-character-voice-load-"));
 

@@ -854,8 +854,8 @@ export async function computeCharacterVoiceDrift(args: {
 
     const thresholds = wasActive ? policy.recovery_thresholds : policy.drift_thresholds;
     const check = metricsWithinThresholds({ baseline, current, baselineSig, currentSig, thresholds });
-    const isOk = enough ? check.ok : false;
-    const isActive = wasActive ? !isOk : !check.ok;
+    // When !enough && wasActive: freeze state (neither clear existing drift nor re-evaluate recovery).
+    const isActive = enough ? !check.ok : wasActive;
 
     if (!isActive) continue;
 
