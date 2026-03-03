@@ -1,13 +1,32 @@
 {
-  "name": "novel",
-  "version": "0.0.0",
-  "private": true,
+  "name": "novel-writer-cli",
+  "version": "0.0.1",
   "description": "Executor-agnostic novel orchestration CLI",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "novel": "dist/cli.js"
+    "novel": "dist/cli.js",
+    "novel-writer-cli": "dist/cli.js"
   },
+  "files": [
+    "dist/",
+    "agents/",
+    "skills/",
+    "schemas/",
+    "scripts/",
+    "templates/",
+    "docs/user/",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DankerMu/novel-writer-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DankerMu/novel-writer-cli/issues"
+  },
+  "homepage": "https://github.com/DankerMu/novel-writer-cli#readme",
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsc -p tsconfig.json",

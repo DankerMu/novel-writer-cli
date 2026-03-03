@@ -27,7 +27,20 @@
 | `novel engagement report` | 参与度密度：窗口报告 |
 | `novel voice init/check` | 角色语气画像 + 漂移检测 |
 
-## 本仓库开发态使用
+## 安装（npm）
+
+```bash
+npm i -g novel-writer-cli
+novel --help
+```
+
+或一次性运行：
+
+```bash
+npx novel-writer-cli --help
+```
+
+## 开发态运行（本仓库）
 
 ```bash
 # 帮助
@@ -37,8 +50,6 @@ npm run dev -- --help
 npm run build
 node dist/cli.js --help
 ```
-
-> 发布到 npm 后，目标体验是 `npx novel ...` / `novel ...`。
 
 ## 最短路径：跑通“一章的确定性编排”
 

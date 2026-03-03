@@ -9,6 +9,19 @@
 
 > Claude Code Plugin 版本见 [novel-writer-plugin](https://github.com/DankerMu/novel-writer-plugin)。
 
+## 安装（npm）
+
+```bash
+npm i -g novel-writer-cli
+novel --help
+```
+
+或一次性运行：
+
+```bash
+npx novel-writer-cli --help
+```
+
 ## 快速开始（开发态）
 
 前置条件：
@@ -21,7 +34,7 @@ npm run build
 node dist/cli.js --help
 ```
 
-> 发布到 npm 后，目标体验是 `npx novel ...` / `novel ...`。
+> 发布到 npm 后，推荐用 `npx novel-writer-cli ...`（一次性运行）或 `npm i -g novel-writer-cli` 后直接 `novel ...`。
 
 ## 主要特性
 
@@ -87,4 +100,4 @@ npm test
 
 ## 许可
 
-本项目尚未选定开源许可证。如需使用请先联系作者。
+MIT License，见 `LICENSE`。

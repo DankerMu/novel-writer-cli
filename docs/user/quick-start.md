@@ -6,7 +6,8 @@
 
 ## 准备
 
-- 安装 Claude Code CLI 并配置 `novel` CLI
+- 安装 Claude Code CLI
+- 安装 `novel` CLI：`npm i -g novel-writer-cli`（或使用开发态 `node dist/cli.js`）
 - 准备一个空目录作为项目根目录
 - （可选）准备 1-3 章自己写的文字作为风格样本
 
