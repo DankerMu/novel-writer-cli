@@ -159,7 +159,7 @@ function buildProgram(argv: string[]): Command {
   program
     .command("instructions")
     .description("Emit an instruction packet for a step.")
-    .argument("<step>", "Step id, e.g. chapter:048:draft (or quickstart:world)")
+    .argument("<step>", "Step id, e.g. chapter:048:draft")
     .option("--write-manifest", "Persist packet under staging/manifests/.")
     .option("--embed <mode>", "Optional embed mode (off by default). Example: --embed brief")
     .action(async (step: string, localOpts: { writeManifest?: boolean; embed?: string }) => {

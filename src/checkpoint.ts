@@ -63,10 +63,10 @@ export function inferLegacyState(args: {
   const stage = args.pipeline_stage ?? null;
   const inflight = args.inflight_chapter ?? null;
 
-  if (stage === "revising") return "CHAPTER_REWRITE";
-
   // Inconsistent legacy checkpoint: pipeline in-flight but missing chapter pointer.
   if (stage !== null && stage !== "committed" && inflight === null) return "ERROR_RETRY";
+
+  if (stage === "revising") return "CHAPTER_REWRITE";
 
   // Default to WRITING to preserve the legacy single-chapter pipeline behavior.
   return "WRITING";

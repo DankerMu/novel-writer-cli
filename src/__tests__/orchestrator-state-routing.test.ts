@@ -37,6 +37,19 @@ test("readCheckpoint infers CHAPTER_REWRITE when pipeline_stage=revising", async
   assert.equal(checkpoint.orchestrator_state, "CHAPTER_REWRITE");
 });
 
+test("readCheckpoint infers ERROR_RETRY when pipeline_stage=revising but inflight_chapter is missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-state-revising-missing-inflight-"));
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    pipeline_stage: "revising",
+    inflight_chapter: null
+  });
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(checkpoint.orchestrator_state, "ERROR_RETRY");
+});
+
 test("computeNextStep routes INIT to quickstart:world", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-init-"));
   const next = await computeNextStep(rootDir, {
@@ -63,4 +76,3 @@ test("computeNextStep throws for QUICK_START placeholder", async () => {
     /Not implemented: orchestrator_state=QUICK_START/
   );
 });
-
