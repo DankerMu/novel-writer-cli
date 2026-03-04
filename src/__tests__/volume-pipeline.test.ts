@@ -58,7 +58,7 @@ test("volume planning pipeline routes outline -> validate -> commit -> writing",
       [
         `## 第 ${volume} 卷大纲`,
         ``,
-        `### 第 ${range.start} 章: 测试`,
+        `### 第${range.start}章: 测试`,
         `- **Storyline**: main-arc`,
         `- **POV**: hero`,
         `- **Location**: city`,
@@ -68,7 +68,7 @@ test("volume planning pipeline routes outline -> validate -> commit -> writing",
         `- **StateChanges**: test`,
         `- **TransitionHint**: {}`,
         ``,
-        `### 第 ${range.end} 章: 测试`,
+        `### 第 ${range.end}章: 测试`,
         `- **Storyline**: main-arc`,
         `- **POV**: hero`,
         `- **Location**: city`,
@@ -153,3 +153,102 @@ test("commitVolume normalizes checkpoint when final dir exists but staging is mi
   }
 });
 
+test("advanceCheckpointForStep rejects volume advance outside VOL_PLANNING", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-advance-guard-"));
+  try {
+    await writeCheckpoint(rootDir, {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "WRITING",
+      pipeline_stage: "committed",
+      volume_pipeline_stage: null,
+      inflight_chapter: null
+    });
+
+    await assert.rejects(
+      () => advanceCheckpointForStep({ rootDir, step: { kind: "volume", phase: "outline" } }),
+      /orchestrator_state=VOL_PLANNING/
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("computeNextStep falls back to volume:outline when validate stage is selected but artifacts are missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-next-missing-"));
+  try {
+    const next = await computeNextStep(rootDir, {
+      last_completed_chapter: 58,
+      current_volume: 2,
+      orchestrator_state: "VOL_PLANNING",
+      pipeline_stage: null,
+      inflight_chapter: null,
+      volume_pipeline_stage: "validate"
+    });
+    assert.equal(next.step, "volume:outline");
+    assert.equal(next.reason, "vol_planning:validate:missing_artifacts");
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("commitVolume dryRun does not touch checkpoint", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-commit-dryrun-"));
+  try {
+    await writeJson(join(rootDir, ".checkpoint.json"), {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "VOL_PLANNING",
+      pipeline_stage: null,
+      inflight_chapter: null,
+      volume_pipeline_stage: "commit"
+    });
+
+    const before = await readFile(join(rootDir, ".checkpoint.json"), "utf8");
+    const result = await commitVolume({ rootDir, volume: 1, dryRun: true });
+    assert.ok(result.plan.some((l) => l.includes("MOVE")));
+    const after = await readFile(join(rootDir, ".checkpoint.json"), "utf8");
+    assert.equal(after, before);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("commitVolume rejects when both staging and final volume dirs exist", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-commit-conflict-"));
+  try {
+    await writeJson(join(rootDir, ".checkpoint.json"), {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "VOL_PLANNING",
+      pipeline_stage: null,
+      inflight_chapter: null,
+      volume_pipeline_stage: "commit"
+    });
+    await mkdir(join(rootDir, "staging/volumes/vol-01"), { recursive: true });
+    await mkdir(join(rootDir, "volumes/vol-01"), { recursive: true });
+
+    await assert.rejects(() => commitVolume({ rootDir, volume: 1, dryRun: false }), /Commit conflict/);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("commitVolume recovery refuses when final dir exists but outline.md is missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-commit-recover-missing-outline-"));
+  try {
+    await writeJson(join(rootDir, ".checkpoint.json"), {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "VOL_PLANNING",
+      pipeline_stage: null,
+      inflight_chapter: null,
+      volume_pipeline_stage: "commit"
+    });
+    await mkdir(join(rootDir, "volumes/vol-01"), { recursive: true });
+
+    await assert.rejects(() => commitVolume({ rootDir, volume: 1, dryRun: false }), /missing .*outline\.md/i);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});

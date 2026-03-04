@@ -14,6 +14,7 @@ export type Checkpoint = Record<string, unknown> & {
   orchestrator_state: OrchestratorState;
   pipeline_stage?: PipelineStage | null;
   volume_pipeline_stage?: VolumePhase | null;
+  last_committed_volume?: number;
   inflight_chapter?: number | null;
   revision_count?: number;
   hook_fix_count?: number;
@@ -135,6 +136,14 @@ function parseCheckpoint(data: unknown): Checkpoint {
     }
   } else {
     throw new NovelCliError(`.checkpoint.json.volume_pipeline_stage must be a string (or null)`, 2);
+  }
+
+  const lastCommitted = data.last_committed_volume;
+  if (lastCommitted !== undefined) {
+    const lc = asInt(lastCommitted);
+    if (lc === null || lc < 0) {
+      throw new NovelCliError(".checkpoint.json.last_committed_volume must be an int >= 0 when present.", 2);
+    }
   }
 
   const revision = data.revision_count;

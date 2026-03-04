@@ -54,6 +54,14 @@ function requireCheckpointReady(checkpoint: Checkpoint, volume: number): void {
       2
     );
   }
+  const stage = checkpoint.pipeline_stage ?? null;
+  const inflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+  if (!(stage === null || stage === "committed") || inflight !== null) {
+    throw new NovelCliError(
+      `Cannot commit volume plan unless chapter pipeline is idle (pipeline_stage=null|committed and inflight_chapter=null). Got pipeline_stage=${stage ?? "null"} inflight_chapter=${inflight ?? "null"}.`,
+      2
+    );
+  }
   if (checkpoint.volume_pipeline_stage !== "commit") {
     throw new NovelCliError(
       `Cannot commit volume plan unless volume_pipeline_stage=commit (got ${String(checkpoint.volume_pipeline_stage ?? "null")}). Advance volume steps first.`,
@@ -89,6 +97,13 @@ export async function commitVolume(args: CommitArgs): Promise<VolumeCommitResult
     const finalExists = await pathExists(finalAbs);
 
     if (finalExists && !stagingExists) {
+      const required = join(args.rootDir, volumeFinalRelPaths(args.volume).outlineMd);
+      if (!(await pathExists(required))) {
+        throw new NovelCliError(
+          `Commit recovery refused: final volume directory exists but is missing ${volumeFinalRelPaths(args.volume).outlineMd}. Resolve manually.`,
+          2
+        );
+      }
       warnings.push(`Volume directory already exists (${finalDir}); treating as already committed and only normalizing checkpoint.`);
     } else if (finalExists && stagingExists) {
       throw new NovelCliError(
@@ -102,11 +117,10 @@ export async function commitVolume(args: CommitArgs): Promise<VolumeCommitResult
       await doRenameDir(args.rootDir, staging, finalDir);
     }
 
-    await removePath(join(args.rootDir, "staging/foreshadowing"));
-
     const updated: Checkpoint = { ...checkpoint };
     updated.orchestrator_state = "WRITING";
     updated.volume_pipeline_stage = null;
+    updated.last_committed_volume = args.volume;
     updated.pipeline_stage = "committed";
     updated.inflight_chapter = null;
     updated.revision_count = 0;
@@ -114,8 +128,14 @@ export async function commitVolume(args: CommitArgs): Promise<VolumeCommitResult
     updated.title_fix_count = 0;
     updated.last_checkpoint_time = new Date().toISOString();
     await writeCheckpoint(args.rootDir, updated);
+
+    try {
+      await removePath(join(args.rootDir, "staging/foreshadowing"));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`Failed to clean staging/foreshadowing after commit (non-fatal): ${message}`);
+    }
   });
 
   return { plan, warnings };
 }
-

@@ -10,7 +10,7 @@ import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type Step } from ".
 import { assertTitleFixOnlyChangedTitleLine, extractChapterTitleFromMarkdown } from "./title-policy.js";
 import { isPlainObject } from "./type-guards.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
-import { computeVolumeChapterRange, volumeStagingRelPaths } from "./volume-planning.js";
+import { computeVolumeChapterRange, volumeFinalRelPaths, volumeForChapter, volumeStagingRelPaths } from "./volume-planning.js";
 
 export type ValidateReport = {
   ok: true;
@@ -112,12 +112,19 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
 
       const lines = text.split(/\r?\n/u);
       const chapters: Array<{ chapter: number; startLine: number; endLine: number }> = [];
+      const chapterHeadingRe = /^###\s*第\s*(\d+)\s*章/u;
       for (let i = 0; i < lines.length; i++) {
-        const m = /^### 第 (\d+) 章/u.exec(lines[i] ?? "");
+        const m = chapterHeadingRe.exec(lines[i] ?? "");
         if (!m) continue;
         const chapter = Number.parseInt(m[1] ?? "", 10);
         if (!Number.isInteger(chapter) || chapter < 1) continue;
         chapters.push({ chapter, startLine: i, endLine: lines.length });
+      }
+      if (chapters.length === 0) {
+        throw new NovelCliError(
+          `Invalid outline: could not parse any chapter headings. Expected lines like "### 第 1 章" (spaces are flexible). File: ${rels.outlineMd}`,
+          2
+        );
       }
       for (let i = 0; i < chapters.length; i++) {
         const cur = chapters[i]!;
@@ -217,8 +224,11 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       const active = obj.active_storylines;
       if (!Array.isArray(active)) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: missing active_storylines array.`, 2);
       const activeIds: string[] = [];
-      for (const v of active) {
-        if (typeof v !== "string") continue;
+      for (const [idx, v] of active.entries()) {
+        if (typeof v !== "string") {
+          warnings.push(`WARN ${rels.storylineScheduleJson}: active_storylines[${idx}] is not a string; ignoring.`);
+          continue;
+        }
         const id = v.trim();
         if (id.length > 0) activeIds.push(id);
       }
@@ -234,6 +244,17 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
           );
         }
       }
+    };
+
+    const validateForeshadowingPlan = (raw: unknown): void => {
+      if (!isPlainObject(raw)) {
+        throw new NovelCliError(`Invalid ${rels.foreshadowingJson}: expected JSON object with {schema_version, items}.`, 2);
+      }
+      const obj = raw as Record<string, unknown>;
+      const schema = obj.schema_version;
+      if (schema !== 1) warnings.push(`Unexpected schema_version in ${rels.foreshadowingJson}.`);
+      const items = obj.items;
+      if (!Array.isArray(items)) throw new NovelCliError(`Invalid ${rels.foreshadowingJson}: items must be an array.`, 2);
     };
 
     const validateContracts = async (storylinesByChapter: Map<number, string>): Promise<void> => {
@@ -260,11 +281,10 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
         // Chain propagation (minimal): prev.postconditions.state_changes keys must exist in current.preconditions.character_states.
         const prevChapter = ch - 1;
         if (prevChapter >= 1) {
-          const prevVol = Math.ceil(prevChapter / 30);
           const prevRel =
             prevChapter >= range.start
               ? rels.chapterContractJson(prevChapter)
-              : `volumes/vol-${String(prevVol).padStart(2, "0")}/chapter-contracts/chapter-${String(prevChapter).padStart(3, "0")}.json`;
+              : volumeFinalRelPaths(volumeForChapter(prevChapter)).chapterContractJson(prevChapter);
 
           if (await pathExists(join(args.rootDir, prevRel))) {
             const prevRaw = await readJsonFile(join(args.rootDir, prevRel));
@@ -309,7 +329,8 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     validateSchedule(scheduleRaw, storylinesByChapter);
 
     // JSON existence + basic schema.
-    await readJsonFile(join(args.rootDir, rels.foreshadowingJson));
+    const foreshadowingRaw = await readJsonFile(join(args.rootDir, rels.foreshadowingJson));
+    validateForeshadowingPlan(foreshadowingRaw);
     const newCharsRaw = await readJsonFile(join(args.rootDir, rels.newCharactersJson));
     validateNewCharacters(newCharsRaw);
 

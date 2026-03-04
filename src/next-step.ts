@@ -651,6 +651,7 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
     case "INIT":
       return notImplementedState(checkpoint.orchestrator_state);
     case "QUICK_START":
+      return notImplementedState(checkpoint.orchestrator_state);
     case "VOL_PLANNING":
       return await computeVolumeNextStep(projectRootDir, checkpoint);
     case "VOL_REVIEW":

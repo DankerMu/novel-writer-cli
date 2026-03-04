@@ -8,10 +8,19 @@ import { formatStepId, pad2, pad3 } from "./steps.js";
 
 export type VolumeChapterRange = { start: number; end: number };
 
+export const CHAPTERS_PER_VOLUME = 30;
+
+export function volumeForChapter(chapter: number): number {
+  if (!Number.isInteger(chapter) || chapter < 1) {
+    throw new NovelCliError(`Invalid chapter: ${String(chapter)} (expected int >= 1).`, 2);
+  }
+  return Math.ceil(chapter / CHAPTERS_PER_VOLUME);
+}
+
 export function computeVolumeChapterRange(args: { current_volume: number; last_completed_chapter: number }): VolumeChapterRange {
   const volume = args.current_volume;
   const planStart = args.last_completed_chapter + 1;
-  const planEnd = volume * 30;
+  const planEnd = volume * CHAPTERS_PER_VOLUME;
   if (planStart > planEnd) {
     throw new NovelCliError(
       `Invalid volume chapter range: plan_start=${planStart} > plan_end=${planEnd}. Fix .checkpoint.json (current_volume=${volume}, last_completed_chapter=${args.last_completed_chapter}).`,
@@ -179,4 +188,3 @@ export async function computeVolumeNextStep(rootDir: string, checkpoint: Checkpo
   // normalizeVolumePipelineStage() ensures the above is exhaustive.
   throw new NovelCliError(`Unsupported volume_pipeline_stage: ${String(checkpoint.volume_pipeline_stage)}`, 2);
 }
-

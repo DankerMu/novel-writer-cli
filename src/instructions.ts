@@ -205,7 +205,19 @@ async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<str
     next_actions
   };
 
-  return packet;
+  let writtenPath: string | null = null;
+  if (args.writeManifest) {
+    const manifestsDir = join(args.rootDir, "staging/manifests");
+    await ensureDir(manifestsDir);
+    const fileName = `${stepId.replaceAll(":", "-")}.packet.json`;
+    writtenPath = `staging/manifests/${fileName}`;
+    await writeJsonFile(join(args.rootDir, writtenPath), packet);
+  }
+
+  return {
+    packet,
+    ...(writtenPath ? { written_manifest_path: writtenPath } : {})
+  };
 }
 
 export async function buildInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
@@ -241,6 +253,11 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     };
 
     await maybeAddPath("project_brief", "brief.md");
+    await maybeAddPath("style_profile", "style-profile.json");
+    await maybeAddPath("platform_profile", "platform-profile.json");
+    await maybeAddPath("genre_weight_profiles", "genre-weight-profiles.json");
+    await maybeAddPath("style_guide", "skills/novel-writing/references/style-guide.md");
+    await maybeAddPath("quality_rubric", "skills/novel-writing/references/quality-rubric.md");
     await maybeAddPath("storylines", "storylines/storylines.json");
     await maybeAddPath("world_rules", "world/rules.json");
     await maybeAddPath("global_foreshadowing", "foreshadowing/global.json");

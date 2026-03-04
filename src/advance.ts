@@ -5,7 +5,7 @@ import { readCheckpoint, writeCheckpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { removePath } from "./fs-utils.js";
 import { withWriteLock } from "./lock.js";
-import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type ChapterStep, type ReviewStep, type Step, type VolumeStep } from "./steps.js";
+import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type ChapterStep, type ReviewStep, type Step } from "./steps.js";
 import { validateStep } from "./validate.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
 
@@ -162,8 +162,6 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
   }
 
   if (step.kind === "volume") {
-    if (step.phase === "commit") throw new NovelCliError(`Use 'novel commit --volume <n>' for volume commit.`, 2);
-
     return await withWriteLock(args.rootDir, {}, async () => {
       const checkpoint = await readCheckpoint(args.rootDir);
       if (checkpoint.orchestrator_state !== "VOL_PLANNING") {
@@ -177,7 +175,8 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       updated.pipeline_stage = "committed";
       updated.inflight_chapter = null;
 
-      switch (step.phase) {
+      const phase = step.phase;
+      switch (phase) {
         case "outline":
           updated.volume_pipeline_stage = "validate";
           break;
@@ -186,6 +185,10 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
           break;
         case "commit":
           throw new NovelCliError(`Use 'novel commit --volume <n>' for volume commit.`, 2);
+        default: {
+          const _exhaustive: never = phase;
+          throw new NovelCliError(`Unsupported volume phase: ${String(_exhaustive)}`, 2);
+        }
       }
       updated.last_checkpoint_time = new Date().toISOString();
 
