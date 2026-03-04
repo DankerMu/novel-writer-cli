@@ -50,6 +50,31 @@ test("readCheckpoint infers ERROR_RETRY when pipeline_stage=revising but infligh
   assert.equal(checkpoint.orchestrator_state, "ERROR_RETRY");
 });
 
+test("readCheckpoint infers ERROR_RETRY when inflight_chapter is set but pipeline_stage is idle", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-state-idle-inflight-"));
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    pipeline_stage: null,
+    inflight_chapter: 7
+  });
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(checkpoint.orchestrator_state, "ERROR_RETRY");
+});
+
+test("readCheckpoint rejects inflight_chapter=0", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-state-inflight-zero-"));
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    pipeline_stage: "drafting",
+    inflight_chapter: 0
+  });
+
+  await assert.rejects(() => readCheckpoint(rootDir), /inflight_chapter must be an int >= 1/);
+});
+
 test("computeNextStep routes INIT to quickstart:world", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-init-"));
   const next = await computeNextStep(rootDir, {
@@ -60,6 +85,21 @@ test("computeNextStep routes INIT to quickstart:world", async () => {
     inflight_chapter: null
   });
   assert.equal(next.step, "quickstart:world");
+});
+
+test("computeNextStep throws when pipeline_stage=committed but inflight_chapter is set", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-committed-inflight-"));
+  await assert.rejects(
+    () =>
+      computeNextStep(rootDir, {
+        last_completed_chapter: 0,
+        current_volume: 1,
+        orchestrator_state: "WRITING",
+        pipeline_stage: "committed",
+        inflight_chapter: 7
+      }),
+    /Checkpoint inconsistent: pipeline_stage=committed but inflight_chapter=7/
+  );
 });
 
 test("computeNextStep throws for QUICK_START placeholder", async () => {

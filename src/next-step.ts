@@ -240,14 +240,30 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
   const hookFixCount = typeof checkpoint.hook_fix_count === "number" ? checkpoint.hook_fix_count : 0;
   const titleFixCount = typeof checkpoint.title_fix_count === "number" ? checkpoint.title_fix_count : 0;
 
-  // Fresh start.
-  if (inflightChapter === null || stage === null || stage === "committed") {
+  if (inflightChapter !== null && inflightChapter < 1) {
+    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
+  }
+
+  if (stage === null || stage === "committed") {
+    if (inflightChapter !== null) {
+      throw new NovelCliError(
+        `Checkpoint inconsistent: pipeline_stage=${stage ?? "null"} but inflight_chapter=${inflightChapter}. Set inflight_chapter to null.`,
+        2
+      );
+    }
     const nextChapter = checkpoint.last_completed_chapter + 1;
     return {
       step: formatStepId({ kind: "chapter", chapter: nextChapter, stage: "draft" }),
       reason: "fresh",
       inflight: { chapter: null, pipeline_stage: stage }
     };
+  }
+
+  if (inflightChapter === null) {
+    throw new NovelCliError(
+      `Checkpoint inconsistent: pipeline_stage=${stage} requires inflight_chapter. Repair .checkpoint.json and rerun.`,
+      2
+    );
   }
 
   const rel = chapterRelPaths(inflightChapter);

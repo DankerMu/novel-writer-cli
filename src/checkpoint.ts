@@ -63,6 +63,9 @@ export function inferLegacyState(args: {
   const stage = args.pipeline_stage ?? null;
   const inflight = args.inflight_chapter ?? null;
 
+  // Inconsistent legacy checkpoint: inflight present but stage is idle.
+  if ((stage === null || stage === "committed") && inflight !== null) return "ERROR_RETRY";
+
   // Inconsistent legacy checkpoint: pipeline in-flight but missing chapter pointer.
   if (stage !== null && stage !== "committed" && inflight === null) return "ERROR_RETRY";
 
@@ -106,10 +109,10 @@ function parseCheckpoint(data: unknown): Checkpoint {
   const inflightRaw = data.inflight_chapter;
   const inflight = asNullableInt(inflightRaw);
   if (inflightRaw !== undefined && inflight === null && inflightRaw !== null) {
-    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 0 (or null).", 2);
+    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
   }
-  if (inflight !== undefined && inflight !== null && inflight < 0) {
-    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 0 (or null).", 2);
+  if (inflight !== undefined && inflight !== null && inflight < 1) {
+    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
   }
 
   const revision = data.revision_count;
