@@ -1,11 +1,13 @@
-import { join } from "node:path";
+import { readdir, rename } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import type { Checkpoint, PipelineStage } from "./checkpoint.js";
 import { readCheckpoint, writeCheckpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
-import { removePath } from "./fs-utils.js";
+import { ensureDir, pathExists, removePath } from "./fs-utils.js";
 import { withWriteLock } from "./lock.js";
-import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type ChapterStep, type ReviewStep, type Step } from "./steps.js";
+import { QUICKSTART_FINAL_RELS, QUICKSTART_STAGING_RELS } from "./quickstart.js";
+import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type ChapterStep, type QuickStartStep, type ReviewStep, type Step } from "./steps.js";
 import { validateStep } from "./validate.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
 
@@ -124,6 +126,104 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
     });
   }
 
+  if (step.kind === "quickstart") {
+    const qsStep = step as QuickStartStep;
+
+    const moveFile = async (fromRel: string, toRel: string): Promise<void> => {
+      const fromAbs = join(args.rootDir, fromRel);
+      const toAbs = join(args.rootDir, toRel);
+      await ensureDir(dirname(toAbs));
+      await removePath(toAbs);
+      await rename(fromAbs, toAbs);
+    };
+
+    const commitQuickStartArtifacts = async (): Promise<void> => {
+      // Core artifacts
+      const requiredRelPaths = [
+        QUICKSTART_STAGING_RELS.rulesJson,
+        QUICKSTART_STAGING_RELS.styleProfileJson,
+        QUICKSTART_STAGING_RELS.trialChapterMd,
+        QUICKSTART_STAGING_RELS.evaluationJson
+      ] as const;
+      for (const rel of requiredRelPaths) {
+        const abs = join(args.rootDir, rel);
+        if (!(await pathExists(abs))) throw new NovelCliError(`Missing required file: ${rel}`, 2);
+      }
+
+      await moveFile(QUICKSTART_STAGING_RELS.rulesJson, QUICKSTART_FINAL_RELS.worldRulesJson);
+      await moveFile(QUICKSTART_STAGING_RELS.styleProfileJson, QUICKSTART_FINAL_RELS.styleProfileJson);
+      await moveFile(QUICKSTART_STAGING_RELS.trialChapterMd, QUICKSTART_FINAL_RELS.trialChapterMd);
+      await moveFile(QUICKSTART_STAGING_RELS.evaluationJson, QUICKSTART_FINAL_RELS.evaluationJson);
+
+      // Contracts dir → characters/active/*.json (overwrite by filename).
+      const contractsAbs = join(args.rootDir, QUICKSTART_STAGING_RELS.contractsDir);
+      if (!(await pathExists(contractsAbs))) throw new NovelCliError(`Missing required directory: ${QUICKSTART_STAGING_RELS.contractsDir}`, 2);
+
+      const entries = await readdir(contractsAbs, { withFileTypes: true });
+      const jsonFiles = entries.filter((e) => e.isFile() && e.name.endsWith(".json")).map((e) => e.name).sort();
+      if (jsonFiles.length === 0) {
+        throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.contractsDir}: expected at least 1 *.json contract file.`, 2);
+      }
+
+      const activeDirAbs = join(args.rootDir, QUICKSTART_FINAL_RELS.charactersActiveDir);
+      await ensureDir(activeDirAbs);
+      for (const name of jsonFiles) {
+        const fromAbs = join(contractsAbs, name);
+        const toAbs = join(activeDirAbs, name);
+        await removePath(toAbs);
+        await rename(fromAbs, toAbs);
+      }
+
+      // Clear quickstart staging after committing.
+      await removePath(join(args.rootDir, QUICKSTART_STAGING_RELS.dir));
+    };
+
+    return await withWriteLock(args.rootDir, {}, async () => {
+      const checkpoint = await readCheckpoint(args.rootDir);
+
+      if (checkpoint.orchestrator_state !== "INIT" && checkpoint.orchestrator_state !== "QUICK_START") {
+        throw new NovelCliError(
+          `Cannot advance ${formatStepId(qsStep)} unless orchestrator_state=INIT or QUICK_START.`,
+          2
+        );
+      }
+
+      const stage = checkpoint.pipeline_stage ?? null;
+      const inflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+      if (inflight !== null) {
+        throw new NovelCliError(
+          `Checkpoint inconsistent for QUICK_START advance: inflight_chapter=${inflight} (expected null). Finish the chapter pipeline or repair .checkpoint.json.`,
+          2
+        );
+      }
+      if (stage !== null && stage !== "committed") {
+        throw new NovelCliError(
+          `Checkpoint inconsistent for QUICK_START advance: pipeline_stage=${stage} (expected null or committed). Finish the chapter pipeline or repair .checkpoint.json.`,
+          2
+        );
+      }
+
+      // Enforce validate-before-advance to keep deterministic semantics.
+      await validateStep({ rootDir: args.rootDir, checkpoint, step: qsStep });
+
+      const updated: Checkpoint = { ...checkpoint };
+      updated.inflight_chapter = null;
+
+      if (qsStep.phase === "results") {
+        await commitQuickStartArtifacts();
+        updated.orchestrator_state = "VOL_PLANNING";
+        updated.volume_pipeline_stage = null;
+      } else {
+        updated.orchestrator_state = "QUICK_START";
+      }
+
+      updated.last_checkpoint_time = new Date().toISOString();
+
+      await writeCheckpoint(args.rootDir, updated);
+      return updated;
+    });
+  }
+
   if (step.kind === "review") {
     const reviewStep = step as ReviewStep;
     return await withWriteLock(args.rootDir, {}, async () => {
@@ -197,5 +297,6 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
     });
   }
 
-  throw new NovelCliError(`Unsupported step kind: ${step.kind}`, 2);
+  // parseStepId ensures this is exhaustive.
+  throw new NovelCliError(`Unsupported step kind.`, 2);
 }

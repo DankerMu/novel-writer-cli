@@ -86,18 +86,20 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
       [".checkpoint.json", "ai-blacklist.json", "brief.md", "style-profile.json", "web-novel-cliche-lint.json"].sort()
     );
 
-    // All 9 staging dirs ensured
-    assert.equal(result.ensuredDirs.length, 9);
+    // All staging dirs ensured
+    assert.equal(result.ensuredDirs.length, 10);
     assert.ok(result.ensuredDirs.includes("staging/chapters"));
     assert.ok(result.ensuredDirs.includes("staging/manifests"));
     assert.ok(result.ensuredDirs.includes("staging/volumes"));
     assert.ok(result.ensuredDirs.includes("staging/foreshadowing"));
+    assert.ok(result.ensuredDirs.includes("staging/quickstart"));
 
     // Verify ALL checkpoint fields
     const checkpoint = await readCheckpoint(rootDir);
     assert.equal(checkpoint.last_completed_chapter, 0);
     assert.equal(checkpoint.current_volume, 1);
-    assert.equal(checkpoint.pipeline_stage, "committed");
+    assert.equal(checkpoint.orchestrator_state, "INIT");
+    assert.equal(checkpoint.pipeline_stage, null);
     assert.equal(checkpoint.volume_pipeline_stage, null);
     assert.equal(checkpoint.inflight_chapter, null);
     assert.equal(checkpoint.revision_count, 0);
@@ -105,9 +107,9 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     assert.equal(checkpoint.title_fix_count, 0);
     assert.ok(typeof checkpoint.last_checkpoint_time === "string" && checkpoint.last_checkpoint_time.length > 0);
 
-    // Integration: next step should be chapter:001:draft
+    // Integration: next step should be quickstart:world
     const next = await computeNextStep(rootDir, checkpoint);
-    assert.equal(next.step, "chapter:001:draft");
+    assert.equal(next.step, "quickstart:world");
 
     // All staging dirs exist
     for (const relDir of [
@@ -119,7 +121,8 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
       "staging/storylines",
       "staging/volumes",
       "staging/foreshadowing",
-      "staging/manifests"
+      "staging/manifests",
+      "staging/quickstart"
     ]) {
       await assertDir(join(rootDir, relDir));
     }

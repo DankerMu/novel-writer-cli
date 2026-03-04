@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
@@ -8,6 +9,7 @@ import { computeGateDecision, detectHighConfidenceViolation } from "./gate-decis
 import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { QUICKSTART_STAGING_RELS } from "./quickstart.js";
 import { computeReviewNext } from "./volume-review.js";
 
 type LoadedProfile = { relPath: string; profile: PlatformProfile };
@@ -624,6 +626,112 @@ function notImplementedState(state: string): never {
   throw new NovelCliError(`Not implemented: orchestrator_state=${state}`, 2);
 }
 
+async function countContractArtifacts(rootDir: string): Promise<{ hasDir: boolean; fileCount: number; sample: string[] }> {
+  const absDir = join(rootDir, QUICKSTART_STAGING_RELS.contractsDir);
+  const hasDir = await pathExists(absDir);
+  if (!hasDir) return { hasDir, fileCount: 0, sample: [] };
+
+  try {
+    const entries = await readdir(absDir, { withFileTypes: true });
+    const files = entries.filter((e) => e.isFile()).map((e) => e.name);
+    const sample = files
+      .filter((n) => n.endsWith(".json"))
+      .sort()
+      .slice(0, 3);
+    const fileCount = files.filter((n) => n.endsWith(".json")).length;
+    return { hasDir, fileCount, sample };
+  } catch {
+    // If the dir exists but is unreadable, treat as present but degraded.
+    return { hasDir, fileCount: 0, sample: [] };
+  }
+}
+
+async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
+  const stage = normalizeStage(checkpoint.pipeline_stage);
+  const inflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+
+  if ((stage === null || stage === "committed") && inflight !== null) {
+    throw new NovelCliError(
+      `Checkpoint inconsistent for QUICK_START: pipeline_stage=${stage ?? "null"} but inflight_chapter=${inflight}. Set inflight_chapter to null.`,
+      2
+    );
+  }
+  if (stage !== null && stage !== "committed") {
+    throw new NovelCliError(
+      `Checkpoint inconsistent for QUICK_START: pipeline_stage=${stage} (expected null or committed). Finish the chapter pipeline or repair .checkpoint.json.`,
+      2
+    );
+  }
+
+  const rulesExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.rulesJson));
+  const contracts = await countContractArtifacts(projectRootDir);
+  const styleExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.styleProfileJson));
+  const trialExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.trialChapterMd));
+  const evalExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.evaluationJson));
+
+  const evidence = {
+    staging: {
+      rulesExists,
+      contracts: { hasDir: contracts.hasDir, jsonFileCount: contracts.fileCount, sample: contracts.sample },
+      styleExists,
+      trialExists,
+      evalExists
+    }
+  };
+
+  if (!rulesExists) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "world" }),
+      reason: "quickstart:world",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!contracts.hasDir || contracts.fileCount === 0) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "characters" }),
+      reason: "quickstart:characters",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!styleExists) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "style" }),
+      reason: "quickstart:style",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!trialExists) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "trial" }),
+      reason: "quickstart:trial",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!evalExists) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "results" }),
+      reason: "quickstart:results",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  return {
+    step: formatStepId({ kind: "quickstart", phase: "results" }),
+    reason: "quickstart:results:artifacts_present",
+    inflight: { chapter: null, pipeline_stage: null },
+    evidence
+  };
+}
+
 export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
   switch (checkpoint.orchestrator_state) {
     case "WRITING":
@@ -648,10 +756,12 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       const next = await computeChapterNextStep(projectRootDir, normalizedCheckpoint);
       return { ...next, reason: `error_retry:${healPrefix}${next.reason}` };
     }
-    case "INIT":
-      return notImplementedState(checkpoint.orchestrator_state);
+    case "INIT": {
+      const next = await computeQuickStartNextStep(projectRootDir, checkpoint);
+      return { ...next, reason: `init:${next.reason}` };
+    }
     case "QUICK_START":
-      return notImplementedState(checkpoint.orchestrator_state);
+      return await computeQuickStartNextStep(projectRootDir, checkpoint);
     case "VOL_PLANNING":
       return await computeVolumeNextStep(projectRootDir, checkpoint);
     case "VOL_REVIEW":

@@ -131,7 +131,8 @@ const STAGING_SUBDIRS = [
   "staging/storylines",
   "staging/volumes",
   "staging/foreshadowing",
-  "staging/manifests"
+  "staging/manifests",
+  "staging/quickstart"
 ];
 
 export async function initProject(args: {
