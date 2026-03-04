@@ -116,7 +116,9 @@ function buildProgram(argv: string[]): Command {
       }
 
       process.stdout.write(`Project: ${rootDir}\n`);
-      process.stdout.write(`Checkpoint: chapter=${checkpoint.last_completed_chapter} volume=${checkpoint.current_volume}\n`);
+      process.stdout.write(
+        `Checkpoint: state=${checkpoint.orchestrator_state} chapter=${checkpoint.last_completed_chapter} volume=${checkpoint.current_volume}\n`
+      );
       process.stdout.write(
         `Pipeline: stage=${checkpoint.pipeline_stage ?? "null"} inflight=${checkpoint.inflight_chapter ?? "null"} revisions=${
           checkpoint.revision_count ?? 0

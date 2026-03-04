@@ -1,5 +1,5 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 
@@ -57,7 +57,18 @@ export async function writeTextFileIfMissing(path: string, contents: string): Pr
 }
 
 export async function writeJsonFile(path: string, payload: unknown): Promise<void> {
-  await writeTextFile(path, `${JSON.stringify(payload, null, 2)}\n`);
+  const content = `${JSON.stringify(payload, null, 2)}\n`;
+  const tmp = join(dirname(path), `.${process.pid}.tmp`);
+  try {
+    await ensureDir(dirname(path));
+    await writeFile(tmp, content, "utf8");
+    await rename(tmp, path);
+  } catch (err: unknown) {
+    // Best-effort cleanup of temp file on failure.
+    try { await rm(tmp, { force: true }); } catch { /* ignore */ }
+    const message = err instanceof Error ? err.message : String(err);
+    throw new NovelCliError(`Failed to write file: ${path}. ${message}`);
+  }
 }
 
 export async function removePath(path: string): Promise<void> {

@@ -61,7 +61,14 @@ test("computeNextStep returns title-fix on hard title violations when auto_fix=t
   await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
   await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "正文\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1, title_fix_count: 0 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    title_fix_count: 0
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:title-fix");
 });
@@ -72,7 +79,14 @@ test("computeNextStep returns review after title-fix was already attempted", asy
   await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
   await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "正文\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1, title_fix_count: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    title_fix_count: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
 });
@@ -83,7 +97,14 @@ test("computeNextStep returns review on hard title violations when auto_fix=fals
   await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
   await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "正文\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1, title_fix_count: 0 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    title_fix_count: 0
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
 });
@@ -94,7 +115,14 @@ test("computeNextStep does not block on warn-only title issues when auto_fix=fal
   await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
   await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "# 太长的标题\n正文\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1, title_fix_count: 0 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    title_fix_count: 0
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:judge");
 });
@@ -105,7 +133,14 @@ test("computeNextStep returns title-fix on warn-only title issues when auto_fix=
   await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
   await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "# 太长的标题\n正文\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1, title_fix_count: 0 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    title_fix_count: 0
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:title-fix");
 });
@@ -118,7 +153,14 @@ test("computeNextStep returns title-fix on judged stage when eval exists and tit
   await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
   await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), {});
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1, title_fix_count: 0 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1,
+    title_fix_count: 0
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:title-fix");
 });
@@ -130,7 +172,14 @@ test("title-fix snapshot is write-once (rerunning instructions does not bypass b
   const chapterAbs = join(rootDir, "staging/chapters/chapter-001.md");
   await writeFile(chapterAbs, "# 标题\n正文\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1, title_fix_count: 0 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    title_fix_count: 0
+  };
 
   await buildInstructionPacket({
     rootDir,
@@ -174,7 +223,14 @@ test("advance draft cleans up title-fix snapshot to avoid stale reuse", async ()
   const snapshotRel = titleFixSnapshotRel(1);
   await writeFile(join(rootDir, snapshotRel), "old snapshot\n", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: null, inflight_chapter: null, title_fix_count: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    title_fix_count: 1
+  };
   await writeJson(join(rootDir, ".checkpoint.json"), checkpoint);
 
   await advanceCheckpointForStep({ rootDir, step: { kind: "chapter", chapter: 1, stage: "draft" } });

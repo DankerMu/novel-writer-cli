@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { readJsonFile, writeJsonFile } from "./fs-utils.js";
+import { ORCHESTRATOR_STATES, type OrchestratorState } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 
 export const PIPELINE_STAGES = ["drafting", "drafted", "refined", "judged", "revising", "committed"] as const;
@@ -10,7 +11,7 @@ export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 export type Checkpoint = Record<string, unknown> & {
   last_completed_chapter: number;
   current_volume: number;
-  orchestrator_state?: string;
+  orchestrator_state: OrchestratorState;
   pipeline_stage?: PipelineStage | null;
   inflight_chapter?: number | null;
   revision_count?: number;
@@ -24,6 +25,8 @@ export function createDefaultCheckpoint(nowIso?: string): Checkpoint {
   return {
     last_completed_chapter: 0,
     current_volume: 1,
+    // TODO(CS-O3): Default to INIT once the quickstart pipeline is implemented.
+    orchestrator_state: "WRITING",
     pipeline_stage: "committed",
     inflight_chapter: null,
     revision_count: 0,
@@ -50,6 +53,29 @@ function asNullableInt(value: unknown): number | null | undefined {
   return asInt(value);
 }
 
+function isOrchestratorState(value: string): value is OrchestratorState {
+  return (ORCHESTRATOR_STATES as readonly string[]).includes(value);
+}
+
+export function inferLegacyState(args: {
+  pipeline_stage?: PipelineStage | null;
+  inflight_chapter?: number | null;
+}): OrchestratorState {
+  const stage = args.pipeline_stage ?? null;
+  const inflight = args.inflight_chapter ?? null;
+
+  // Inconsistent legacy checkpoint: inflight present but stage is idle.
+  if ((stage === null || stage === "committed") && inflight !== null) return "ERROR_RETRY";
+
+  // Inconsistent legacy checkpoint: pipeline in-flight but missing chapter pointer.
+  if (stage !== null && stage !== "committed" && inflight === null) return "ERROR_RETRY";
+
+  if (stage === "revising") return "CHAPTER_REWRITE";
+
+  // Default to WRITING to preserve the legacy single-chapter pipeline behavior.
+  return "WRITING";
+}
+
 function parseCheckpoint(data: unknown): Checkpoint {
   if (!isPlainObject(data)) {
     throw new NovelCliError(".checkpoint.json must be a JSON object.", 2);
@@ -61,13 +87,8 @@ function parseCheckpoint(data: unknown): Checkpoint {
   }
 
   const currentVolume = asInt(data.current_volume);
-  if (currentVolume === null || currentVolume < 0) {
-    throw new NovelCliError(".checkpoint.json.current_volume must be an int >= 0.", 2);
-  }
-
-  const orchestratorState = data.orchestrator_state;
-  if (orchestratorState !== undefined && asString(orchestratorState) === null) {
-    throw new NovelCliError(".checkpoint.json.orchestrator_state must be a string when present.", 2);
+  if (currentVolume === null || currentVolume < 1) {
+    throw new NovelCliError(".checkpoint.json.current_volume must be an int >= 1.", 2);
   }
 
   const pipelineStageRaw = data.pipeline_stage;
@@ -89,10 +110,10 @@ function parseCheckpoint(data: unknown): Checkpoint {
   const inflightRaw = data.inflight_chapter;
   const inflight = asNullableInt(inflightRaw);
   if (inflightRaw !== undefined && inflight === null && inflightRaw !== null) {
-    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 0 (or null).", 2);
+    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
   }
-  if (inflight !== undefined && inflight !== null && inflight < 0) {
-    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 0 (or null).", 2);
+  if (inflight !== undefined && inflight !== null && inflight < 1) {
+    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
   }
 
   const revision = data.revision_count;
@@ -129,13 +150,31 @@ function parseCheckpoint(data: unknown): Checkpoint {
     throw new NovelCliError(".checkpoint.json.last_checkpoint_time must be a string when present.", 2);
   }
 
+  const orchestratorStateRaw = data.orchestrator_state;
+  let orchestratorState: OrchestratorState;
+  if (orchestratorStateRaw === undefined) {
+    orchestratorState = inferLegacyState({ pipeline_stage: pipelineStage ?? null, inflight_chapter: inflight ?? null });
+  } else {
+    const raw = asString(orchestratorStateRaw);
+    if (raw === null) {
+      throw new NovelCliError(".checkpoint.json.orchestrator_state must be a string when present.", 2);
+    }
+    if (!isOrchestratorState(raw)) {
+      throw new NovelCliError(
+        `.checkpoint.json.orchestrator_state must be one of: ${ORCHESTRATOR_STATES.join(", ")} (or omit for legacy inference).`,
+        2
+      );
+    }
+    orchestratorState = raw;
+  }
+
   const checkpoint: Checkpoint = {
     ...data,
     last_completed_chapter: lastCompleted,
-    current_volume: currentVolume
+    current_volume: currentVolume,
+    orchestrator_state: orchestratorState
   };
 
-  if (orchestratorState !== undefined) checkpoint.orchestrator_state = orchestratorState as string;
   if (pipelineStage !== undefined) checkpoint.pipeline_stage = pipelineStage;
   if (inflight !== undefined) checkpoint.inflight_chapter = inflight;
 

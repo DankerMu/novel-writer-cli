@@ -1,9 +1,13 @@
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
+import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import { checkHookPolicy } from "./hook-policy.js";
+import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+
+type LoadedProfile = { relPath: string; profile: PlatformProfile };
 import { computePrejudgeGuardrailsReport, loadPrejudgeGuardrailsReportIfFresh, prejudgeGuardrailsRelPath } from "./prejudge-guardrails.js";
 import { summarizeNamingIssues } from "./naming-lint.js";
 import { summarizeReadabilityIssues } from "./readability-lint.js";
@@ -31,9 +35,9 @@ async function checkHookPolicyForStage(args: {
   evidence: Record<string, unknown>;
   hookFixCount: number;
   evalRelPath: string;
+  loadedProfile: LoadedProfile | null;
 }): Promise<NextStepResult | null> {
-  const loadedProfile = await loadPlatformProfile(args.projectRootDir);
-  const hookPolicy = loadedProfile?.profile.hook_policy;
+  const hookPolicy = args.loadedProfile?.profile.hook_policy;
   if (!hookPolicy?.required) return null;
 
   let evalRaw: unknown;
@@ -89,10 +93,10 @@ async function checkTitlePolicyForStage(args: {
   titleFixCount: number;
   hasChapter: boolean;
   chapterRelPath: string;
+  loadedProfile: LoadedProfile | null;
 }): Promise<NextStepResult | null> {
-  const loadedProfile = await loadPlatformProfile(args.projectRootDir);
-  if (!loadedProfile) return null;
-  const titlePolicy = loadedProfile.profile.retention?.title_policy;
+  if (!args.loadedProfile) return null;
+  const titlePolicy = args.loadedProfile.profile.retention?.title_policy;
   if (!titlePolicy?.enabled) return null;
 
   if (!args.hasChapter) {
@@ -117,7 +121,7 @@ async function checkTitlePolicyForStage(args: {
     };
   }
 
-  const report = computeTitlePolicyReport({ chapter: args.inflightChapter, chapterText, platformProfile: loadedProfile.profile });
+  const report = computeTitlePolicyReport({ chapter: args.inflightChapter, chapterText, platformProfile: args.loadedProfile.profile });
   if (report.status === "pass" || report.status === "skipped") return null;
   if (!report.has_hard_violations && !titlePolicy.auto_fix) return null;
 
@@ -155,9 +159,9 @@ async function checkPrejudgeGuardrailsForStage(args: {
   pipelineStage: string;
   evidence: Record<string, unknown>;
   chapterRelPath: string;
+  loadedProfile: LoadedProfile | null;
 }): Promise<NextStepResult | null> {
-  const loadedProfile = await loadPlatformProfile(args.projectRootDir);
-  if (!loadedProfile) return null;
+  if (!args.loadedProfile) return null;
 
   const chapterAbsPath = join(args.projectRootDir, args.chapterRelPath);
   const cacheRelPath = prejudgeGuardrailsRelPath(args.inflightChapter);
@@ -166,8 +170,8 @@ async function checkPrejudgeGuardrailsForStage(args: {
     rootDir: args.projectRootDir,
     chapter: args.inflightChapter,
     chapterAbsPath,
-    platformProfileRelPath: loadedProfile.relPath,
-    platformProfile: loadedProfile.profile
+    platformProfileRelPath: args.loadedProfile.relPath,
+    platformProfile: args.loadedProfile.profile
   });
   if (report) cacheStatus = "hit";
 
@@ -177,8 +181,8 @@ async function checkPrejudgeGuardrailsForStage(args: {
         rootDir: args.projectRootDir,
         chapter: args.inflightChapter,
         chapterAbsPath,
-        platformProfileRelPath: loadedProfile.relPath,
-        platformProfile: loadedProfile.profile
+        platformProfileRelPath: args.loadedProfile.relPath,
+        platformProfile: args.loadedProfile.profile
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -233,20 +237,36 @@ async function checkPrejudgeGuardrailsForStage(args: {
   };
 }
 
-export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
+async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
   const inflightChapter = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
   const stage = normalizeStage(checkpoint.pipeline_stage);
   const hookFixCount = typeof checkpoint.hook_fix_count === "number" ? checkpoint.hook_fix_count : 0;
   const titleFixCount = typeof checkpoint.title_fix_count === "number" ? checkpoint.title_fix_count : 0;
 
-  // Fresh start.
-  if (inflightChapter === null || stage === null || stage === "committed") {
+  if (inflightChapter !== null && inflightChapter < 1) {
+    throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
+  }
+
+  if (stage === null || stage === "committed") {
+    if (inflightChapter !== null) {
+      throw new NovelCliError(
+        `Checkpoint inconsistent: pipeline_stage=${stage ?? "null"} but inflight_chapter=${inflightChapter}. Set inflight_chapter to null.`,
+        2
+      );
+    }
     const nextChapter = checkpoint.last_completed_chapter + 1;
     return {
       step: formatStepId({ kind: "chapter", chapter: nextChapter, stage: "draft" }),
       reason: "fresh",
       inflight: { chapter: null, pipeline_stage: stage }
     };
+  }
+
+  if (inflightChapter === null) {
+    throw new NovelCliError(
+      `Checkpoint inconsistent: pipeline_stage=${stage} requires inflight_chapter. Repair .checkpoint.json and rerun.`,
+      2
+    );
   }
 
   const rel = chapterRelPaths(inflightChapter);
@@ -329,6 +349,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       };
     }
 
+    const loadedProfile = await loadPlatformProfile(projectRootDir);
+
     if (!hasEval) {
       const titleGate = await checkTitlePolicyForStage({
         projectRootDir,
@@ -338,7 +360,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
         evidence,
         titleFixCount,
         hasChapter,
-        chapterRelPath: rel.staging.chapterMd
+        chapterRelPath: rel.staging.chapterMd,
+        loadedProfile
       });
       if (titleGate) return titleGate;
 
@@ -358,7 +381,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       evidence,
       titleFixCount,
       hasChapter,
-      chapterRelPath: rel.staging.chapterMd
+      chapterRelPath: rel.staging.chapterMd,
+      loadedProfile
     });
     if (titleGate) return titleGate;
 
@@ -369,7 +393,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       pipelineStage: stage,
       evidence,
       hookFixCount,
-      evalRelPath: rel.staging.evalJson
+      evalRelPath: rel.staging.evalJson,
+      loadedProfile
     });
     if (hookGate) return hookGate;
 
@@ -379,7 +404,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       inflightChapter,
       pipelineStage: stage,
       evidence,
-      chapterRelPath: rel.staging.chapterMd
+      chapterRelPath: rel.staging.chapterMd,
+      loadedProfile
     });
     if (guardrailsGate) return guardrailsGate;
 
@@ -410,6 +436,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       };
     }
 
+    const loadedProfile = await loadPlatformProfile(projectRootDir);
+
     const titleGate = await checkTitlePolicyForStage({
       projectRootDir,
       stagePrefix: "judged",
@@ -418,7 +446,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       evidence,
       titleFixCount,
       hasChapter,
-      chapterRelPath: rel.staging.chapterMd
+      chapterRelPath: rel.staging.chapterMd,
+      loadedProfile
     });
     if (titleGate) return titleGate;
 
@@ -429,7 +458,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       pipelineStage: stage,
       evidence,
       hookFixCount,
-      evalRelPath: rel.staging.evalJson
+      evalRelPath: rel.staging.evalJson,
+      loadedProfile
     });
     if (hookGate) return hookGate;
 
@@ -439,7 +469,8 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       inflightChapter,
       pipelineStage: stage,
       evidence,
-      chapterRelPath: rel.staging.chapterMd
+      chapterRelPath: rel.staging.chapterMd,
+      loadedProfile
     });
     if (guardrailsGate) return guardrailsGate;
 
@@ -451,11 +482,48 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
     };
   }
 
-  // Unknown stage: fall back to safest.
-  return {
-    step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
-    reason: `unknown_stage:${stage}`,
-    inflight: { chapter: inflightChapter, pipeline_stage: stage },
-    evidence
-  };
+  // Unknown stage: upstream parseCheckpoint validates enum so this should be unreachable.
+  throw new NovelCliError(
+    `Checkpoint has unexpected pipeline_stage=${stage}. This should not happen; repair .checkpoint.json and rerun.`,
+    2
+  );
+}
+
+function notImplementedState(state: string): never {
+  throw new NovelCliError(`Not implemented: orchestrator_state=${state}`, 2);
+}
+
+export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
+  switch (checkpoint.orchestrator_state) {
+    case "WRITING":
+    case "CHAPTER_REWRITE":
+      return await computeChapterNextStep(projectRootDir, checkpoint);
+    case "ERROR_RETRY": {
+      const stage = normalizeStage(checkpoint.pipeline_stage);
+      const inflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+
+      let normalizedCheckpoint = checkpoint;
+      let healPrefix = "";
+
+      // Only auto-heal invariants when explicitly in ERROR_RETRY.
+      if ((stage === null || stage === "committed") && inflight !== null) {
+        normalizedCheckpoint = { ...checkpoint, inflight_chapter: null };
+        healPrefix = "healed_drop_inflight:";
+      } else if (stage !== null && stage !== "committed" && inflight === null) {
+        normalizedCheckpoint = { ...checkpoint, inflight_chapter: checkpoint.last_completed_chapter + 1 };
+        healPrefix = "healed_infer_inflight:";
+      }
+
+      const next = await computeChapterNextStep(projectRootDir, normalizedCheckpoint);
+      return { ...next, reason: `error_retry:${healPrefix}${next.reason}` };
+    }
+    case "INIT":
+      return notImplementedState(checkpoint.orchestrator_state);
+    case "QUICK_START":
+    case "VOL_PLANNING":
+    case "VOL_REVIEW":
+      return notImplementedState(checkpoint.orchestrator_state);
+    default:
+      return notImplementedState(checkpoint.orchestrator_state);
+  }
 }

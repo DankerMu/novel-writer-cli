@@ -54,12 +54,13 @@ function safeEmbedMode(mode: string | null): "off" | "brief" {
 export async function buildInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
   const stepId = formatStepId(args.step);
   if (args.step.kind !== "chapter") throw new NovelCliError(`Unsupported step: ${stepId}`, 2);
+  const step = args.step;
 
   const volume = args.checkpoint.current_volume;
   const volumeOutlineRel = `volumes/vol-${pad2(volume)}/outline.md`;
-  const chapterContractRel = `volumes/vol-${pad2(volume)}/chapter-contracts/chapter-${String(args.step.chapter).padStart(3, "0")}.json`;
+  const chapterContractRel = `volumes/vol-${pad2(volume)}/chapter-contracts/chapter-${String(step.chapter).padStart(3, "0")}.json`;
 
-  const rel = chapterRelPaths(args.step.chapter);
+  const rel = chapterRelPaths(step.chapter);
 
   const commonPaths: Record<string, unknown> = {};
 
@@ -98,7 +99,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   }
 
   let agent: InstructionPacket["agent"];
-  const inline: Record<string, unknown> = { chapter: args.step.chapter, volume };
+  const inline: Record<string, unknown> = { chapter: step.chapter, volume };
   const paths: Record<string, unknown> = { ...commonPaths };
   const expected_outputs: InstructionPacket["expected_outputs"] = [];
   const next_actions: InstructionPacket["next_actions"] = [];
@@ -166,7 +167,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     }
   };
 
-  if (args.step.stage === "draft") {
+  if (step.stage === "draft") {
     agent = { kind: "subagent", name: "chapter-writer" };
     // Optional: inject character voice drift directives (best-effort).
     await maybeAttachCharacterVoiceDirectives();
@@ -191,7 +192,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       const items = await loadForeshadowGlobalItems(args.rootDir);
       const report = computeForeshadowVisibilityReport({
         items,
-        asOfChapter: args.step.chapter,
+        asOfChapter: step.chapter,
         volume,
         platform,
         genreDriveType
@@ -212,10 +213,10 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
     next_actions.push({
       kind: "command",
-      command: `novel instructions chapter:${String(args.step.chapter).padStart(3, "0")}:summarize --json`,
+      command: `novel instructions chapter:${String(step.chapter).padStart(3, "0")}:summarize --json`,
       note: "After advance, proceed to summarize."
     });
-  } else if (args.step.stage === "summarize") {
+  } else if (step.stage === "summarize") {
     agent = { kind: "subagent", name: "summarizer" };
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     expected_outputs.push({ path: rel.staging.summaryMd, required: true });
@@ -224,7 +225,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     expected_outputs.push({ path: "staging/storylines/{storyline_id}/memory.md", required: true, note: "storyline_id comes from delta.json" });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
-  } else if (args.step.stage === "refine") {
+  } else if (step.stage === "refine") {
     agent = { kind: "subagent", name: "style-refiner" };
     // Optional: inject character voice drift directives (best-effort).
     await maybeAttachCharacterVoiceDirectives();
@@ -245,7 +246,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     expected_outputs.push({ path: rel.staging.styleRefinerChangesJson, required: false });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
-  } else if (args.step.stage === "judge") {
+  } else if (step.stage === "judge") {
     agent = { kind: "subagent", name: "quality-judge" };
     const chapterDraftRel = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     paths.chapter_draft = chapterDraftRel;
@@ -280,12 +281,12 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       try {
         const report = await computePrejudgeGuardrailsReport({
           rootDir: args.rootDir,
-          chapter: args.step.chapter,
+          chapter: step.chapter,
           chapterAbsPath: join(args.rootDir, chapterDraftRel),
           platformProfileRelPath: loadedPlatform.relPath,
           platformProfile: loadedPlatform.profile
         });
-        const { relPath } = await writePrejudgeGuardrailsReport({ rootDir: args.rootDir, chapter: args.step.chapter, report });
+        const { relPath } = await writePrejudgeGuardrailsReport({ rootDir: args.rootDir, chapter: step.chapter, report });
         paths.prejudge_guardrails = relPath;
         inline.prejudge_guardrails = {
           status: report.status,
@@ -310,7 +311,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       command: `novel next`,
       note: "After advance, compute the next deterministic step (may be title-fix/hook-fix/review/commit)."
     });
-  } else if (args.step.stage === "title-fix") {
+  } else if (step.stage === "title-fix") {
     agent = { kind: "subagent", name: "chapter-writer" };
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     inline.fix_mode = "title-fix";
@@ -325,11 +326,11 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     // Snapshot the chapter before title-fix so validate can ensure body is byte-identical.
     const beforeAbs = join(args.rootDir, rel.staging.chapterMd);
     const before = await readTextFile(beforeAbs);
-    const snapshotRel = titleFixSnapshotRel(args.step.chapter);
+    const snapshotRel = titleFixSnapshotRel(step.chapter);
     await writeTextFileIfMissing(join(args.rootDir, snapshotRel), before);
     paths.title_fix_before = snapshotRel;
 
-    const report = computeTitlePolicyReport({ chapter: args.step.chapter, chapterText: before, platformProfile: loadedPlatform.profile });
+    const report = computeTitlePolicyReport({ chapter: step.chapter, chapterText: before, platformProfile: loadedPlatform.profile });
     inline.title_policy = {
       enabled: titlePolicy.enabled,
       min_chars: titlePolicy.min_chars,
@@ -359,7 +360,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       command: `novel next`,
       note: "After title-fix, compute the next deterministic step (typically judge)."
     });
-  } else if (args.step.stage === "hook-fix") {
+  } else if (step.stage === "hook-fix") {
     agent = { kind: "subagent", name: "chapter-writer" };
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     paths.chapter_eval = relIfExists(rel.staging.evalJson, await pathExists(join(args.rootDir, rel.staging.evalJson)));
@@ -376,25 +377,25 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
     next_actions.push({
       kind: "command",
-      command: `novel instructions chapter:${String(args.step.chapter).padStart(3, "0")}:judge --json`,
+      command: `novel instructions chapter:${String(step.chapter).padStart(3, "0")}:judge --json`,
       note: "After hook-fix, re-run QualityJudge to refresh eval."
     });
-  } else if (args.step.stage === "review") {
+  } else if (step.stage === "review") {
     agent = { kind: "cli", name: "manual-review" };
     paths.chapter_draft = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     paths.chapter_eval = relIfExists(rel.staging.evalJson, await pathExists(join(args.rootDir, rel.staging.evalJson)));
     expected_outputs.push({ path: "(manual)", required: false, note: "Review required: guardrails still failing after bounded auto-fix." });
     next_actions.push({
       kind: "command",
-      command: `novel instructions chapter:${String(args.step.chapter).padStart(3, "0")}:judge --json`,
+      command: `novel instructions chapter:${String(step.chapter).padStart(3, "0")}:judge --json`,
       note: "After manually fixing the chapter (title/hook/etc), re-run QualityJudge."
     });
-  } else if (args.step.stage === "commit") {
+  } else if (step.stage === "commit") {
     agent = { kind: "cli", name: "novel" };
-    expected_outputs.push({ path: `chapters/chapter-${String(args.step.chapter).padStart(3, "0")}.md`, required: true });
-    next_actions.push({ kind: "command", command: `novel commit --chapter ${args.step.chapter}` });
+    expected_outputs.push({ path: `chapters/chapter-${String(step.chapter).padStart(3, "0")}.md`, required: true });
+    next_actions.push({ kind: "command", command: `novel commit --chapter ${step.chapter}` });
   } else {
-    throw new NovelCliError(`Unsupported step stage: ${(args.step as Step).stage}`, 2);
+    throw new NovelCliError(`Unsupported step stage: ${step.stage}`, 2);
   }
 
   const gate = args.novelAskGate ?? null;
