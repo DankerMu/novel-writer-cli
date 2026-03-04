@@ -12,6 +12,7 @@ import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-as
 import { loadPlatformProfile } from "./platform-profile.js";
 import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
 import { loadPromiseLedgerLatestSummary } from "./promise-ledger.js";
+import { QUICKSTART_STAGING_RELS } from "./quickstart.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, pad3, titleFixSnapshotRel, type Step } from "./steps.js";
@@ -220,9 +221,154 @@ async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<str
   };
 }
 
+async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
+  const stepId = formatStepId(args.step);
+  if (args.step.kind !== "quickstart") throw new NovelCliError(`Unsupported quickstart step: ${stepId}`, 2);
+  const step = args.step;
+
+  const embedMode = safeEmbedMode(args.embedMode);
+  const embed: Record<string, unknown> = {};
+  if (embedMode === "brief") {
+    const briefAbs = join(args.rootDir, "brief.md");
+    if (await pathExists(briefAbs)) {
+      const content = await readTextFile(briefAbs);
+      embed.brief_preview = content.slice(0, 2000);
+    } else {
+      embed.brief_preview = null;
+    }
+  }
+
+  const trialChapter = Math.max(1, args.checkpoint.last_completed_chapter + 1);
+  const isTrialMode = step.phase === "trial" || step.phase === "results";
+  const inline: Record<string, unknown> = {
+    quickstart_phase: step.phase,
+    trial_mode: isTrialMode,
+    volume: args.checkpoint.current_volume,
+    ...(isTrialMode ? { chapter: trialChapter } : {})
+  };
+
+  const paths: Record<string, unknown> = {};
+
+  const maybeAddPath = async (key: string, relPath: string): Promise<void> => {
+    const absPath = join(args.rootDir, relPath);
+    if (await pathExists(absPath)) paths[key] = relPath;
+  };
+
+  await maybeAddPath("project_brief", "brief.md");
+  await maybeAddPath("platform_profile", "platform-profile.json");
+  await maybeAddPath("style_profile_template", "style-profile.json");
+
+  // Attach staging quickstart artifacts when present (for resume/debug).
+  await maybeAddPath("quickstart_rules", QUICKSTART_STAGING_RELS.rulesJson);
+  await maybeAddPath("quickstart_contracts_dir", QUICKSTART_STAGING_RELS.contractsDir);
+  await maybeAddPath("quickstart_style_profile", QUICKSTART_STAGING_RELS.styleProfileJson);
+  await maybeAddPath("quickstart_trial_chapter", QUICKSTART_STAGING_RELS.trialChapterMd);
+  await maybeAddPath("quickstart_evaluation", QUICKSTART_STAGING_RELS.evaluationJson);
+
+  const asString = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+  const qsRules = asString(paths.quickstart_rules);
+  const qsContractsDir = asString(paths.quickstart_contracts_dir);
+  const qsStyleProfile = asString(paths.quickstart_style_profile);
+  const qsTrialChapter = asString(paths.quickstart_trial_chapter);
+  const styleTemplate = asString(paths.style_profile_template);
+
+  // Provide canonical manifest keys in addition to quickstart-scoped aliases.
+  if (qsRules) paths.world_rules = qsRules;
+  if (qsContractsDir) paths.character_contracts_dir = qsContractsDir;
+  if (qsStyleProfile) paths.style_profile = qsStyleProfile;
+  else if (styleTemplate) paths.style_profile = styleTemplate;
+  if (qsTrialChapter) paths.chapter_draft = qsTrialChapter;
+
+  let agent: InstructionPacket["agent"];
+  const expected_outputs: InstructionPacket["expected_outputs"] = [];
+  const next_actions: InstructionPacket["next_actions"] = [];
+
+  if (step.phase === "world") {
+    agent = { kind: "subagent", name: "world-builder" };
+    expected_outputs.push({ path: QUICKSTART_STAGING_RELS.rulesJson, required: true });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
+    next_actions.push({
+      kind: "command",
+      command: `novel instructions quickstart:characters --json`,
+      note: "After advance, proceed to create initial characters/contracts."
+    });
+  } else if (step.phase === "characters") {
+    agent = { kind: "subagent", name: "character-weaver" };
+    inline.contracts_output_dir = QUICKSTART_STAGING_RELS.contractsDir;
+    expected_outputs.push({
+      path: QUICKSTART_STAGING_RELS.contractsDir,
+      required: true,
+      note: "Write at least 1 character contract JSON under this dir."
+    });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
+    next_actions.push({ kind: "command", command: `novel instructions quickstart:style --json`, note: "After advance, proceed to style extraction." });
+  } else if (step.phase === "style") {
+    agent = { kind: "subagent", name: "style-analyzer" };
+    expected_outputs.push({ path: QUICKSTART_STAGING_RELS.styleProfileJson, required: true });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
+    next_actions.push({ kind: "command", command: `novel instructions quickstart:trial --json`, note: "After advance, proceed to trial chapter." });
+  } else if (step.phase === "trial") {
+    agent = { kind: "subagent", name: "chapter-writer" };
+    expected_outputs.push({ path: QUICKSTART_STAGING_RELS.trialChapterMd, required: true });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
+    next_actions.push({ kind: "command", command: `novel instructions quickstart:results --json`, note: "After advance, evaluate trial results." });
+  } else if (step.phase === "results") {
+    agent = { kind: "subagent", name: "quality-judge" };
+    expected_outputs.push({
+      path: QUICKSTART_STAGING_RELS.evaluationJson,
+      required: true,
+      note: "QualityJudge returns JSON; the executor should write it to this path."
+    });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "After advance, the pipeline transitions to VOL_PLANNING." });
+  } else {
+    const _exhaustive: never = step.phase;
+    throw new NovelCliError(`Unsupported quickstart phase: ${String(_exhaustive)}`, 2);
+  }
+
+  const packet: InstructionPacket = {
+    version: 1,
+    step: stepId,
+    agent,
+    manifest: {
+      mode: embedMode === "off" ? "paths" : "paths+embed",
+      inline,
+      paths,
+      ...(embedMode === "off" ? {} : { embed })
+    },
+    expected_outputs,
+    next_actions
+  };
+
+  let writtenPath: string | null = null;
+  if (args.writeManifest) {
+    const manifestsDir = join(args.rootDir, "staging/manifests");
+    await ensureDir(manifestsDir);
+    const fileName = `${stepId.replaceAll(":", "-")}.packet.json`;
+    writtenPath = `staging/manifests/${fileName}`;
+    await writeJsonFile(join(args.rootDir, writtenPath), packet);
+  }
+
+  return {
+    packet,
+    ...(writtenPath ? { written_manifest_path: writtenPath } : {})
+  };
+}
+
 export async function buildInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
   const stepId = formatStepId(args.step);
   if (args.step.kind === "review") return await buildReviewInstructionPacket(args);
+  if (args.step.kind === "quickstart") return await buildQuickStartInstructionPacket(args);
   if (args.step.kind === "volume") {
     const step = args.step;
     const volume = args.checkpoint.current_volume;

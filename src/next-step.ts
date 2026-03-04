@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
@@ -8,6 +9,7 @@ import { computeGateDecision, detectHighConfidenceViolation } from "./gate-decis
 import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { QUICKSTART_STAGING_RELS } from "./quickstart.js";
 import { computeReviewNext } from "./volume-review.js";
 
 type LoadedProfile = { relPath: string; profile: PlatformProfile };
@@ -624,6 +626,211 @@ function notImplementedState(state: string): never {
   throw new NovelCliError(`Not implemented: orchestrator_state=${state}`, 2);
 }
 
+async function countContractArtifacts(rootDir: string): Promise<{
+  hasDir: boolean;
+  fileCount: number;
+  sample: string[];
+  degraded: boolean;
+  error?: string;
+}> {
+  const absDir = join(rootDir, QUICKSTART_STAGING_RELS.contractsDir);
+  const hasDir = await pathExists(absDir);
+  if (!hasDir) return { hasDir, fileCount: 0, sample: [], degraded: false };
+
+  try {
+    const entries = await readdir(absDir, { withFileTypes: true });
+    const files = entries.filter((e) => e.isFile()).map((e) => e.name);
+    const sample = files
+      .filter((n) => n.endsWith(".json"))
+      .sort()
+      .slice(0, 3);
+    const fileCount = files.filter((n) => n.endsWith(".json")).length;
+    return { hasDir, fileCount, sample, degraded: false };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    // If the dir exists but is unreadable, treat as present but degraded.
+    return { hasDir, fileCount: 0, sample: [], degraded: true, error: message };
+  }
+}
+
+async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
+  const stage = normalizeStage(checkpoint.pipeline_stage);
+  const inflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+
+  if ((stage === null || stage === "committed") && inflight !== null) {
+    throw new NovelCliError(
+      `Checkpoint inconsistent for QUICK_START: pipeline_stage=${stage ?? "null"} but inflight_chapter=${inflight}. Set inflight_chapter to null.`,
+      2
+    );
+  }
+  if (stage !== null && stage !== "committed") {
+    throw new NovelCliError(
+      `Checkpoint inconsistent for QUICK_START: pipeline_stage=${stage} (expected null or committed). Finish the chapter pipeline or repair .checkpoint.json.`,
+      2
+    );
+  }
+
+  const rulesAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.rulesJson);
+  const styleAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.styleProfileJson);
+  const trialAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.trialChapterMd);
+  const evalAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.evaluationJson);
+
+  const rulesExists = await pathExists(rulesAbs);
+  const contracts = await countContractArtifacts(projectRootDir);
+  const styleExists = await pathExists(styleAbs);
+  const trialExists = await pathExists(trialAbs);
+  const evalExists = await pathExists(evalAbs);
+
+  let rulesOk = false;
+  let rulesError: string | null = null;
+  if (rulesExists) {
+    try {
+      const raw = await readJsonFile(rulesAbs);
+      if (!isPlainObject(raw)) throw new Error("expected JSON object");
+      const obj = raw as Record<string, unknown>;
+      const rules = obj.rules;
+      if (!Array.isArray(rules)) throw new Error("missing 'rules' array");
+      for (const [idx, rule] of rules.entries()) {
+        if (!isPlainObject(rule)) throw new Error(`rules[${idx}] must be an object`);
+        const r = rule as Record<string, unknown>;
+        if (typeof r.id !== "string" || r.id.trim().length === 0) throw new Error(`rules[${idx}].id must be a non-empty string`);
+        if (typeof r.category !== "string" || r.category.trim().length === 0) {
+          throw new Error(`rules[${idx}].category must be a non-empty string`);
+        }
+        if (typeof r.rule !== "string" || r.rule.trim().length === 0) throw new Error(`rules[${idx}].rule must be a non-empty string`);
+        const ct = r.constraint_type;
+        if (ct !== "hard" && ct !== "soft") throw new Error(`rules[${idx}].constraint_type must be hard|soft`);
+        if (!Array.isArray(r.exceptions)) throw new Error(`rules[${idx}].exceptions must be an array`);
+      }
+      rulesOk = true;
+    } catch (err: unknown) {
+      rulesError = err instanceof Error ? err.message : String(err);
+      rulesOk = false;
+    }
+  }
+
+  let styleOk = false;
+  let styleError: string | null = null;
+  if (styleExists) {
+    try {
+      const raw = await readJsonFile(styleAbs);
+      if (!isPlainObject(raw)) throw new Error("expected JSON object");
+      const obj = raw as Record<string, unknown>;
+      const sourceType = obj.source_type;
+      if (typeof sourceType !== "string" || sourceType.trim().length === 0) throw new Error("missing 'source_type'");
+      if (sourceType !== "original" && sourceType !== "reference" && sourceType !== "template" && sourceType !== "write_then_extract") {
+        throw new Error(`invalid source_type=${sourceType}`);
+      }
+      styleOk = true;
+    } catch (err: unknown) {
+      styleError = err instanceof Error ? err.message : String(err);
+      styleOk = false;
+    }
+  }
+
+  let trialOk = false;
+  let trialError: string | null = null;
+  if (trialExists) {
+    try {
+      const text = await readTextFile(trialAbs);
+      if (text.trim().length === 0) throw new Error("empty trial chapter");
+      trialOk = true;
+    } catch (err: unknown) {
+      trialError = err instanceof Error ? err.message : String(err);
+      trialOk = false;
+    }
+  }
+
+  let evalOk = false;
+  let evalError: string | null = null;
+  if (evalExists) {
+    try {
+      const raw = await readJsonFile(evalAbs);
+      if (!isPlainObject(raw)) throw new Error("expected JSON object");
+      evalOk = true;
+    } catch (err: unknown) {
+      evalError = err instanceof Error ? err.message : String(err);
+      evalOk = false;
+    }
+  }
+
+  const evidence = {
+    staging: {
+      rulesExists,
+      rulesOk,
+      ...(rulesError ? { rulesError } : {}),
+      contracts: {
+        hasDir: contracts.hasDir,
+        jsonFileCount: contracts.fileCount,
+        sample: contracts.sample,
+        degraded: contracts.degraded,
+        ...(contracts.error ? { error: contracts.error } : {})
+      },
+      styleExists,
+      styleOk,
+      ...(styleError ? { styleError } : {}),
+      trialExists,
+      trialOk,
+      ...(trialError ? { trialError } : {}),
+      evalExists,
+      evalOk,
+      ...(evalError ? { evalError } : {})
+    }
+  };
+
+  if (!rulesOk) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "world" }),
+      reason: "quickstart:world",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!contracts.hasDir || contracts.fileCount === 0) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "characters" }),
+      reason: "quickstart:characters",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!styleOk) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "style" }),
+      reason: "quickstart:style",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!trialOk) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "trial" }),
+      reason: "quickstart:trial",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  if (!evalOk) {
+    return {
+      step: formatStepId({ kind: "quickstart", phase: "results" }),
+      reason: "quickstart:results",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  }
+
+  return {
+    step: formatStepId({ kind: "quickstart", phase: "results" }),
+    reason: "quickstart:results:artifacts_present",
+    inflight: { chapter: null, pipeline_stage: null },
+    evidence
+  };
+}
+
 export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
   switch (checkpoint.orchestrator_state) {
     case "WRITING":
@@ -648,10 +855,12 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       const next = await computeChapterNextStep(projectRootDir, normalizedCheckpoint);
       return { ...next, reason: `error_retry:${healPrefix}${next.reason}` };
     }
-    case "INIT":
-      return notImplementedState(checkpoint.orchestrator_state);
+    case "INIT": {
+      const next = await computeQuickStartNextStep(projectRootDir, checkpoint);
+      return { ...next, reason: `init:${next.reason}` };
+    }
     case "QUICK_START":
-      return notImplementedState(checkpoint.orchestrator_state);
+      return await computeQuickStartNextStep(projectRootDir, checkpoint);
     case "VOL_PLANNING":
       return await computeVolumeNextStep(projectRootDir, checkpoint);
     case "VOL_REVIEW":

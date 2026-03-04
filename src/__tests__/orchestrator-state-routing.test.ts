@@ -75,19 +75,17 @@ test("readCheckpoint rejects inflight_chapter=0", async () => {
   await assert.rejects(() => readCheckpoint(rootDir), /inflight_chapter must be an int >= 1/);
 });
 
-test("computeNextStep throws for INIT placeholder", async () => {
+test("computeNextStep routes INIT to quickstart pipeline", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-init-"));
-  await assert.rejects(
-    () =>
-      computeNextStep(rootDir, {
-        last_completed_chapter: 0,
-        current_volume: 1,
-        orchestrator_state: "INIT",
-        pipeline_stage: null,
-        inflight_chapter: null
-      }),
-    /Not implemented: orchestrator_state=INIT/
-  );
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "INIT",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+  assert.equal(next.step, "quickstart:world");
+  assert.equal(next.reason, "init:quickstart:world");
 });
 
 test("computeNextStep throws when pipeline_stage=committed but inflight_chapter is set", async () => {
@@ -105,19 +103,17 @@ test("computeNextStep throws when pipeline_stage=committed but inflight_chapter 
   );
 });
 
-test("computeNextStep throws for QUICK_START placeholder", async () => {
+test("computeNextStep routes QUICK_START to quickstart pipeline", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-quickstart-"));
-  await assert.rejects(
-    () =>
-      computeNextStep(rootDir, {
-        last_completed_chapter: 0,
-        current_volume: 1,
-        orchestrator_state: "QUICK_START",
-        pipeline_stage: null,
-        inflight_chapter: null
-      }),
-    /Not implemented: orchestrator_state=QUICK_START/
-  );
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+  assert.equal(next.step, "quickstart:world");
+  assert.equal(next.reason, "quickstart:world");
 });
 
 test("computeNextStep prefixes reason for ERROR_RETRY", async () => {
