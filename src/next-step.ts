@@ -1,11 +1,14 @@
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
+import { tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
+import { computeGateDecision, detectHighConfidenceViolation } from "./gate-decision.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { computeReviewNext } from "./volume-review.js";
 
 type LoadedProfile = { relPath: string; profile: PlatformProfile };
 import { computePrejudgeGuardrailsReport, loadPrejudgeGuardrailsReportIfFresh, prejudgeGuardrailsRelPath } from "./prejudge-guardrails.js";
@@ -13,6 +16,7 @@ import { summarizeNamingIssues } from "./naming-lint.js";
 import { summarizeReadabilityIssues } from "./readability-lint.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId } from "./steps.js";
+import { isPlainObject } from "./type-guards.js";
 
 export type NextStepResult = {
   step: string;
@@ -254,6 +258,20 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
         2
       );
     }
+
+    // Volume-end: enter deterministic volume review pipeline (issue #144).
+    if (checkpoint.last_completed_chapter > 0) {
+      try {
+        const range = await tryResolveVolumeChapterRange({ rootDir: projectRootDir, volume: checkpoint.current_volume });
+        if (range && checkpoint.last_completed_chapter === range.end) {
+          const next = await computeReviewNext(projectRootDir, checkpoint);
+          return { ...next, reason: `volume_end:${next.reason}` };
+        }
+      } catch {
+        // Best-effort: if we can't resolve range, fall back to chapter pipeline.
+      }
+    }
+
     const nextChapter = checkpoint.last_completed_chapter + 1;
     return {
       step: formatStepId({ kind: "chapter", chapter: nextChapter, stage: "draft" }),
@@ -474,12 +492,112 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
     });
     if (guardrailsGate) return guardrailsGate;
 
-    return {
-      step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
-      reason: "judged:ready_commit",
-      inflight: { chapter: inflightChapter, pipeline_stage: stage },
-      evidence
+    // Gate decision: deterministic mapping from QualityJudge outputs → next action.
+    let evalRaw: unknown;
+    try {
+      evalRaw = await readJsonFile(join(projectRootDir, rel.staging.evalJson));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),
+        reason: `judged:eval_read_failed`,
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: { ...evidence, error: message }
+      };
+    }
+
+    if (!isPlainObject(evalRaw)) {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),
+        reason: `judged:eval_invalid`,
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: { ...evidence }
+      };
+    }
+
+    const evalObj = evalRaw as Record<string, unknown>;
+    const overall = typeof evalObj.overall_final === "number" ? evalObj.overall_final : typeof evalObj.overall === "number" ? evalObj.overall : null;
+    if (overall === null || !Number.isFinite(overall)) {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),
+        reason: `judged:eval_missing_overall`,
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: { ...evidence }
+      };
+    }
+
+    const revisionCount = typeof checkpoint.revision_count === "number" && Number.isInteger(checkpoint.revision_count) && checkpoint.revision_count >= 0
+      ? checkpoint.revision_count
+      : 0;
+    const violation = detectHighConfidenceViolation(evalRaw);
+
+    const gateDecision = computeGateDecision({
+      overall_final: overall,
+      revision_count: revisionCount,
+      has_high_confidence_violation: violation.has_high_confidence_violation
+    });
+
+    const gateEvidence = {
+      ...evidence,
+      gate: {
+        decision: gateDecision,
+        overall_final: overall,
+        revision_count: revisionCount,
+        has_high_confidence_violation: violation.has_high_confidence_violation,
+        high_confidence_violations: violation.high_confidence_violations.slice(0, 10)
+      },
+      quality_judge: {
+        recommendation: typeof evalObj.recommendation === "string" ? evalObj.recommendation : null
+      }
     };
+
+    if (gateDecision === "pass") {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
+        reason: "judged:gate:pass",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: gateEvidence
+      };
+    }
+
+    if (gateDecision === "force_passed") {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
+        reason: "judged:gate:force_passed",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: gateEvidence
+      };
+    }
+
+    if (gateDecision === "polish") {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "refine" }),
+        reason: "judged:gate:polish",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: gateEvidence
+      };
+    }
+
+    if (gateDecision === "revise") {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
+        reason: "judged:gate:revise",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: gateEvidence
+      };
+    }
+
+    if (gateDecision === "pause_for_user" || gateDecision === "pause_for_user_force_rewrite") {
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "review" }),
+        reason: `judged:gate:${gateDecision}`,
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: gateEvidence
+      };
+    }
+
+    const _exhaustive: never = gateDecision;
+    throw new NovelCliError(`Unsupported gate decision: ${String(_exhaustive)}`, 2);
   }
 
   // Unknown stage: upstream parseCheckpoint validates enum so this should be unreachable.
@@ -521,8 +639,9 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
       return notImplementedState(checkpoint.orchestrator_state);
     case "QUICK_START":
     case "VOL_PLANNING":
-    case "VOL_REVIEW":
       return notImplementedState(checkpoint.orchestrator_state);
+    case "VOL_REVIEW":
+      return await computeReviewNext(projectRootDir, checkpoint);
     default:
       return notImplementedState(checkpoint.orchestrator_state);
   }

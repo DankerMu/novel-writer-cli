@@ -1,9 +1,10 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
-import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFileIfMissing } from "./fs-utils.js";
-import { loadContinuityLatestSummary } from "./consistency-auditor.js";
+import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile, writeTextFileIfMissing } from "./fs-utils.js";
+import { loadContinuityLatestSummary, tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
@@ -13,8 +14,9 @@ import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "
 import { loadPromiseLedgerLatestSummary } from "./promise-ledger.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
-import { chapterRelPaths, formatStepId, pad2, titleFixSnapshotRel, type Step } from "./steps.js";
+import { chapterRelPaths, formatStepId, pad2, pad3, titleFixSnapshotRel, type Step } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
+import { VOL_REVIEW_RELS, collectVolumeData, computeBridgeCheck, computeForeshadowingAudit, computeStorylineRhythm } from "./volume-review.js";
 
 export type InstructionPacket = {
   version: 1;
@@ -51,8 +53,267 @@ function safeEmbedMode(mode: string | null): "off" | "brief" {
   throw new NovelCliError(`Unsupported --embed mode: ${mode}. Supported: brief`, 2);
 }
 
+async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
+  const stepId = formatStepId(args.step);
+  if (args.step.kind !== "review") throw new NovelCliError(`Unsupported review step: ${stepId}`, 2);
+  const step = args.step;
+
+  const volume = args.checkpoint.current_volume;
+
+  const embedMode = safeEmbedMode(args.embedMode);
+  const embed: Record<string, unknown> = {};
+  if (embedMode === "brief") {
+    const briefAbs = join(args.rootDir, "brief.md");
+    if (await pathExists(briefAbs)) {
+      const content = await readTextFile(briefAbs);
+      embed.brief_preview = content.slice(0, 2000);
+    } else {
+      embed.brief_preview = null;
+    }
+  }
+
+  const commonPaths: Record<string, unknown> = {};
+  const maybeAddPath = async (target: Record<string, unknown>, key: string, relPath: string): Promise<void> => {
+    const absPath = join(args.rootDir, relPath);
+    if (await pathExists(absPath)) target[key] = relPath;
+  };
+
+  await maybeAddPath(commonPaths, "project_brief", "brief.md");
+  await maybeAddPath(commonPaths, "style_profile", "style-profile.json");
+  await maybeAddPath(commonPaths, "platform_profile", "platform-profile.json");
+  await maybeAddPath(commonPaths, "quality_rubric", "skills/novel-writing/references/quality-rubric.md");
+  await maybeAddPath(commonPaths, "foreshadowing_global", "foreshadowing/global.json");
+  await maybeAddPath(commonPaths, "storylines", "storylines/storylines.json");
+
+  const volumeOutlineRel = `volumes/vol-${pad2(volume)}/outline.md`;
+  if (await pathExists(join(args.rootDir, volumeOutlineRel))) commonPaths.volume_outline = volumeOutlineRel;
+
+  // Resolve chapter range: prefer volume contracts/outline, fallback to last 10 chapters.
+  const endChapter = args.checkpoint.last_completed_chapter;
+  const resolvedRange =
+    (await tryResolveVolumeChapterRange({ rootDir: args.rootDir, volume })) ??
+    (Number.isInteger(endChapter) && endChapter >= 1 ? { start: Math.max(1, endChapter - 9), end: endChapter } : null);
+  if (!resolvedRange) {
+    throw new NovelCliError(`Cannot resolve volume review chapter_range (last_completed_chapter=${String(endChapter)}).`, 2);
+  }
+
+  const inline: Record<string, unknown> = { volume, chapter_range: [resolvedRange.start, resolvedRange.end] };
+  const paths: Record<string, unknown> = { ...commonPaths };
+  const expected_outputs: InstructionPacket["expected_outputs"] = [];
+  const next_actions: InstructionPacket["next_actions"] = [];
+
+  let agent: InstructionPacket["agent"];
+
+  if (step.phase === "collect") {
+    agent = { kind: "cli", name: "volume-review" };
+    const summary = await collectVolumeData({ rootDir: args.rootDir, checkpoint: args.checkpoint });
+    await writeJsonFile(join(args.rootDir, VOL_REVIEW_RELS.qualitySummary), summary);
+    paths.quality_summary = VOL_REVIEW_RELS.qualitySummary;
+    inline.quality_summary = { ...summary, chapters: summary.chapters.slice(0, 3), low_chapters: summary.low_chapters.slice(0, 5) };
+    expected_outputs.push({ path: VOL_REVIEW_RELS.qualitySummary, required: true });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+  } else if (step.phase === "audit") {
+    agent = { kind: "subagent", name: "consistency-auditor" };
+    inline.scope = "volume_end";
+    inline.stride = 5;
+    inline.window = 10;
+
+    // Attach inputs expected by the ConsistencyAuditor agent.
+    const chapterPaths: string[] = [];
+    const contractPaths: string[] = [];
+    for (let chapter = resolvedRange.start; chapter <= resolvedRange.end; chapter++) {
+      const chapterRel = `chapters/chapter-${pad3(chapter)}.md`;
+      if (await pathExists(join(args.rootDir, chapterRel))) chapterPaths.push(chapterRel);
+      const contractRel = `volumes/vol-${pad2(volume)}/chapter-contracts/chapter-${pad3(chapter)}.json`;
+      if (await pathExists(join(args.rootDir, contractRel))) contractPaths.push(contractRel);
+    }
+    paths.chapters = chapterPaths;
+    if (contractPaths.length > 0) paths.chapter_contracts = contractPaths;
+
+    await maybeAddPath(paths, "storyline_spec", "storylines/storyline-spec.json");
+    await maybeAddPath(paths, "storyline_schedule", `volumes/vol-${pad2(volume)}/storyline-schedule.json`);
+    await maybeAddPath(paths, "state_current", "state/current-state.json");
+    await maybeAddPath(paths, "state_changelog", "state/changelog.jsonl");
+
+    // Best-effort: include active character contracts.
+    const charsDirRel = "characters/active";
+    const charsDirAbs = join(args.rootDir, charsDirRel);
+    if (await pathExists(charsDirAbs)) {
+      try {
+        const entries = await readdir(charsDirAbs, { withFileTypes: true });
+        const rels = entries
+          .filter((e) => e.isFile() && e.name.endsWith(".json"))
+          .map((e) => `${charsDirRel}/${e.name}`)
+          .sort();
+        if (rels.length > 0) paths.characters_active = rels;
+      } catch {
+        inline.characters_active_degraded = true;
+      }
+    }
+
+    // Optional: pass quality summary to auditor.
+    if (await pathExists(join(args.rootDir, VOL_REVIEW_RELS.qualitySummary))) {
+      paths.quality_summary = VOL_REVIEW_RELS.qualitySummary;
+    }
+
+    expected_outputs.push({
+      path: VOL_REVIEW_RELS.auditReport,
+      required: true,
+      note: "ConsistencyAuditor returns JSON; the executor should write it to this path."
+    });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+  } else if (step.phase === "report") {
+    agent = { kind: "cli", name: "volume-review" };
+    paths.quality_summary = VOL_REVIEW_RELS.qualitySummary;
+    paths.audit_report = VOL_REVIEW_RELS.auditReport;
+
+    // Deterministic minimal markdown report (human-readable).
+    let summary: unknown = null;
+    let audit: unknown = null;
+    try {
+      summary = await readJsonFile(join(args.rootDir, VOL_REVIEW_RELS.qualitySummary));
+    } catch {
+      summary = null;
+      inline.quality_summary_degraded = true;
+    }
+    try {
+      audit = await readJsonFile(join(args.rootDir, VOL_REVIEW_RELS.auditReport));
+    } catch {
+      audit = null;
+      inline.audit_report_degraded = true;
+    }
+
+    const lines: string[] = [];
+    lines.push(`# Volume Review Report`);
+    lines.push("");
+    lines.push(`- volume: ${volume}`);
+    lines.push(`- chapter_range: ${resolvedRange.start}-${resolvedRange.end}`);
+
+    if (isPlainObject(summary)) {
+      const stats = isPlainObject((summary as Record<string, unknown>).stats) ? ((summary as Record<string, unknown>).stats as Record<string, unknown>) : null;
+      if (stats) {
+        const avg = typeof stats.overall_avg === "number" ? stats.overall_avg : null;
+        const min = typeof stats.overall_min === "number" ? stats.overall_min : null;
+        const max = typeof stats.overall_max === "number" ? stats.overall_max : null;
+        lines.push(`- overall_avg: ${avg ?? "n/a"} (min=${min ?? "n/a"}, max=${max ?? "n/a"})`);
+      }
+      const lows = Array.isArray((summary as Record<string, unknown>).low_chapters)
+        ? ((summary as Record<string, unknown>).low_chapters as unknown[])
+        : [];
+      if (lows.length > 0) {
+        lines.push("");
+        lines.push(`## Low Score Chapters (<3.5)`);
+        for (const it of lows.slice(0, 20)) {
+          if (!isPlainObject(it)) continue;
+          const ch = (it as Record<string, unknown>).chapter;
+          const sc = (it as Record<string, unknown>).overall_final;
+          if (typeof ch === "number" && typeof sc === "number") lines.push(`- ch${pad3(ch)}: ${sc}`);
+        }
+      }
+    }
+
+    if (isPlainObject(audit)) {
+      const stats = isPlainObject((audit as Record<string, unknown>).stats) ? ((audit as Record<string, unknown>).stats as Record<string, unknown>) : null;
+      if (stats) {
+        const total = typeof stats.issues_total === "number" ? stats.issues_total : null;
+        lines.push("");
+        lines.push(`## Consistency Audit`);
+        lines.push(`- issues_total: ${total ?? "n/a"}`);
+      }
+    }
+
+    await writeTextFile(join(args.rootDir, VOL_REVIEW_RELS.reviewReport), `${lines.join("\n")}\n`);
+    expected_outputs.push({ path: VOL_REVIEW_RELS.reviewReport, required: true });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+  } else if (step.phase === "cleanup") {
+    agent = { kind: "cli", name: "volume-review" };
+
+    const foreshadowingAudit = await computeForeshadowingAudit({ rootDir: args.rootDir, checkpoint: args.checkpoint });
+
+    // Best-effort: compute bridge check using available foreshadow ids.
+    const globalIds = new Set<string>();
+    const planIds = new Set<string>();
+    try {
+      const globalRaw = await readJsonFile(join(args.rootDir, "foreshadowing/global.json"));
+      const list = Array.isArray(globalRaw)
+        ? globalRaw
+        : isPlainObject(globalRaw) && Array.isArray((globalRaw as Record<string, unknown>).foreshadowing)
+          ? ((globalRaw as Record<string, unknown>).foreshadowing as unknown[])
+          : [];
+      for (const it of list) {
+        if (!isPlainObject(it)) continue;
+        const id = typeof (it as Record<string, unknown>).id === "string" ? ((it as Record<string, unknown>).id as string).trim() : "";
+        if (id) globalIds.add(id);
+      }
+    } catch {
+      inline.foreshadow_ids_degraded = true;
+    }
+    try {
+      const rel = `volumes/vol-${pad2(volume)}/foreshadowing.json`;
+      const planRaw = await readJsonFile(join(args.rootDir, rel));
+      const list = Array.isArray(planRaw)
+        ? planRaw
+        : isPlainObject(planRaw) && Array.isArray((planRaw as Record<string, unknown>).foreshadowing)
+          ? ((planRaw as Record<string, unknown>).foreshadowing as unknown[])
+          : [];
+      for (const it of list) {
+        if (!isPlainObject(it)) continue;
+        const id = typeof (it as Record<string, unknown>).id === "string" ? ((it as Record<string, unknown>).id as string).trim() : "";
+        if (id) planIds.add(id);
+      }
+    } catch {
+      // optional
+    }
+
+    const bridgeCheck = await computeBridgeCheck({ rootDir: args.rootDir, volume, foreshadowIds: { global: globalIds, plan: planIds } });
+    const rhythm = await computeStorylineRhythm({ rootDir: args.rootDir, volume, chapter_range: [resolvedRange.start, resolvedRange.end] });
+
+    const payload = {
+      schema_version: 1,
+      generated_at: new Date().toISOString(),
+      as_of: { volume, chapter: endChapter },
+      foreshadowing_audit: foreshadowingAudit,
+      bridge_check: bridgeCheck,
+      storyline_rhythm: rhythm
+    };
+    await writeJsonFile(join(args.rootDir, VOL_REVIEW_RELS.foreshadowStatus), payload);
+
+    expected_outputs.push({ path: VOL_REVIEW_RELS.foreshadowStatus, required: true });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+  } else if (step.phase === "transition") {
+    agent = { kind: "cli", name: "novel" };
+    expected_outputs.push({ path: "(checkpoint)", required: true, note: "Advance updates .checkpoint.json: current_volume++ and orchestrator_state=VOL_PLANNING." });
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+  } else {
+    const _exhaustive: never = step.phase;
+    throw new NovelCliError(`Unsupported review phase: ${String(_exhaustive)}`, 2);
+  }
+
+  const packet: InstructionPacket = {
+    version: 1,
+    step: stepId,
+    agent,
+    manifest: {
+      mode: embedMode === "off" ? "paths" : "paths+embed",
+      inline,
+      paths,
+      ...(embedMode === "off" ? {} : { embed })
+    },
+    expected_outputs,
+    next_actions
+  };
+
+  return packet;
+}
+
 export async function buildInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
   const stepId = formatStepId(args.step);
+  if (args.step.kind === "review") return await buildReviewInstructionPacket(args);
   if (args.step.kind !== "chapter") throw new NovelCliError(`Unsupported step: ${stepId}`, 2);
   const step = args.step;
 
