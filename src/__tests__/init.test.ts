@@ -86,16 +86,19 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
       [".checkpoint.json", "ai-blacklist.json", "brief.md", "style-profile.json", "web-novel-cliche-lint.json"].sort()
     );
 
-    // All 7 staging dirs ensured
-    assert.equal(result.ensuredDirs.length, 7);
+    // All 9 staging dirs ensured
+    assert.equal(result.ensuredDirs.length, 9);
     assert.ok(result.ensuredDirs.includes("staging/chapters"));
     assert.ok(result.ensuredDirs.includes("staging/manifests"));
+    assert.ok(result.ensuredDirs.includes("staging/volumes"));
+    assert.ok(result.ensuredDirs.includes("staging/foreshadowing"));
 
     // Verify ALL checkpoint fields
     const checkpoint = await readCheckpoint(rootDir);
     assert.equal(checkpoint.last_completed_chapter, 0);
     assert.equal(checkpoint.current_volume, 1);
     assert.equal(checkpoint.pipeline_stage, "committed");
+    assert.equal(checkpoint.volume_pipeline_stage, null);
     assert.equal(checkpoint.inflight_chapter, null);
     assert.equal(checkpoint.revision_count, 0);
     assert.equal(checkpoint.hook_fix_count, 0);
@@ -114,6 +117,8 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
       "staging/evaluations",
       "staging/logs",
       "staging/storylines",
+      "staging/volumes",
+      "staging/foreshadowing",
       "staging/manifests"
     ]) {
       await assertDir(join(rootDir, relDir));

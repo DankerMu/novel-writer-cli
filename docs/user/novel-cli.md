@@ -23,6 +23,7 @@
 | `novel validate <step>` | 校验 step 产物是否齐全/合规 |
 | `novel advance <step>` | 校验通过后推进 checkpoint |
 | `novel commit --chapter N` | 提交 staging 事务到正式目录（写入） |
+| `novel commit --volume N` | 提交卷规划 staging 产物到 `volumes/`（写入） |
 | `novel lock status/clear` | 查看/清理写入锁（解决中断导致的 stale lock） |
 | `novel promises init/report` | 承诺台账：初始化与窗口报告 |
 | `novel engagement report` | 参与度密度：窗口报告 |
@@ -189,6 +190,34 @@ novel lock clear
 ```
 
 > 常见场景：执行器在写入阶段中断（断电/kill/异常退出），留下 stale lock；此时可先 `novel lock status` 确认，再执行 `novel lock clear`。
+
+## 卷规划（VOL_PLANNING）
+
+当 `.checkpoint.json.orchestrator_state == "VOL_PLANNING"` 时，`novel next` 会进入卷规划三步流水线：
+
+```bash
+novel next
+# volume:outline
+
+novel instructions volume:outline --json
+# 运行 PlotArchitect，写入 staging/volumes/vol-XX/**
+
+novel validate volume:outline
+novel advance volume:outline
+
+novel next
+# volume:validate
+
+novel instructions volume:validate --json
+novel validate volume:validate
+novel advance volume:validate
+
+novel next
+# volume:commit
+
+novel instructions volume:commit --json
+novel commit --volume <N>
+```
 
 ## 角色语气漂移（M7H.3，可选）
 

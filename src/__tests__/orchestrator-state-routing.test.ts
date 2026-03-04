@@ -173,19 +173,18 @@ test("computeNextStep delegates CHAPTER_REWRITE to chapter routing", async () =>
   assert.deepEqual(next.inflight, { chapter: 7, pipeline_stage: "revising" });
 });
 
-test("computeNextStep throws for VOL_PLANNING placeholder", async () => {
+test("computeNextStep routes VOL_PLANNING to volume pipeline", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-vol-planning-"));
-  await assert.rejects(
-    () =>
-      computeNextStep(rootDir, {
-        last_completed_chapter: 0,
-        current_volume: 1,
-        orchestrator_state: "VOL_PLANNING",
-        pipeline_stage: null,
-        inflight_chapter: null
-      }),
-    /Not implemented: orchestrator_state=VOL_PLANNING/
-  );
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "VOL_PLANNING",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    volume_pipeline_stage: null
+  });
+  assert.equal(next.step, "volume:outline");
+  assert.equal(next.reason, "vol_planning:outline");
 });
 
 test("computeNextStep routes VOL_REVIEW to review pipeline", async () => {

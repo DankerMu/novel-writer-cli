@@ -17,6 +17,7 @@ import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, pad3, titleFixSnapshotRel, type Step } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
+import { computeVolumeChapterRange, volumeFinalRelPaths, volumeStagingRelPaths } from "./volume-planning.js";
 
 export type InstructionPacket = {
   version: 1;
@@ -204,12 +205,166 @@ async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<str
     next_actions
   };
 
-  return packet;
+  let writtenPath: string | null = null;
+  if (args.writeManifest) {
+    const manifestsDir = join(args.rootDir, "staging/manifests");
+    await ensureDir(manifestsDir);
+    const fileName = `${stepId.replaceAll(":", "-")}.packet.json`;
+    writtenPath = `staging/manifests/${fileName}`;
+    await writeJsonFile(join(args.rootDir, writtenPath), packet);
+  }
+
+  return {
+    packet,
+    ...(writtenPath ? { written_manifest_path: writtenPath } : {})
+  };
 }
 
 export async function buildInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
   const stepId = formatStepId(args.step);
   if (args.step.kind === "review") return await buildReviewInstructionPacket(args);
+  if (args.step.kind === "volume") {
+    const step = args.step;
+    const volume = args.checkpoint.current_volume;
+    const range = computeVolumeChapterRange({ current_volume: volume, last_completed_chapter: args.checkpoint.last_completed_chapter });
+
+    const embedMode = safeEmbedMode(args.embedMode);
+    const embed: Record<string, unknown> = {};
+    if (embedMode === "brief") {
+      const briefAbs = join(args.rootDir, "brief.md");
+      if (await pathExists(briefAbs)) {
+        const content = await readTextFile(briefAbs);
+        embed.brief_preview = content.slice(0, 2000);
+      } else {
+        embed.brief_preview = null;
+      }
+    }
+
+    const inline: Record<string, unknown> = {
+      volume,
+      volume_plan: { volume, chapter_range: [range.start, range.end] }
+    };
+
+    const paths: Record<string, unknown> = {};
+
+    const maybeAddPath = async (key: string, relPath: string): Promise<void> => {
+      const absPath = join(args.rootDir, relPath);
+      if (await pathExists(absPath)) paths[key] = relPath;
+    };
+
+    await maybeAddPath("project_brief", "brief.md");
+    await maybeAddPath("style_profile", "style-profile.json");
+    await maybeAddPath("platform_profile", "platform-profile.json");
+    await maybeAddPath("genre_weight_profiles", "genre-weight-profiles.json");
+    await maybeAddPath("style_guide", "skills/novel-writing/references/style-guide.md");
+    await maybeAddPath("quality_rubric", "skills/novel-writing/references/quality-rubric.md");
+    await maybeAddPath("storylines", "storylines/storylines.json");
+    await maybeAddPath("world_rules", "world/rules.json");
+    await maybeAddPath("global_foreshadowing", "foreshadowing/global.json");
+
+    if (volume > 1) {
+      await maybeAddPath("prev_volume_review", `volumes/vol-${pad2(volume - 1)}/review.md`);
+    }
+
+    const worldDirAbs = join(args.rootDir, "world");
+    if (await pathExists(worldDirAbs)) paths.world_docs = "world/*.md";
+    const charsDirAbs = join(args.rootDir, "characters/active");
+    if (await pathExists(charsDirAbs)) {
+      paths.characters_md = "characters/active/*.md";
+      paths.characters_contracts = "characters/active/*.json";
+    }
+
+    let agent: InstructionPacket["agent"];
+    const expected_outputs: InstructionPacket["expected_outputs"] = [];
+    const next_actions: InstructionPacket["next_actions"] = [];
+
+    const staging = volumeStagingRelPaths(volume);
+    const final = volumeFinalRelPaths(volume);
+
+    const addPlanningOutputs = (base: typeof staging): void => {
+      expected_outputs.push({ path: base.outlineMd, required: true });
+      expected_outputs.push({ path: base.storylineScheduleJson, required: true });
+      expected_outputs.push({ path: base.foreshadowingJson, required: true });
+      expected_outputs.push({ path: base.newCharactersJson, required: true });
+      for (let ch = range.start; ch <= range.end; ch++) {
+        expected_outputs.push({ path: base.chapterContractJson(ch), required: true });
+      }
+    };
+
+    if (step.phase === "outline") {
+      agent = { kind: "subagent", name: "plot-architect" };
+      inline.expected_outputs_base_dir = staging.dir;
+      addPlanningOutputs(staging);
+      next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+      next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+      next_actions.push({ kind: "command", command: `novel instructions volume:validate --json`, note: "After advance, proceed to validate/approve." });
+    } else if (step.phase === "validate") {
+      agent = { kind: "cli", name: "manual-review" };
+      inline.review_targets = {
+        outline: staging.outlineMd,
+        storyline_schedule: staging.storylineScheduleJson,
+        foreshadowing: staging.foreshadowingJson,
+        new_characters: staging.newCharactersJson,
+        chapter_contracts_dir: staging.chapterContractsDir
+      };
+      addPlanningOutputs(staging);
+      next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+      next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+      next_actions.push({ kind: "command", command: `novel instructions volume:commit --json`, note: "After approval, proceed to commit." });
+    } else if (step.phase === "commit") {
+      agent = { kind: "cli", name: "novel" };
+      inline.commit_from = staging.dir;
+      inline.commit_to = final.dir;
+      addPlanningOutputs(final);
+      next_actions.push({ kind: "command", command: `novel commit --volume ${volume}` });
+      next_actions.push({ kind: "command", command: `novel next`, note: "After commit, resume the writing pipeline." });
+    } else {
+      const _exhaustive: never = step.phase;
+      throw new NovelCliError(`Unsupported volume phase: ${_exhaustive}`, 2);
+    }
+
+    const gate = args.novelAskGate ?? null;
+    const gateSpec = gate ? parseNovelAskQuestionSpec(gate.novel_ask) : null;
+    if (gate) {
+      resolveProjectRelativePath(args.rootDir, gate.answer_path, "novelAskGate.answer_path");
+      expected_outputs.unshift({
+        path: gate.answer_path,
+        required: true,
+        note: "AnswerSpec JSON record for the NOVEL_ASK gate (written before main step execution)."
+      });
+    }
+
+    const packet: InstructionPacket = {
+      version: 1,
+      step: stepId,
+      agent,
+      ...(gate ? { novel_ask: gateSpec as NovelAskQuestionSpec, answer_path: gate.answer_path } : {}),
+      manifest: {
+        mode: embedMode === "off" ? "paths" : "paths+embed",
+        inline,
+        paths,
+        ...(embedMode === "off" ? {} : { embed })
+      },
+      expected_outputs,
+      next_actions
+    };
+
+    let writtenPath: string | null = null;
+    if (args.writeManifest) {
+      const manifestsDir = join(args.rootDir, "staging/manifests");
+      await ensureDir(manifestsDir);
+      const fileName = `${stepId.replaceAll(":", "-")}.packet.json`;
+      writtenPath = `staging/manifests/${fileName}`;
+      await writeJsonFile(join(args.rootDir, writtenPath), packet);
+    }
+
+    return {
+      packet,
+      ...(writtenPath ? { written_manifest_path: writtenPath } : {})
+    };
+  }
+
+
   if (args.step.kind !== "chapter") throw new NovelCliError(`Unsupported step: ${stepId}`, 2);
   const step = args.step;
 

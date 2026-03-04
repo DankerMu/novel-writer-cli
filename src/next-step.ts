@@ -17,6 +17,7 @@ import { summarizeReadabilityIssues } from "./readability-lint.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
+import { computeVolumeNextStep } from "./volume-planning.js";
 
 export type NextStepResult = {
   step: string;
@@ -650,8 +651,9 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
     case "INIT":
       return notImplementedState(checkpoint.orchestrator_state);
     case "QUICK_START":
-    case "VOL_PLANNING":
       return notImplementedState(checkpoint.orchestrator_state);
+    case "VOL_PLANNING":
+      return await computeVolumeNextStep(projectRootDir, checkpoint);
     case "VOL_REVIEW":
       return await computeReviewNext(projectRootDir, checkpoint);
     default:

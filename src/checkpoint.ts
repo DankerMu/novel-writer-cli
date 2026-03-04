@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { readJsonFile, writeJsonFile } from "./fs-utils.js";
-import { ORCHESTRATOR_STATES, type OrchestratorState } from "./steps.js";
+import { ORCHESTRATOR_STATES, VOLUME_PHASES, type OrchestratorState, type VolumePhase } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 
 export const PIPELINE_STAGES = ["drafting", "drafted", "refined", "judged", "revising", "committed"] as const;
@@ -13,6 +13,8 @@ export type Checkpoint = Record<string, unknown> & {
   current_volume: number;
   orchestrator_state: OrchestratorState;
   pipeline_stage?: PipelineStage | null;
+  volume_pipeline_stage?: VolumePhase | null;
+  last_committed_volume?: number;
   inflight_chapter?: number | null;
   revision_count?: number;
   hook_fix_count?: number;
@@ -28,6 +30,7 @@ export function createDefaultCheckpoint(nowIso?: string): Checkpoint {
     // TODO(CS-O3): Default to INIT once the quickstart pipeline is implemented.
     orchestrator_state: "WRITING",
     pipeline_stage: "committed",
+    volume_pipeline_stage: null,
     inflight_chapter: null,
     revision_count: 0,
     hook_fix_count: 0,
@@ -116,6 +119,33 @@ function parseCheckpoint(data: unknown): Checkpoint {
     throw new NovelCliError(".checkpoint.json.inflight_chapter must be an int >= 1 (or null).", 2);
   }
 
+  const volumeStageRaw = data.volume_pipeline_stage;
+  let volumeStage: VolumePhase | null | undefined;
+  if (volumeStageRaw === undefined) {
+    volumeStage = undefined;
+  } else if (volumeStageRaw === null) {
+    volumeStage = null;
+  } else if (typeof volumeStageRaw === "string") {
+    if ((VOLUME_PHASES as readonly string[]).includes(volumeStageRaw)) {
+      volumeStage = volumeStageRaw as VolumePhase;
+    } else {
+      throw new NovelCliError(
+        `.checkpoint.json.volume_pipeline_stage must be one of: ${VOLUME_PHASES.join(", ")} (or null)`,
+        2
+      );
+    }
+  } else {
+    throw new NovelCliError(`.checkpoint.json.volume_pipeline_stage must be a string (or null)`, 2);
+  }
+
+  const lastCommitted = data.last_committed_volume;
+  if (lastCommitted !== undefined) {
+    const lc = asInt(lastCommitted);
+    if (lc === null || lc < 0) {
+      throw new NovelCliError(".checkpoint.json.last_committed_volume must be an int >= 0 when present.", 2);
+    }
+  }
+
   const revision = data.revision_count;
   if (revision !== undefined) {
     const rc = asInt(revision);
@@ -176,6 +206,7 @@ function parseCheckpoint(data: unknown): Checkpoint {
   };
 
   if (pipelineStage !== undefined) checkpoint.pipeline_stage = pipelineStage;
+  if (volumeStage !== undefined) checkpoint.volume_pipeline_stage = volumeStage;
   if (inflight !== undefined) checkpoint.inflight_chapter = inflight;
 
   return checkpoint;
