@@ -36,6 +36,80 @@ function requireNumberField(obj: Record<string, unknown>, field: string, file: s
   return v;
 }
 
+async function validateRulesSchema(absPath: string): Promise<number> {
+  const raw = await readJsonFile(absPath);
+  if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: expected JSON object.`, 2);
+  const obj = raw as Record<string, unknown>;
+  const rules = obj.rules;
+  if (!Array.isArray(rules)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: missing 'rules' array.`, 2);
+  for (const [idx, rule] of rules.entries()) {
+    if (!isPlainObject(rule)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}] must be an object.`, 2);
+    const r = rule as Record<string, unknown>;
+    requireStringField(r, "id", QUICKSTART_STAGING_RELS.rulesJson);
+    requireStringField(r, "category", QUICKSTART_STAGING_RELS.rulesJson);
+    requireStringField(r, "rule", QUICKSTART_STAGING_RELS.rulesJson);
+    const ct = requireStringField(r, "constraint_type", QUICKSTART_STAGING_RELS.rulesJson);
+    if (ct !== "hard" && ct !== "soft") {
+      throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}].constraint_type must be hard|soft.`, 2);
+    }
+    if (!Array.isArray(r.exceptions)) {
+      throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}].exceptions must be an array.`, 2);
+    }
+  }
+  return rules.length;
+}
+
+async function listContractJsonFiles(absPath: string): Promise<string[]> {
+  const entries = await readdir(absPath, { withFileTypes: true });
+  const jsonFiles = entries
+    .filter((e) => e.isFile() && e.name.endsWith(".json"))
+    .map((e) => e.name)
+    .sort();
+  if (jsonFiles.length === 0) {
+    throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.contractsDir}: expected at least 1 *.json contract file.`, 2);
+  }
+  return jsonFiles;
+}
+
+async function validateContractJsonFiles(absPath: string, jsonFiles: string[]): Promise<void> {
+  for (const file of jsonFiles) {
+    const raw = await readJsonFile(join(absPath, file));
+    if (!isPlainObject(raw)) {
+      throw new NovelCliError(`Invalid contract JSON: ${QUICKSTART_STAGING_RELS.contractsDir}/${file} must be an object.`, 2);
+    }
+  }
+}
+
+async function validateContractsDir(absPath: string): Promise<void> {
+  const jsonFiles = await listContractJsonFiles(absPath);
+  await validateContractJsonFiles(absPath, jsonFiles);
+}
+
+async function validateStyleProfileSchema(absPath: string): Promise<void> {
+  const raw = await readJsonFile(absPath);
+  if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.styleProfileJson}: expected JSON object.`, 2);
+  const obj = raw as Record<string, unknown>;
+  const sourceType = obj.source_type;
+  if (typeof sourceType !== "string" || sourceType.trim().length === 0) {
+    throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.styleProfileJson}: source_type must be a non-empty string.`, 2);
+  }
+  if (sourceType !== "original" && sourceType !== "reference" && sourceType !== "template" && sourceType !== "write_then_extract") {
+    throw new NovelCliError(
+      `Invalid ${QUICKSTART_STAGING_RELS.styleProfileJson}: source_type must be one of: original, reference, template, write_then_extract.`,
+      2
+    );
+  }
+}
+
+async function validateTrialChapter(absPath: string): Promise<string | null> {
+  const text = await readTextFile(absPath);
+  if (text.trim().length === 0) throw new NovelCliError(`Empty draft file: ${QUICKSTART_STAGING_RELS.trialChapterMd}`, 2);
+  if (!text.trimStart().startsWith("#")) {
+    return `Trial chapter does not start with a Markdown H1 (# ...): ${QUICKSTART_STAGING_RELS.trialChapterMd}`;
+  }
+  return null;
+}
+
 export async function validateStep(args: { rootDir: string; checkpoint: Checkpoint; step: Step }): Promise<ValidateReport> {
   const warnings: string[] = [];
   const stepId = formatStepId(args.step);
@@ -348,83 +422,12 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     const trialAbs = join(args.rootDir, QUICKSTART_STAGING_RELS.trialChapterMd);
     const evalAbs = join(args.rootDir, QUICKSTART_STAGING_RELS.evaluationJson);
 
-    const validateRulesSchema = async (absPath: string): Promise<number> => {
-      const raw = await readJsonFile(absPath);
-      if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: expected JSON object.`, 2);
-      const obj = raw as Record<string, unknown>;
-      const rules = obj.rules;
-      if (!Array.isArray(rules)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: missing 'rules' array.`, 2);
-      for (const [idx, rule] of rules.entries()) {
-        if (!isPlainObject(rule)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}] must be an object.`, 2);
-        const r = rule as Record<string, unknown>;
-        requireStringField(r, "id", QUICKSTART_STAGING_RELS.rulesJson);
-        requireStringField(r, "category", QUICKSTART_STAGING_RELS.rulesJson);
-        requireStringField(r, "rule", QUICKSTART_STAGING_RELS.rulesJson);
-        const ct = requireStringField(r, "constraint_type", QUICKSTART_STAGING_RELS.rulesJson);
-        if (ct !== "hard" && ct !== "soft") {
-          throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}].constraint_type must be hard|soft.`, 2);
-        }
-        if (!Array.isArray(r.exceptions)) {
-          throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}].exceptions must be an array.`, 2);
-        }
-      }
-      return rules.length;
-    };
-
-    const validateContractsDir = async (
-      absPath: string,
-      opts?: { validateContents?: boolean; jsonFiles?: string[] }
-    ): Promise<string[]> => {
-      const jsonFiles =
-        opts?.jsonFiles ??
-        (await readdir(absPath, { withFileTypes: true }))
-          .filter((e) => e.isFile() && e.name.endsWith(".json"))
-          .map((e) => e.name)
-          .sort();
-      if (jsonFiles.length === 0) {
-        throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.contractsDir}: expected at least 1 *.json contract file.`, 2);
-      }
-      if (opts?.validateContents === false) return jsonFiles;
-      for (const file of jsonFiles) {
-        const raw = await readJsonFile(join(absPath, file));
-        if (!isPlainObject(raw)) {
-          throw new NovelCliError(`Invalid contract JSON: ${QUICKSTART_STAGING_RELS.contractsDir}/${file} must be an object.`, 2);
-        }
-      }
-      return jsonFiles;
-    };
-
-    const validateStyleProfileSchema = async (absPath: string): Promise<void> => {
-      const raw = await readJsonFile(absPath);
-      if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.styleProfileJson}: expected JSON object.`, 2);
-      const obj = raw as Record<string, unknown>;
-      const sourceType = obj.source_type;
-      if (typeof sourceType !== "string" || sourceType.trim().length === 0) {
-        throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.styleProfileJson}: source_type must be a non-empty string.`, 2);
-      }
-      if (sourceType !== "original" && sourceType !== "reference" && sourceType !== "template" && sourceType !== "write_then_extract") {
-        throw new NovelCliError(
-          `Invalid ${QUICKSTART_STAGING_RELS.styleProfileJson}: source_type must be one of: original, reference, template, write_then_extract.`,
-          2
-        );
-      }
-    };
-
-	    const validateTrialChapter = async (absPath: string): Promise<string | null> => {
-	      const text = await readTextFile(absPath);
-	      if (text.trim().length === 0) throw new NovelCliError(`Empty draft file: ${QUICKSTART_STAGING_RELS.trialChapterMd}`, 2);
-	      if (!text.trimStart().startsWith("#")) {
-	        return `Trial chapter does not start with a Markdown H1 (# ...): ${QUICKSTART_STAGING_RELS.trialChapterMd}`;
-	      }
-	      return null;
-	    };
-
-	    if (args.step.phase === "world") {
-	      requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
-	      const rulesCount = await validateRulesSchema(rulesAbs);
-	      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
-	      return { ok: true, step: stepId, warnings };
-	    }
+    if (args.step.phase === "world") {
+      requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
+      const rulesCount = await validateRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
+      return { ok: true, step: stepId, warnings };
+    }
 
     if (args.step.phase === "characters") {
       requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
@@ -438,12 +441,12 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       return { ok: true, step: stepId, warnings };
     }
 
-	    if (args.step.phase === "trial") {
-	      requireFile(await pathExists(trialAbs), QUICKSTART_STAGING_RELS.trialChapterMd);
-	      const warning = await validateTrialChapter(trialAbs);
-	      if (warning) warnings.push(warning);
-	      return { ok: true, step: stepId, warnings };
-	    }
+    if (args.step.phase === "trial") {
+      requireFile(await pathExists(trialAbs), QUICKSTART_STAGING_RELS.trialChapterMd);
+      const warning = await validateTrialChapter(trialAbs);
+      if (warning) warnings.push(warning);
+      return { ok: true, step: stepId, warnings };
+    }
 
     if (args.step.phase === "results") {
       requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
@@ -452,16 +455,16 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       requireFile(await pathExists(trialAbs), QUICKSTART_STAGING_RELS.trialChapterMd);
       requireFile(await pathExists(evalAbs), QUICKSTART_STAGING_RELS.evaluationJson);
 
-      const jsonFiles = await validateContractsDir(contractsAbs, { validateContents: false });
+      const jsonFiles = await listContractJsonFiles(contractsAbs);
 
-	      // Re-validate the whole quickstart staging set before committing to final dirs.
-	      await validateRulesSchema(rulesAbs);
-	      await validateContractsDir(contractsAbs, { jsonFiles });
-	      await validateStyleProfileSchema(styleAbs);
-	      const warning = await validateTrialChapter(trialAbs);
-	      if (warning) warnings.push(warning);
+      // Re-validate the whole quickstart staging set before committing to final dirs.
+      await validateRulesSchema(rulesAbs);
+      await validateContractJsonFiles(contractsAbs, jsonFiles);
+      await validateStyleProfileSchema(styleAbs);
+      const warning = await validateTrialChapter(trialAbs);
+      if (warning) warnings.push(warning);
 
-	      const evalRaw = await readJsonFile(evalAbs);
+      const evalRaw = await readJsonFile(evalAbs);
       if (!isPlainObject(evalRaw)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.evaluationJson}: expected JSON object.`, 2);
       const evalObj = evalRaw as Record<string, unknown>;
       if (typeof evalObj.overall !== "number") warnings.push(`Missing numeric field 'overall' in ${QUICKSTART_STAGING_RELS.evaluationJson}.`);
