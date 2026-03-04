@@ -1437,6 +1437,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
       }
       updatedCheckpoint.pipeline_stage = "committed";
       updatedCheckpoint.inflight_chapter = null;
+      updatedCheckpoint.orchestrator_state = "WRITING";
       updatedCheckpoint.revision_count = 0;
       updatedCheckpoint.hook_fix_count = 0;
       updatedCheckpoint.title_fix_count = 0;

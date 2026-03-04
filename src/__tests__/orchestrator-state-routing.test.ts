@@ -75,16 +75,19 @@ test("readCheckpoint rejects inflight_chapter=0", async () => {
   await assert.rejects(() => readCheckpoint(rootDir), /inflight_chapter must be an int >= 1/);
 });
 
-test("computeNextStep routes INIT to quickstart:world", async () => {
+test("computeNextStep throws for INIT placeholder", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-init-"));
-  const next = await computeNextStep(rootDir, {
-    last_completed_chapter: 0,
-    current_volume: 1,
-    orchestrator_state: "INIT",
-    pipeline_stage: null,
-    inflight_chapter: null
-  });
-  assert.equal(next.step, "quickstart:world");
+  await assert.rejects(
+    () =>
+      computeNextStep(rootDir, {
+        last_completed_chapter: 0,
+        current_volume: 1,
+        orchestrator_state: "INIT",
+        pipeline_stage: null,
+        inflight_chapter: null
+      }),
+    /Not implemented: orchestrator_state=INIT/
+  );
 });
 
 test("computeNextStep throws when pipeline_stage=committed but inflight_chapter is set", async () => {
@@ -114,5 +117,88 @@ test("computeNextStep throws for QUICK_START placeholder", async () => {
         inflight_chapter: null
       }),
     /Not implemented: orchestrator_state=QUICK_START/
+  );
+});
+
+test("computeNextStep prefixes reason for ERROR_RETRY", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-error-retry-"));
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "ERROR_RETRY",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+  assert.equal(next.step, "chapter:001:draft");
+  assert.equal(next.reason, "error_retry:fresh");
+});
+
+test("computeNextStep heals ERROR_RETRY when pipeline_stage is committed but inflight_chapter is set", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-error-retry-heal-committed-"));
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "ERROR_RETRY",
+    pipeline_stage: "committed",
+    inflight_chapter: 7
+  });
+  assert.equal(next.step, "chapter:001:draft");
+  assert.equal(next.reason, "error_retry:healed_drop_inflight:fresh");
+});
+
+test("computeNextStep heals ERROR_RETRY when pipeline_stage is in-flight but inflight_chapter is missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-error-retry-heal-drafting-"));
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 6,
+    current_volume: 1,
+    orchestrator_state: "ERROR_RETRY",
+    pipeline_stage: "drafting",
+    inflight_chapter: null
+  });
+  assert.equal(next.step, "chapter:007:draft");
+  assert.equal(next.reason, "error_retry:healed_infer_inflight:drafting:missing_chapter");
+});
+
+test("computeNextStep delegates CHAPTER_REWRITE to chapter routing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-chapter-rewrite-"));
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 6,
+    current_volume: 1,
+    orchestrator_state: "CHAPTER_REWRITE",
+    pipeline_stage: "revising",
+    inflight_chapter: 7
+  });
+  assert.equal(next.step, "chapter:007:draft");
+  assert.equal(next.reason, "revising:restart_draft");
+  assert.deepEqual(next.inflight, { chapter: 7, pipeline_stage: "revising" });
+});
+
+test("computeNextStep throws for VOL_PLANNING placeholder", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-vol-planning-"));
+  await assert.rejects(
+    () =>
+      computeNextStep(rootDir, {
+        last_completed_chapter: 0,
+        current_volume: 1,
+        orchestrator_state: "VOL_PLANNING",
+        pipeline_stage: null,
+        inflight_chapter: null
+      }),
+    /Not implemented: orchestrator_state=VOL_PLANNING/
+  );
+});
+
+test("computeNextStep throws for VOL_REVIEW placeholder", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-vol-review-"));
+  await assert.rejects(
+    () =>
+      computeNextStep(rootDir, {
+        last_completed_chapter: 0,
+        current_volume: 1,
+        orchestrator_state: "VOL_REVIEW",
+        pipeline_stage: null,
+        inflight_chapter: null
+      }),
+    /Not implemented: orchestrator_state=VOL_REVIEW/
   );
 });

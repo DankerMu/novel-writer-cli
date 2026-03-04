@@ -25,6 +25,7 @@ export function createDefaultCheckpoint(nowIso?: string): Checkpoint {
   return {
     last_completed_chapter: 0,
     current_volume: 1,
+    // TODO(CS-O3): Default to INIT once the quickstart pipeline is implemented.
     orchestrator_state: "WRITING",
     pipeline_stage: "committed",
     inflight_chapter: null,

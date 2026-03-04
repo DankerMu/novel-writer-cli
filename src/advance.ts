@@ -5,11 +5,10 @@ import { readCheckpoint, writeCheckpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { removePath } from "./fs-utils.js";
 import { withWriteLock } from "./lock.js";
-import { chapterRelPaths, titleFixSnapshotRel, type Step } from "./steps.js";
+import { chapterRelPaths, titleFixSnapshotRel, type ChapterStep, type Step } from "./steps.js";
 import { validateStep } from "./validate.js";
 
-function stageForStep(step: Step): PipelineStage {
-  if (step.kind !== "chapter") throw new NovelCliError(`Unsupported step kind: ${step.kind}`, 2);
+function stageForStep(step: ChapterStep): PipelineStage {
   switch (step.stage) {
     case "draft":
       return "drafting";
@@ -23,8 +22,13 @@ function stageForStep(step: Step): PipelineStage {
       return "refined";
     case "hook-fix":
       return "refined";
-    default:
-      throw new NovelCliError(`Unsupported step stage: ${step.stage}`, 2);
+    case "review":
+    case "commit":
+      throw new NovelCliError(`Unsupported step stage for advance: ${step.stage}`, 2);
+    default: {
+      const _exhaustive: never = step.stage;
+      throw new NovelCliError(`Unsupported step stage: ${_exhaustive}`, 2);
+    }
   }
 }
 
@@ -45,6 +49,8 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
 
     updated.pipeline_stage = nextStage;
     updated.inflight_chapter = step.chapter;
+    updated.orchestrator_state =
+      checkpoint.orchestrator_state === "CHAPTER_REWRITE" || checkpoint.pipeline_stage === "revising" ? "CHAPTER_REWRITE" : "WRITING";
 
     // Ensure revision counter is initialized when starting from draft (revision loops may preserve it).
     if (step.stage === "draft") {

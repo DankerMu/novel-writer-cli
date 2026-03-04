@@ -487,17 +487,26 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
     case "CHAPTER_REWRITE":
       return await computeChapterNextStep(projectRootDir, checkpoint);
     case "ERROR_RETRY": {
-      const next = await computeChapterNextStep(projectRootDir, checkpoint);
-      return { ...next, reason: `error_retry:${next.reason}` };
-    }
-    case "INIT": {
       const stage = normalizeStage(checkpoint.pipeline_stage);
-      return {
-        step: formatStepId({ kind: "quickstart", phase: "world" }),
-        reason: "init",
-        inflight: { chapter: null, pipeline_stage: stage }
-      };
+      const inflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+
+      let normalizedCheckpoint = checkpoint;
+      let healPrefix = "";
+
+      // Only auto-heal invariants when explicitly in ERROR_RETRY.
+      if ((stage === null || stage === "committed") && inflight !== null) {
+        normalizedCheckpoint = { ...checkpoint, inflight_chapter: null };
+        healPrefix = "healed_drop_inflight:";
+      } else if (stage !== null && stage !== "committed" && inflight === null) {
+        normalizedCheckpoint = { ...checkpoint, inflight_chapter: checkpoint.last_completed_chapter + 1 };
+        healPrefix = "healed_infer_inflight:";
+      }
+
+      const next = await computeChapterNextStep(projectRootDir, normalizedCheckpoint);
+      return { ...next, reason: `error_retry:${healPrefix}${next.reason}` };
     }
+    case "INIT":
+      return notImplementedState(checkpoint.orchestrator_state);
     case "QUICK_START":
     case "VOL_PLANNING":
     case "VOL_REVIEW":
