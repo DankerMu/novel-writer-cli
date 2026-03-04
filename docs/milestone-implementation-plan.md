@@ -14,24 +14,19 @@
 
 从项目架构角度，这三个里程碑之间的隐含优先级是：
 
-
-
 ## 2. 里程碑内实现顺序
 
 ### M5 内部顺序 (CLI 全量编排下沉)
-
-
 
 实现顺序：
 1. #141 (CS-O1) - Step 类型基础设施 + orchestrator_state 路由 [priority:critical]
 2. #144 (CS-O4) - Gate Decision + Review Pipeline [priority:high]
 3. #142 (CS-O2) - Volume Pipeline [priority:high]
-4. #143 (CS-O3) - Quick-Start Pipeline [priority:medium]
-5. #145 (CS-O5) - Thin Skill Adapters [priority:low]
+4. ✅ #143 (CS-O3) - Quick-Start Pipeline [priority:medium] — PR #149 已审核通过
+5. #150 (CS-O3b) - quickstart hardening (checkpoint recovery + novel_ask gate) [priority:low]
+6. #145 (CS-O5) - Thin Skill Adapters [priority:low]
 
 ### M8 内部顺序 (上下文质量增强 + 黄金三章)
-
-
 
 实现顺序：
 1. #130 (CS3) - 平台扩展 + 硬门 + 加权评分 [priority:high]
@@ -43,8 +38,6 @@
 7. #134 (CS7) - CLAUDE.md + 项目文档
 
 ### M9 内部顺序 (反 AI 检测升级)
-
-
 
 实现顺序：
 1. #136 (CS-A1) - 数据模板 + 黑名单扩展
@@ -62,10 +55,11 @@
 3. 🟠 **#142** (M5-O2): Volume Pipeline [priority:high]
 
 ### 第二批（M5 完成 + M9/M8 并行）
-4. 🟡 **#143** (M5-O3): Quick-Start Pipeline [priority:medium]
-5. 🟢 **#145** (M5-O5): Thin Skill Adapters [priority:low]
-6. 🟠 **#136** (M9-A1): 数据模板 + 黑名单 [与 M5 无强依赖，可并行]
-7. 🟠 **#130** (M8-CS3): 平台扩展 + 硬门 [priority:high]
+4. ✅ **#143** (M5-O3): Quick-Start Pipeline [priority:medium] — PR #149 已审核通过
+5. 🟢 **#150** (M5-O3b): quickstart hardening [priority:low, follow-up of #143]
+6. 🟢 **#145** (M5-O5): Thin Skill Adapters [priority:low]
+7. 🟠 **#136** (M9-A1): 数据模板 + 黑名单 [与 M5 无强依赖，可并行]
+8. 🟠 **#130** (M8-CS3): 平台扩展 + 硬门 [priority:high]
 
 ### 第三批（M9/M8 持续推进）
 8. 🟡 **#137** (M9-A2): 方法论层升级 [依赖 A1]
@@ -102,7 +96,8 @@
 | #141 | CS-O1: Step 类型 + orchestrator_state | critical | - | 1 |
 | #144 | CS-O4: Gate Decision + Review | high | #141 | 1 |
 | #142 | CS-O2: Volume Pipeline | high | #141 | 1 |
-| #143 | CS-O3: Quick-Start Pipeline | medium | #141 | 2 |
+| #143 | CS-O3: Quick-Start Pipeline | medium | #141 | 2 | ✅ PR #149 |
+| #150 | CS-O3b: quickstart hardening | low | #143 | 2 | follow-up |
 | #145 | CS-O5: Thin Skill Adapters | low | #142, #143, #144 | 2 |
 | **M8 里程碑** | | | | |
 | #127 | [Epic] M8 上下文质量增强 + 黄金三章 | high | - | - |
@@ -139,8 +134,9 @@
 - **理由**: M5 里程碑全部完成，CLI 编排下沉实现完毕
 - **内容**:
   - Quick-Start Pipeline
+  - quickstart hardening（checkpoint recovery + novel_ask gate）
   - Thin Skill Adapters
-  - 全部 5 个 M5-O* 特性完整可用
+  - 全部 5+1 个 M5-O* 特性完整可用
 - **版本号**: 次版本号升级 (0.1.0 → 0.2.0)，表示 CLI 完整功能集可用
 
 ### 📦 v0.3.0 - M9 反 AI 功能（第四批中期）
