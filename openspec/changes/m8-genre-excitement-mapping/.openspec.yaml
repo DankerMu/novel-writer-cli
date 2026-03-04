@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-03-03
+depends_on:
+  - m8-excitement-type-annotation
+  - m8-platform-expansion-and-golden-gates

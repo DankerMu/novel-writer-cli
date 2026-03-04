@@ -1,0 +1,9 @@
+schema: spec-driven
+created: 2026-03-03
+depends_on:
+  - m8-canon-status-lifecycle
+  - m8-excitement-type-annotation
+  - m8-platform-expansion-and-golden-gates
+  - m8-genre-excitement-mapping
+  - m8-golden-chapter-mini-planning
+  - m8-user-documentation
