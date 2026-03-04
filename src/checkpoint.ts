@@ -87,8 +87,8 @@ function parseCheckpoint(data: unknown): Checkpoint {
   }
 
   const currentVolume = asInt(data.current_volume);
-  if (currentVolume === null || currentVolume < 0) {
-    throw new NovelCliError(".checkpoint.json.current_volume must be an int >= 0.", 2);
+  if (currentVolume === null || currentVolume < 1) {
+    throw new NovelCliError(".checkpoint.json.current_volume must be an int >= 1.", 2);
   }
 
   const pipelineStageRaw = data.pipeline_stage;
