@@ -82,7 +82,7 @@ test("buildInstructionPacket injects compact narrative health summaries into dra
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const draftOut = (await buildInstructionPacket({
     rootDir,
@@ -142,7 +142,7 @@ test("buildInstructionPacket marks degraded when latest reports exist but are in
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const out = (await buildInstructionPacket({
     rootDir,
@@ -163,7 +163,7 @@ test("buildInstructionPacket does not inject narrative health when logs are miss
   const rootDir = await mkdtemp(join(tmpdir(), "novel-narrative-health-no-logs-"));
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
-  const checkpoint = { last_completed_chapter: 0, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 0, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const out = (await buildInstructionPacket({
     rootDir,
@@ -220,7 +220,7 @@ test("buildInstructionPacket does not inject narrative health summaries for stag
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const summarizeOut = (await buildInstructionPacket({
     rootDir,
@@ -274,7 +274,7 @@ test("buildInstructionPacket marks degraded on schema_version mismatch when late
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const out = (await buildInstructionPacket({
     rootDir,
@@ -320,7 +320,7 @@ test("buildInstructionPacket marks promise ledger degraded on schema_version mis
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const out = (await buildInstructionPacket({
     rootDir,
@@ -344,7 +344,7 @@ test("buildInstructionPacket marks both degraded when both latest files are inva
   await writeText(join(rootDir, "logs/promises/latest.json"), "not-json");
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n（占位）\n");
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const out = (await buildInstructionPacket({
     rootDir,
@@ -393,7 +393,7 @@ test("buildInstructionPacket treats oversized latest.json as degraded", async ()
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n（占位）\n");
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const out = (await buildInstructionPacket({
     rootDir,

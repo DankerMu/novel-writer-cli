@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
+import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import { loadPlatformProfile } from "./platform-profile.js";
@@ -233,7 +234,7 @@ async function checkPrejudgeGuardrailsForStage(args: {
   };
 }
 
-export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
+async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
   const inflightChapter = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
   const stage = normalizeStage(checkpoint.pipeline_stage);
   const hookFixCount = typeof checkpoint.hook_fix_count === "number" ? checkpoint.hook_fix_count : 0;
@@ -458,4 +459,34 @@ export async function computeNextStep(projectRootDir: string, checkpoint: Checkp
     inflight: { chapter: inflightChapter, pipeline_stage: stage },
     evidence
   };
+}
+
+function notImplementedState(state: string): never {
+  throw new NovelCliError(`Not implemented: orchestrator_state=${state}`, 2);
+}
+
+export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
+  switch (checkpoint.orchestrator_state) {
+    case "WRITING":
+    case "CHAPTER_REWRITE":
+      return await computeChapterNextStep(projectRootDir, checkpoint);
+    case "ERROR_RETRY": {
+      const next = await computeChapterNextStep(projectRootDir, checkpoint);
+      return { ...next, reason: `error_retry:${next.reason}` };
+    }
+    case "INIT": {
+      const stage = normalizeStage(checkpoint.pipeline_stage);
+      return {
+        step: formatStepId({ kind: "quickstart", phase: "world" }),
+        reason: "init",
+        inflight: { chapter: null, pipeline_stage: stage }
+      };
+    }
+    case "QUICK_START":
+    case "VOL_PLANNING":
+    case "VOL_REVIEW":
+      return notImplementedState(checkpoint.orchestrator_state);
+    default:
+      return notImplementedState(checkpoint.orchestrator_state);
+  }
 }

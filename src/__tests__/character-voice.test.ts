@@ -557,7 +557,7 @@ test("buildInstructionPacket injects character voice drift directives into draft
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（占位）\n`);
 
-  const checkpoint = { last_completed_chapter: 10, current_volume: 1 };
+  const checkpoint = { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "WRITING" as const };
 
   const draftOut = (await buildInstructionPacket({
     rootDir,

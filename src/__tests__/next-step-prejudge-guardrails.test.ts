@@ -53,7 +53,13 @@ test("computeNextStep returns review when naming lint has blocking issues", asyn
   await writeJson(join(rootDir, "characters/active/a.json"), { id: "a", display_name: "张三", aliases: [] });
   await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "张三", aliases: [] });
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_blocking:naming_lint");
@@ -83,7 +89,13 @@ test("computeNextStep returns review when readability lint has blocking issues (
   await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
   await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_blocking:readability_lint");
@@ -113,7 +125,13 @@ test("buildInstructionPacket (judge) includes prejudge guardrails report path an
   await mkdir(join(rootDir, "staging/state"), { recursive: true });
   await writeJson(join(rootDir, "staging/state/chapter-001-crossref.json"), {});
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1
+  };
   const built = await buildInstructionPacket({
     rootDir,
     checkpoint,
@@ -158,7 +176,13 @@ test("computeNextStep returns review on refined stage when naming lint blocks", 
   await writeJson(join(rootDir, "characters/active/a.json"), { id: "a", display_name: "张三", aliases: [] });
   await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "张三", aliases: [] });
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "refined:prejudge_guardrails_blocking:naming_lint");
@@ -179,7 +203,13 @@ test("computeNextStep returns draft (not crash) when judged but staging chapter 
   await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
   await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:draft");
   assert.equal(next.reason, "judged:missing_chapter");
@@ -209,7 +239,13 @@ test("computeNextStep tolerates invalid cached prejudge guardrails JSON (recompu
   await mkdir(join(rootDir, "staging/guardrails"), { recursive: true });
   await writeFile(join(rootDir, "staging/guardrails/prejudge-guardrails-chapter-001.json"), "{not-json", "utf8");
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_blocking:naming_lint");
@@ -236,7 +272,13 @@ test("computeNextStep does not use cached report when platform profile changes (
   await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "张三", aliases: [] });
 
   // Generate and persist a cached guardrails report via judge instructions.
-  const checkpointRefined: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const checkpointRefined: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1
+  };
   await buildInstructionPacket({
     rootDir,
     checkpoint: checkpointRefined,
@@ -251,7 +293,13 @@ test("computeNextStep does not use cached report when platform profile changes (
   await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
   await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
 
-  const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpointJudged: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpointJudged);
   assert.equal(next.step, "chapter:001:commit");
 });
@@ -278,7 +326,13 @@ test("computeNextStep uses cached prejudge guardrails report when fresh", async 
   await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "张三", aliases: [] });
 
   // Generate and persist a cached guardrails report via judge instructions.
-  const checkpointRefined: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const checkpointRefined: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1
+  };
   await buildInstructionPacket({
     rootDir,
     checkpoint: checkpointRefined,
@@ -290,7 +344,13 @@ test("computeNextStep uses cached prejudge guardrails report when fresh", async 
   await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
   await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
 
-  const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpointJudged: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpointJudged);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_blocking:naming_lint");
@@ -321,7 +381,13 @@ test("computeNextStep ignores cached guardrails report when characters change", 
   await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "张三", aliases: [] });
 
   // Generate cached report with a blocking duplicate.
-  const checkpointRefined: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const checkpointRefined: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1
+  };
   await buildInstructionPacket({
     rootDir,
     checkpoint: checkpointRefined,
@@ -333,7 +399,13 @@ test("computeNextStep ignores cached guardrails report when characters change", 
   // Fix the duplicate by renaming a character; cache must be ignored.
   await writeJson(join(rootDir, "characters/active/b.json"), { id: "b", display_name: "李四五", aliases: [] });
 
-  const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpointJudged: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpointJudged);
   assert.equal(next.step, "chapter:001:commit");
 });
@@ -366,7 +438,13 @@ test(
     await symlink(join(rootDir, "characters/shared-active"), join(rootDir, "characters/active"));
 
     // Generate cached report with a blocking duplicate (via judge instructions).
-    const checkpointRefined: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+    const checkpointRefined: Checkpoint = {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "WRITING",
+      pipeline_stage: "refined",
+      inflight_chapter: 1
+    };
     const built = await buildInstructionPacket({
       rootDir,
       checkpoint: checkpointRefined,
@@ -383,7 +461,13 @@ test(
     // Fix the duplicate in the symlink target; cache must be ignored.
     await writeJson(join(rootDir, "characters/shared-active/b.json"), { id: "b", display_name: "李四五", aliases: [] });
 
-    const checkpointJudged: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+    const checkpointJudged: Checkpoint = {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "WRITING",
+      pipeline_stage: "judged",
+      inflight_chapter: 1
+    };
     const next = await computeNextStep(rootDir, checkpointJudged);
     assert.equal(next.step, "chapter:001:commit");
   }
@@ -400,7 +484,13 @@ test("computeNextStep returns review when guardrails computation errors", async 
   await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
   await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4, recommendation: "pass" });
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "judged", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1
+  };
   const next = await computeNextStep(rootDir, checkpoint);
   assert.equal(next.step, "chapter:001:review");
   assert.equal(next.reason, "judged:prejudge_guardrails_error");
@@ -424,7 +514,13 @@ test("buildInstructionPacket (judge) sets prejudge_guardrails_degraded when repo
   // Intentionally create a directory at the chapter path to trigger fingerprint/read failure.
   await mkdir(join(rootDir, "staging/chapters/chapter-001.md"), { recursive: true });
 
-  const checkpoint: Checkpoint = { last_completed_chapter: 0, current_volume: 1, pipeline_stage: "refined", inflight_chapter: 1 };
+  const checkpoint: Checkpoint = {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1
+  };
   const built = await buildInstructionPacket({
     rootDir,
     checkpoint,
