@@ -133,6 +133,11 @@
       "properties": {
         "genre_drive_type": { "$ref": "#/$defs/genre_drive_type" },
         "weight_profile_id": { "type": "string", "minLength": 1 },
+        "max_revisions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Max gate-driven revision/polish loops before forcing progression."
+        },
         "weight_overrides": {
           "type": "object",
           "description": "Optional per-dimension weight overrides (dimension_name -> weight).",

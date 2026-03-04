@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
@@ -15,7 +15,7 @@ import {
 } from "./character-voice.js";
 import { NovelCliError } from "./errors.js";
 import { errJson, okJson, printJson } from "./output.js";
-import { pathExists } from "./fs-utils.js";
+import { pathExists, readJsonFile, writeJsonFile, writeTextFile } from "./fs-utils.js";
 import { resolveProjectRoot } from "./project.js";
 import { readCheckpoint } from "./checkpoint.js";
 import { initProject, normalizePlatformId, resolveInitRootDir } from "./init.js";
@@ -26,8 +26,11 @@ import { getLockStatus, clearStaleLock, withWriteLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
 import { computeEngagementReport, loadEngagementMetricsStream, writeEngagementLogs } from "./engagement.js";
 import { computePromiseLedgerReport, ensurePromiseLedgerInitialized, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
-import { parseStepId } from "./steps.js";
+import { pad2, pad3, parseStepId } from "./steps.js";
+import { isPlainObject } from "./type-guards.js";
 import { validateStep } from "./validate.js";
+import { VOL_REVIEW_RELS, collectVolumeData, computeBridgeCheck, computeForeshadowingAudit, computeStorylineRhythm } from "./volume-review.js";
+import { tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 
 type GlobalOpts = {
   json?: boolean;
@@ -251,6 +254,200 @@ function buildProgram(argv: string[]): Command {
         for (const w of result.warnings) process.stdout.write(`WARN: ${w}\n`);
       }
       if (!localOpts.dryRun) process.stdout.write(`Committed chapter ${localOpts.chapter}.\n`);
+    });
+
+  const volumeReview = program.command("volume-review").description("Volume-end review helper commands (issue #144).");
+
+  volumeReview
+    .command("collect")
+    .description(`Generate ${VOL_REVIEW_RELS.qualitySummary} from committed evals (best-effort).`)
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+
+      const result = await withWriteLock(rootDir, {}, async () => {
+        const checkpoint = await readCheckpoint(rootDir);
+        const summary = await collectVolumeData({ rootDir, checkpoint });
+        await writeJsonFile(join(rootDir, VOL_REVIEW_RELS.qualitySummary), summary);
+        return { checkpoint, summary };
+      });
+
+      if (json) {
+        printJson(okJson("volume-review collect", { rootDir, rel: VOL_REVIEW_RELS.qualitySummary, summary: result.summary }));
+        return;
+      }
+
+      process.stdout.write(`Wrote ${VOL_REVIEW_RELS.qualitySummary}.\n`);
+    });
+
+  volumeReview
+    .command("report")
+    .description(`Generate ${VOL_REVIEW_RELS.reviewReport} from quality summary + audit report (deterministic markdown).`)
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+
+      await withWriteLock(rootDir, {}, async () => {
+        const checkpoint = await readCheckpoint(rootDir);
+        const volume = checkpoint.current_volume;
+        const endChapter = checkpoint.last_completed_chapter;
+
+        const resolvedRange =
+          (await tryResolveVolumeChapterRange({ rootDir, volume })) ??
+          (Number.isInteger(endChapter) && endChapter >= 1 ? { start: Math.max(1, endChapter - 9), end: endChapter } : null);
+        if (!resolvedRange) {
+          throw new NovelCliError(`Cannot resolve volume review chapter_range (last_completed_chapter=${String(endChapter)}).`, 2);
+        }
+
+        // Best-effort reads: validation guards presence.
+        let summary: unknown = null;
+        let audit: unknown = null;
+        try {
+          summary = await readJsonFile(join(rootDir, VOL_REVIEW_RELS.qualitySummary));
+        } catch {
+          summary = null;
+        }
+        try {
+          audit = await readJsonFile(join(rootDir, VOL_REVIEW_RELS.auditReport));
+        } catch {
+          audit = null;
+        }
+
+        const lines: string[] = [];
+        lines.push(`# Volume Review Report`);
+        lines.push("");
+        lines.push(`- volume: ${volume}`);
+        lines.push(`- chapter_range: ${resolvedRange.start}-${resolvedRange.end}`);
+
+        if (isPlainObject(summary)) {
+          const stats = isPlainObject((summary as Record<string, unknown>).stats)
+            ? ((summary as Record<string, unknown>).stats as Record<string, unknown>)
+            : null;
+          if (stats) {
+            const avg = typeof stats.overall_avg === "number" ? stats.overall_avg : null;
+            const min = typeof stats.overall_min === "number" ? stats.overall_min : null;
+            const max = typeof stats.overall_max === "number" ? stats.overall_max : null;
+            lines.push(`- overall_avg: ${avg ?? "n/a"} (min=${min ?? "n/a"}, max=${max ?? "n/a"})`);
+          }
+          const lows = Array.isArray((summary as Record<string, unknown>).low_chapters)
+            ? ((summary as Record<string, unknown>).low_chapters as unknown[])
+            : [];
+          if (lows.length > 0) {
+            lines.push("");
+            lines.push(`## Low Score Chapters (<3.5)`);
+            for (const it of lows.slice(0, 20)) {
+              if (!isPlainObject(it)) continue;
+              const ch = (it as Record<string, unknown>).chapter;
+              const sc = (it as Record<string, unknown>).overall_final;
+              if (typeof ch === "number" && typeof sc === "number") lines.push(`- ch${pad3(ch)}: ${sc}`);
+            }
+          }
+        }
+
+        if (isPlainObject(audit)) {
+          const stats = isPlainObject((audit as Record<string, unknown>).stats) ? ((audit as Record<string, unknown>).stats as Record<string, unknown>) : null;
+          if (stats) {
+            const total = typeof stats.issues_total === "number" ? stats.issues_total : null;
+            lines.push("");
+            lines.push(`## Consistency Audit`);
+            lines.push(`- issues_total: ${total ?? "n/a"}`);
+          }
+        }
+
+        await writeTextFile(join(rootDir, VOL_REVIEW_RELS.reviewReport), `${lines.join("\n")}\n`);
+      });
+
+      if (json) {
+        printJson(okJson("volume-review report", { rootDir, rel: VOL_REVIEW_RELS.reviewReport }));
+        return;
+      }
+
+      process.stdout.write(`Wrote ${VOL_REVIEW_RELS.reviewReport}.\n`);
+    });
+
+  volumeReview
+    .command("cleanup")
+    .description(`Generate ${VOL_REVIEW_RELS.foreshadowStatus} (foreshadowing audit + bridge check + storyline rhythm).`)
+    .action(async () => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+
+      const payload = await withWriteLock(rootDir, {}, async () => {
+        const checkpoint = await readCheckpoint(rootDir);
+        const volume = checkpoint.current_volume;
+        const endChapter = checkpoint.last_completed_chapter;
+
+        const resolvedRange =
+          (await tryResolveVolumeChapterRange({ rootDir, volume })) ??
+          (Number.isInteger(endChapter) && endChapter >= 1 ? { start: Math.max(1, endChapter - 9), end: endChapter } : null);
+        if (!resolvedRange) {
+          throw new NovelCliError(`Cannot resolve volume review chapter_range (last_completed_chapter=${String(endChapter)}).`, 2);
+        }
+
+        const foreshadowingAudit = await computeForeshadowingAudit({ rootDir, checkpoint });
+
+        // Best-effort: compute bridge check using available foreshadow ids.
+        const globalIds = new Set<string>();
+        const planIds = new Set<string>();
+        try {
+          const globalRaw = await readJsonFile(join(rootDir, "foreshadowing/global.json"));
+          const list = Array.isArray(globalRaw)
+            ? globalRaw
+            : isPlainObject(globalRaw) && Array.isArray((globalRaw as Record<string, unknown>).foreshadowing)
+              ? ((globalRaw as Record<string, unknown>).foreshadowing as unknown[])
+              : [];
+          for (const it of list) {
+            if (!isPlainObject(it)) continue;
+            const id = typeof (it as Record<string, unknown>).id === "string" ? ((it as Record<string, unknown>).id as string).trim() : "";
+            if (id) globalIds.add(id);
+          }
+        } catch {
+          // optional
+        }
+        try {
+          const rel = `volumes/vol-${pad2(volume)}/foreshadowing.json`;
+          const planRaw = await readJsonFile(join(rootDir, rel));
+          const list = Array.isArray(planRaw)
+            ? planRaw
+            : isPlainObject(planRaw) && Array.isArray((planRaw as Record<string, unknown>).foreshadowing)
+              ? ((planRaw as Record<string, unknown>).foreshadowing as unknown[])
+              : [];
+          for (const it of list) {
+            if (!isPlainObject(it)) continue;
+            const id = typeof (it as Record<string, unknown>).id === "string" ? ((it as Record<string, unknown>).id as string).trim() : "";
+            if (id) planIds.add(id);
+          }
+        } catch {
+          // optional
+        }
+
+        const bridgeCheck = await computeBridgeCheck({ rootDir, volume, foreshadowIds: { global: globalIds, plan: planIds } });
+        const rhythm = await computeStorylineRhythm({ rootDir, volume, chapter_range: [resolvedRange.start, resolvedRange.end] });
+
+        const out = {
+          schema_version: 1,
+          generated_at: new Date().toISOString(),
+          as_of: { volume, chapter: endChapter },
+          foreshadowing_audit: foreshadowingAudit,
+          bridge_check: bridgeCheck,
+          storyline_rhythm: rhythm
+        };
+        await writeJsonFile(join(rootDir, VOL_REVIEW_RELS.foreshadowStatus), out);
+        return out;
+      });
+
+      if (json) {
+        printJson(okJson("volume-review cleanup", { rootDir, rel: VOL_REVIEW_RELS.foreshadowStatus, payload }));
+        return;
+      }
+
+      process.stdout.write(`Wrote ${VOL_REVIEW_RELS.foreshadowStatus}.\n`);
     });
 
   const promises = program.command("promises").description("Promise ledger (long-horizon narrative promises).");

@@ -16,7 +16,7 @@ import { resolveProjectRelativePath } from "./safe-path.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, pad3, titleFixSnapshotRel, type Step } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
-import { VOL_REVIEW_RELS, collectVolumeData, computeBridgeCheck, computeForeshadowingAudit, computeStorylineRhythm } from "./volume-review.js";
+import { VOL_REVIEW_RELS } from "./volume-review.js";
 
 export type InstructionPacket = {
   version: 1;
@@ -106,11 +106,9 @@ async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<str
 
   if (step.phase === "collect") {
     agent = { kind: "cli", name: "volume-review" };
-    const summary = await collectVolumeData({ rootDir: args.rootDir, checkpoint: args.checkpoint });
-    await writeJsonFile(join(args.rootDir, VOL_REVIEW_RELS.qualitySummary), summary);
     paths.quality_summary = VOL_REVIEW_RELS.qualitySummary;
-    inline.quality_summary = { ...summary, chapters: summary.chapters.slice(0, 3), low_chapters: summary.low_chapters.slice(0, 5) };
     expected_outputs.push({ path: VOL_REVIEW_RELS.qualitySummary, required: true });
+    next_actions.push({ kind: "command", command: `novel volume-review collect` });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
   } else if (step.phase === "audit") {
@@ -168,125 +166,23 @@ async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<str
     agent = { kind: "cli", name: "volume-review" };
     paths.quality_summary = VOL_REVIEW_RELS.qualitySummary;
     paths.audit_report = VOL_REVIEW_RELS.auditReport;
-
-    // Deterministic minimal markdown report (human-readable).
-    let summary: unknown = null;
-    let audit: unknown = null;
-    try {
-      summary = await readJsonFile(join(args.rootDir, VOL_REVIEW_RELS.qualitySummary));
-    } catch {
-      summary = null;
-      inline.quality_summary_degraded = true;
-    }
-    try {
-      audit = await readJsonFile(join(args.rootDir, VOL_REVIEW_RELS.auditReport));
-    } catch {
-      audit = null;
-      inline.audit_report_degraded = true;
-    }
-
-    const lines: string[] = [];
-    lines.push(`# Volume Review Report`);
-    lines.push("");
-    lines.push(`- volume: ${volume}`);
-    lines.push(`- chapter_range: ${resolvedRange.start}-${resolvedRange.end}`);
-
-    if (isPlainObject(summary)) {
-      const stats = isPlainObject((summary as Record<string, unknown>).stats) ? ((summary as Record<string, unknown>).stats as Record<string, unknown>) : null;
-      if (stats) {
-        const avg = typeof stats.overall_avg === "number" ? stats.overall_avg : null;
-        const min = typeof stats.overall_min === "number" ? stats.overall_min : null;
-        const max = typeof stats.overall_max === "number" ? stats.overall_max : null;
-        lines.push(`- overall_avg: ${avg ?? "n/a"} (min=${min ?? "n/a"}, max=${max ?? "n/a"})`);
-      }
-      const lows = Array.isArray((summary as Record<string, unknown>).low_chapters)
-        ? ((summary as Record<string, unknown>).low_chapters as unknown[])
-        : [];
-      if (lows.length > 0) {
-        lines.push("");
-        lines.push(`## Low Score Chapters (<3.5)`);
-        for (const it of lows.slice(0, 20)) {
-          if (!isPlainObject(it)) continue;
-          const ch = (it as Record<string, unknown>).chapter;
-          const sc = (it as Record<string, unknown>).overall_final;
-          if (typeof ch === "number" && typeof sc === "number") lines.push(`- ch${pad3(ch)}: ${sc}`);
-        }
-      }
-    }
-
-    if (isPlainObject(audit)) {
-      const stats = isPlainObject((audit as Record<string, unknown>).stats) ? ((audit as Record<string, unknown>).stats as Record<string, unknown>) : null;
-      if (stats) {
-        const total = typeof stats.issues_total === "number" ? stats.issues_total : null;
-        lines.push("");
-        lines.push(`## Consistency Audit`);
-        lines.push(`- issues_total: ${total ?? "n/a"}`);
-      }
-    }
-
-    await writeTextFile(join(args.rootDir, VOL_REVIEW_RELS.reviewReport), `${lines.join("\n")}\n`);
     expected_outputs.push({ path: VOL_REVIEW_RELS.reviewReport, required: true });
+    next_actions.push({ kind: "command", command: `novel volume-review report` });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
   } else if (step.phase === "cleanup") {
     agent = { kind: "cli", name: "volume-review" };
-
-    const foreshadowingAudit = await computeForeshadowingAudit({ rootDir: args.rootDir, checkpoint: args.checkpoint });
-
-    // Best-effort: compute bridge check using available foreshadow ids.
-    const globalIds = new Set<string>();
-    const planIds = new Set<string>();
-    try {
-      const globalRaw = await readJsonFile(join(args.rootDir, "foreshadowing/global.json"));
-      const list = Array.isArray(globalRaw)
-        ? globalRaw
-        : isPlainObject(globalRaw) && Array.isArray((globalRaw as Record<string, unknown>).foreshadowing)
-          ? ((globalRaw as Record<string, unknown>).foreshadowing as unknown[])
-          : [];
-      for (const it of list) {
-        if (!isPlainObject(it)) continue;
-        const id = typeof (it as Record<string, unknown>).id === "string" ? ((it as Record<string, unknown>).id as string).trim() : "";
-        if (id) globalIds.add(id);
-      }
-    } catch {
-      inline.foreshadow_ids_degraded = true;
-    }
-    try {
-      const rel = `volumes/vol-${pad2(volume)}/foreshadowing.json`;
-      const planRaw = await readJsonFile(join(args.rootDir, rel));
-      const list = Array.isArray(planRaw)
-        ? planRaw
-        : isPlainObject(planRaw) && Array.isArray((planRaw as Record<string, unknown>).foreshadowing)
-          ? ((planRaw as Record<string, unknown>).foreshadowing as unknown[])
-          : [];
-      for (const it of list) {
-        if (!isPlainObject(it)) continue;
-        const id = typeof (it as Record<string, unknown>).id === "string" ? ((it as Record<string, unknown>).id as string).trim() : "";
-        if (id) planIds.add(id);
-      }
-    } catch {
-      // optional
-    }
-
-    const bridgeCheck = await computeBridgeCheck({ rootDir: args.rootDir, volume, foreshadowIds: { global: globalIds, plan: planIds } });
-    const rhythm = await computeStorylineRhythm({ rootDir: args.rootDir, volume, chapter_range: [resolvedRange.start, resolvedRange.end] });
-
-    const payload = {
-      schema_version: 1,
-      generated_at: new Date().toISOString(),
-      as_of: { volume, chapter: endChapter },
-      foreshadowing_audit: foreshadowingAudit,
-      bridge_check: bridgeCheck,
-      storyline_rhythm: rhythm
-    };
-    await writeJsonFile(join(args.rootDir, VOL_REVIEW_RELS.foreshadowStatus), payload);
-
     expected_outputs.push({ path: VOL_REVIEW_RELS.foreshadowStatus, required: true });
+    next_actions.push({ kind: "command", command: `novel volume-review cleanup` });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
   } else if (step.phase === "transition") {
     agent = { kind: "cli", name: "novel" };
-    expected_outputs.push({ path: "(checkpoint)", required: true, note: "Advance updates .checkpoint.json: current_volume++ and orchestrator_state=VOL_PLANNING." });
+    expected_outputs.push({
+      path: "(checkpoint)",
+      required: true,
+      note: "Advance updates .checkpoint.json: current_volume++, orchestrator_state=WRITING, and clears staging/vol-review/."
+    });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
   } else {

@@ -8,6 +8,7 @@ export type GateDecisionInput = {
   revision_count: number;
   has_high_confidence_violation: boolean;
   force_pass?: boolean;
+  max_revisions?: number;
 };
 
 type ContractCheck = Record<string, unknown> & {
@@ -52,21 +53,25 @@ export function detectHighConfidenceViolation(evalRaw: unknown): {
     // Default to hard when missing to preserve safety.
     const isHard = constraintType === null || constraintType === "hard";
     if (!isHard) continue;
-    hardChecks.push(it);
+    hardChecks.push(constraintType === null ? { ...it, constraint_type_inferred: true } : it);
   }
 
   return { has_high_confidence_violation: hardChecks.length > 0, high_confidence_violations: hardChecks };
 }
 
 export function computeGateDecision(args: GateDecisionInput): GateDecision {
+  const maxRevisions = typeof args.max_revisions === "number" && Number.isInteger(args.max_revisions) && args.max_revisions >= 0 ? args.max_revisions : 2;
+
   if (args.force_pass) return "force_passed";
-  if (args.has_high_confidence_violation) return "revise";
+  if (args.has_high_confidence_violation) {
+    return args.revision_count >= maxRevisions ? "pause_for_user" : "revise";
+  }
 
   const score = args.overall_final;
+  if (!Number.isFinite(score)) return "pause_for_user_force_rewrite";
   if (score >= 4.0) return "pass";
-  if (score >= 3.5) return "polish";
-  if (score >= 3.0) return args.revision_count >= 2 ? "force_passed" : "revise";
+  if (score >= 3.5) return args.revision_count >= maxRevisions ? "force_passed" : "polish";
+  if (score >= 3.0) return args.revision_count >= maxRevisions ? "force_passed" : "revise";
   if (score >= 2.0) return "pause_for_user";
   return "pause_for_user_force_rewrite";
 }
-

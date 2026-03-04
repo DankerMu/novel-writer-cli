@@ -18,8 +18,20 @@ test("computeGateDecision forces revise on high-confidence violations", () => {
   assert.equal(computeGateDecision({ overall_final: 4.8, revision_count: 0, has_high_confidence_violation: true }), "revise");
 });
 
+test("computeGateDecision pauses for user when high-confidence violations persist beyond max_revisions", () => {
+  assert.equal(computeGateDecision({ overall_final: 4.8, revision_count: 2, has_high_confidence_violation: true }), "pause_for_user");
+});
+
 test("computeGateDecision allows force_passed when revisions exhausted and score >= 3.0", () => {
   assert.equal(computeGateDecision({ overall_final: 3.2, revision_count: 2, has_high_confidence_violation: false }), "force_passed");
+});
+
+test("computeGateDecision force-passes polish band when revisions exhausted", () => {
+  assert.equal(computeGateDecision({ overall_final: 3.6, revision_count: 2, has_high_confidence_violation: false }), "force_passed");
+});
+
+test("computeGateDecision respects max_revisions override", () => {
+  assert.equal(computeGateDecision({ overall_final: 3.6, revision_count: 1, has_high_confidence_violation: false, max_revisions: 1 }), "force_passed");
 });
 
 test("computeGateDecision supports manual force_pass override", () => {
@@ -54,3 +66,13 @@ test("detectHighConfidenceViolation ignores ls_checks soft violations", () => {
   assert.equal(res.has_high_confidence_violation, false);
 });
 
+test("detectHighConfidenceViolation marks inferred constraint_type for ls_checks when missing", () => {
+  const res = detectHighConfidenceViolation({
+    contract_verification: {
+      ls_checks: [{ status: "violation", confidence: "high" }]
+    }
+  });
+  assert.equal(res.has_high_confidence_violation, true);
+  assert.equal(res.high_confidence_violations.length, 1);
+  assert.equal((res.high_confidence_violations[0] as Record<string, unknown>).constraint_type_inferred, true);
+});

@@ -7,6 +7,7 @@ import { removePath } from "./fs-utils.js";
 import { withWriteLock } from "./lock.js";
 import { chapterRelPaths, titleFixSnapshotRel, type ChapterStep, type ReviewStep, type Step } from "./steps.js";
 import { validateStep } from "./validate.js";
+import { VOL_REVIEW_RELS } from "./volume-review.js";
 
 function stageForStep(step: ChapterStep): PipelineStage {
   switch (step.stage) {
@@ -101,6 +102,21 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
         await removePath(join(args.rootDir, rel.staging.evalJson));
       }
 
+      // Refine rewrites the chapter draft; invalidate prior eval to force re-judge.
+      if (step.stage === "refine") {
+        const rel = chapterRelPaths(step.chapter);
+        await removePath(join(args.rootDir, rel.staging.evalJson));
+
+        // If we're polishing after a judged gate decision, count it as a revision loop.
+        const prevStage = checkpoint.pipeline_stage ?? null;
+        const prevInflight = typeof checkpoint.inflight_chapter === "number" ? checkpoint.inflight_chapter : null;
+        if (prevInflight === step.chapter && prevStage === "judged") {
+          const prev = typeof updated.revision_count === "number" ? updated.revision_count : 0;
+          updated.revision_count = prev + 1;
+          updated.orchestrator_state = "CHAPTER_REWRITE";
+        }
+      }
+
       updated.last_checkpoint_time = new Date().toISOString();
 
       await writeCheckpoint(args.rootDir, updated);
@@ -113,6 +129,13 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
     return await withWriteLock(args.rootDir, {}, async () => {
       const checkpoint = await readCheckpoint(args.rootDir);
 
+      if (checkpoint.orchestrator_state !== "WRITING" && checkpoint.orchestrator_state !== "VOL_REVIEW") {
+        throw new NovelCliError(
+          `Refusing to advance review step from orchestrator_state=${checkpoint.orchestrator_state}. Expected WRITING (volume_end) or VOL_REVIEW.`,
+          2
+        );
+      }
+
       // Enforce validate-before-advance to keep deterministic semantics.
       await validateStep({ rootDir: args.rootDir, checkpoint, step: reviewStep });
 
@@ -121,7 +144,12 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
 
       if (reviewStep.phase === "transition") {
         updated.current_volume = checkpoint.current_volume + 1;
-        updated.orchestrator_state = "VOL_PLANNING";
+        updated.orchestrator_state = "WRITING";
+        updated.pipeline_stage = "committed";
+        updated.revision_count = 0;
+        updated.hook_fix_count = 0;
+        updated.title_fix_count = 0;
+        await removePath(join(args.rootDir, VOL_REVIEW_RELS.dir));
       } else {
         updated.orchestrator_state = "VOL_REVIEW";
       }

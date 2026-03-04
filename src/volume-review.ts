@@ -384,30 +384,22 @@ export async function computeStorylineRhythm(args: { rootDir: string; volume: nu
   const scheduleRel = `volumes/vol-${pad2(args.volume)}/storyline-schedule.json`;
   const scheduleAbs = join(args.rootDir, scheduleRel);
   if (!(await pathExists(scheduleAbs))) {
-    return {
-      schema_version: 1,
-      generated_at: new Date().toISOString(),
-      volume: args.volume,
-      chapter_range: args.chapter_range,
-      appearances: {},
-      last_seen: {},
-      warnings: [`Missing optional file: ${scheduleRel}`]
-    };
-  }
-
-  // Best-effort parse schedule: we only use it as a presence signal for now.
-  try {
-    await readJsonFile(scheduleAbs);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    warnings.push(`Failed to read ${scheduleRel}: ${message}`);
+    warnings.push(`Missing optional file: ${scheduleRel}`);
+  } else {
+    // Best-effort parse schedule: we only use it as a presence signal for now.
+    try {
+      await readJsonFile(scheduleAbs);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`Failed to read ${scheduleRel}: ${message}`);
+    }
   }
 
   const appearances = new Map<string, number>();
   const lastSeen = new Map<string, number>();
 
   const [start, end] = args.chapter_range;
-  const re = /storyline_id:\s*([a-zA-Z0-9_-]+)/u;
+  const re = /storyline_id:\s*([a-zA-Z0-9_-]+)/gu;
   for (let chapter = start; chapter <= end; chapter++) {
     const rel = `summaries/chapter-${pad3(chapter)}-summary.md`;
     const abs = join(args.rootDir, rel);
@@ -418,12 +410,17 @@ export async function computeStorylineRhythm(args: { rootDir: string; volume: nu
     } catch {
       continue;
     }
-    const m = re.exec(text);
-    if (!m) continue;
-    const id = m[1] ?? "";
-    if (!id) continue;
-    appearances.set(id, (appearances.get(id) ?? 0) + 1);
-    lastSeen.set(id, chapter);
+    const idsThisChapter = new Set<string>();
+    for (const m of text.matchAll(re)) {
+      const id = m[1] ?? "";
+      if (!id) continue;
+      idsThisChapter.add(id);
+    }
+    if (idsThisChapter.size === 0) continue;
+    for (const id of idsThisChapter) {
+      appearances.set(id, (appearances.get(id) ?? 0) + 1);
+      lastSeen.set(id, chapter);
+    }
   }
 
   const appearancesObj: Record<string, number> = {};
@@ -499,4 +496,3 @@ export async function computeReviewNextStep(projectRootDir: string, checkpoint: 
 export async function computeReviewNext(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {
   return await computeReviewNextStep(projectRootDir, checkpoint);
 }
-

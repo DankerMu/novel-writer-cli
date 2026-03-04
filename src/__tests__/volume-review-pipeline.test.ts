@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,15 @@ import { computeNextStep } from "../next-step.js";
 async function writeJson(absPath: string, payload: unknown): Promise<void> {
   await mkdir(dirname(absPath), { recursive: true });
   await writeFile(absPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+async function exists(absPath: string): Promise<boolean> {
+  try {
+    await stat(absPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 test("computeNextStep progresses through volume review phases based on artifacts", async () => {
@@ -71,7 +80,7 @@ test("computeNextStep progresses through volume review phases based on artifacts
   assert.equal(next.step, "review:transition");
 });
 
-test("advanceCheckpointForStep(review:transition) increments volume and sets VOL_PLANNING", async () => {
+test("advanceCheckpointForStep(review:transition) increments volume, returns to WRITING, and clears review artifacts", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-vol-review-transition-"));
   await mkdir(join(rootDir, "staging/vol-review"), { recursive: true });
 
@@ -94,7 +103,31 @@ test("advanceCheckpointForStep(review:transition) increments volume and sets VOL
 
   const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "review", phase: "transition" } });
   assert.equal(updated.current_volume, 2);
-  assert.equal(updated.orchestrator_state, "VOL_PLANNING");
+  assert.equal(updated.orchestrator_state, "WRITING");
+  assert.equal(updated.pipeline_stage, "committed");
+  assert.equal(updated.inflight_chapter, null);
+  assert.equal(updated.revision_count, 0);
+  assert.equal(updated.hook_fix_count, 0);
+  assert.equal(updated.title_fix_count, 0);
+  assert.equal(await exists(join(rootDir, "staging/vol-review")), false);
+});
+
+test("advanceCheckpointForStep refuses to advance review steps from CHAPTER_REWRITE", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-vol-review-guard-"));
+  await writeFile(
+    join(rootDir, ".checkpoint.json"),
+    `${JSON.stringify(
+      { last_completed_chapter: 10, current_volume: 1, orchestrator_state: "CHAPTER_REWRITE", pipeline_stage: "revising", inflight_chapter: 11 },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  await assert.rejects(
+    () => advanceCheckpointForStep({ rootDir, step: { kind: "review", phase: "collect" } }),
+    /Refusing to advance review step from orchestrator_state=CHAPTER_REWRITE/
+  );
 });
 
 test("computeNextStep enters volume review after committing volume-end chapter when outline range matches", async () => {

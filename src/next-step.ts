@@ -261,14 +261,17 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
 
     // Volume-end: enter deterministic volume review pipeline (issue #144).
     if (checkpoint.last_completed_chapter > 0) {
+      let range: { start: number; end: number } | null = null;
       try {
-        const range = await tryResolveVolumeChapterRange({ rootDir: projectRootDir, volume: checkpoint.current_volume });
-        if (range && checkpoint.last_completed_chapter === range.end) {
-          const next = await computeReviewNext(projectRootDir, checkpoint);
-          return { ...next, reason: `volume_end:${next.reason}` };
-        }
+        range = await tryResolveVolumeChapterRange({ rootDir: projectRootDir, volume: checkpoint.current_volume });
       } catch {
         // Best-effort: if we can't resolve range, fall back to chapter pipeline.
+        range = null;
+      }
+
+      if (range && checkpoint.last_completed_chapter === range.end) {
+        const next = await computeReviewNext(projectRootDir, checkpoint);
+        return { ...next, reason: `volume_end:${next.reason}` };
       }
     }
 
@@ -531,10 +534,18 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
       : 0;
     const violation = detectHighConfidenceViolation(evalRaw);
 
+    const maxRevisions =
+      typeof loadedProfile?.profile.scoring?.max_revisions === "number" &&
+      Number.isInteger(loadedProfile.profile.scoring.max_revisions) &&
+      loadedProfile.profile.scoring.max_revisions >= 0
+        ? loadedProfile.profile.scoring.max_revisions
+        : null;
+
     const gateDecision = computeGateDecision({
       overall_final: overall,
       revision_count: revisionCount,
-      has_high_confidence_violation: violation.has_high_confidence_violation
+      has_high_confidence_violation: violation.has_high_confidence_violation,
+      ...(maxRevisions === null ? {} : { max_revisions: maxRevisions })
     });
 
     const gateEvidence = {
@@ -543,6 +554,7 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
         decision: gateDecision,
         overall_final: overall,
         revision_count: revisionCount,
+        max_revisions: maxRevisions,
         has_high_confidence_violation: violation.has_high_confidence_violation,
         high_confidence_violations: violation.high_confidence_violations.slice(0, 10)
       },
