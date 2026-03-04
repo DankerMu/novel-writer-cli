@@ -238,9 +238,13 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     }
   }
 
+  const trialChapter = Math.max(1, args.checkpoint.last_completed_chapter + 1);
+  const isTrialMode = step.phase === "trial" || step.phase === "results";
   const inline: Record<string, unknown> = {
     quickstart_phase: step.phase,
-    trial_mode: step.phase === "trial" || step.phase === "results"
+    trial_mode: isTrialMode,
+    volume: args.checkpoint.current_volume,
+    ...(isTrialMode ? { chapter: trialChapter } : {})
   };
 
   const paths: Record<string, unknown> = {};
@@ -261,6 +265,21 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   await maybeAddPath("quickstart_trial_chapter", QUICKSTART_STAGING_RELS.trialChapterMd);
   await maybeAddPath("quickstart_evaluation", QUICKSTART_STAGING_RELS.evaluationJson);
 
+  const asString = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+  const qsRules = asString(paths.quickstart_rules);
+  const qsContractsDir = asString(paths.quickstart_contracts_dir);
+  const qsStyleProfile = asString(paths.quickstart_style_profile);
+  const qsTrialChapter = asString(paths.quickstart_trial_chapter);
+  const styleTemplate = asString(paths.style_profile_template);
+
+  // Provide canonical manifest keys in addition to quickstart-scoped aliases.
+  if (qsRules) paths.world_rules = qsRules;
+  if (qsContractsDir) paths.character_contracts_dir = qsContractsDir;
+  if (qsStyleProfile) paths.style_profile = qsStyleProfile;
+  else if (styleTemplate) paths.style_profile = styleTemplate;
+  if (qsTrialChapter) paths.chapter_draft = qsTrialChapter;
+
   let agent: InstructionPacket["agent"];
   const expected_outputs: InstructionPacket["expected_outputs"] = [];
   const next_actions: InstructionPacket["next_actions"] = [];
@@ -270,6 +289,7 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     expected_outputs.push({ path: QUICKSTART_STAGING_RELS.rulesJson, required: true });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
     next_actions.push({
       kind: "command",
       command: `novel instructions quickstart:characters --json`,
@@ -277,6 +297,7 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     });
   } else if (step.phase === "characters") {
     agent = { kind: "subagent", name: "character-weaver" };
+    inline.contracts_output_dir = QUICKSTART_STAGING_RELS.contractsDir;
     expected_outputs.push({
       path: QUICKSTART_STAGING_RELS.contractsDir,
       required: true,
@@ -284,29 +305,32 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
     next_actions.push({ kind: "command", command: `novel instructions quickstart:style --json`, note: "After advance, proceed to style extraction." });
   } else if (step.phase === "style") {
     agent = { kind: "subagent", name: "style-analyzer" };
     expected_outputs.push({ path: QUICKSTART_STAGING_RELS.styleProfileJson, required: true });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
     next_actions.push({ kind: "command", command: `novel instructions quickstart:trial --json`, note: "After advance, proceed to trial chapter." });
   } else if (step.phase === "trial") {
     agent = { kind: "subagent", name: "chapter-writer" };
-    // Reuse canonical keys for downstream agents where possible.
-    paths.world_rules = paths.quickstart_rules ?? null;
-    paths.style_profile = paths.quickstart_style_profile ?? paths.style_profile_template ?? null;
-    paths.character_contracts_dir = paths.quickstart_contracts_dir ?? null;
+    // Ensure canonical keys are present with quickstart staging inputs.
+    paths.world_rules = qsRules;
+    paths.style_profile = qsStyleProfile ?? styleTemplate;
+    paths.character_contracts_dir = qsContractsDir;
     expected_outputs.push({ path: QUICKSTART_STAGING_RELS.trialChapterMd, required: true });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
     next_actions.push({ kind: "command", command: `novel instructions quickstart:results --json`, note: "After advance, evaluate trial results." });
   } else if (step.phase === "results") {
     agent = { kind: "subagent", name: "quality-judge" };
-    paths.chapter_draft = paths.quickstart_trial_chapter ?? null;
-    paths.world_rules = paths.quickstart_rules ?? null;
-    paths.style_profile = paths.quickstart_style_profile ?? paths.style_profile_template ?? null;
-    paths.character_contracts_dir = paths.quickstart_contracts_dir ?? null;
+    paths.chapter_draft = qsTrialChapter;
+    paths.world_rules = qsRules;
+    paths.style_profile = qsStyleProfile ?? styleTemplate;
+    paths.character_contracts_dir = qsContractsDir;
     expected_outputs.push({
       path: QUICKSTART_STAGING_RELS.evaluationJson,
       required: true,

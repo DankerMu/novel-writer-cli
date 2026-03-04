@@ -626,10 +626,16 @@ function notImplementedState(state: string): never {
   throw new NovelCliError(`Not implemented: orchestrator_state=${state}`, 2);
 }
 
-async function countContractArtifacts(rootDir: string): Promise<{ hasDir: boolean; fileCount: number; sample: string[] }> {
+async function countContractArtifacts(rootDir: string): Promise<{
+  hasDir: boolean;
+  fileCount: number;
+  sample: string[];
+  degraded: boolean;
+  error?: string;
+}> {
   const absDir = join(rootDir, QUICKSTART_STAGING_RELS.contractsDir);
   const hasDir = await pathExists(absDir);
-  if (!hasDir) return { hasDir, fileCount: 0, sample: [] };
+  if (!hasDir) return { hasDir, fileCount: 0, sample: [], degraded: false };
 
   try {
     const entries = await readdir(absDir, { withFileTypes: true });
@@ -639,10 +645,11 @@ async function countContractArtifacts(rootDir: string): Promise<{ hasDir: boolea
       .sort()
       .slice(0, 3);
     const fileCount = files.filter((n) => n.endsWith(".json")).length;
-    return { hasDir, fileCount, sample };
-  } catch {
+    return { hasDir, fileCount, sample, degraded: false };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     // If the dir exists but is unreadable, treat as present but degraded.
-    return { hasDir, fileCount: 0, sample: [] };
+    return { hasDir, fileCount: 0, sample: [], degraded: true, error: message };
   }
 }
 
@@ -663,23 +670,102 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     );
   }
 
-  const rulesExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.rulesJson));
+  const rulesAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.rulesJson);
+  const styleAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.styleProfileJson);
+  const trialAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.trialChapterMd);
+  const evalAbs = join(projectRootDir, QUICKSTART_STAGING_RELS.evaluationJson);
+
+  const rulesExists = await pathExists(rulesAbs);
   const contracts = await countContractArtifacts(projectRootDir);
-  const styleExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.styleProfileJson));
-  const trialExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.trialChapterMd));
-  const evalExists = await pathExists(join(projectRootDir, QUICKSTART_STAGING_RELS.evaluationJson));
+  const styleExists = await pathExists(styleAbs);
+  const trialExists = await pathExists(trialAbs);
+  const evalExists = await pathExists(evalAbs);
+
+  let rulesOk = false;
+  let rulesError: string | null = null;
+  if (rulesExists) {
+    try {
+      const raw = await readJsonFile(rulesAbs);
+      if (!isPlainObject(raw)) throw new Error("expected JSON object");
+      const obj = raw as Record<string, unknown>;
+      if (!Array.isArray(obj.rules)) throw new Error("missing 'rules' array");
+      rulesOk = true;
+    } catch (err: unknown) {
+      rulesError = err instanceof Error ? err.message : String(err);
+      rulesOk = false;
+    }
+  }
+
+  let styleOk = false;
+  let styleError: string | null = null;
+  if (styleExists) {
+    try {
+      const raw = await readJsonFile(styleAbs);
+      if (!isPlainObject(raw)) throw new Error("expected JSON object");
+      const obj = raw as Record<string, unknown>;
+      const sourceType = obj.source_type;
+      if (typeof sourceType !== "string" || sourceType.trim().length === 0) throw new Error("missing 'source_type'");
+      if (sourceType !== "original" && sourceType !== "reference" && sourceType !== "template" && sourceType !== "write_then_extract") {
+        throw new Error(`invalid source_type=${sourceType}`);
+      }
+      styleOk = true;
+    } catch (err: unknown) {
+      styleError = err instanceof Error ? err.message : String(err);
+      styleOk = false;
+    }
+  }
+
+  let trialOk = false;
+  let trialError: string | null = null;
+  if (trialExists) {
+    try {
+      const text = await readTextFile(trialAbs);
+      if (text.trim().length === 0) throw new Error("empty trial chapter");
+      trialOk = true;
+    } catch (err: unknown) {
+      trialError = err instanceof Error ? err.message : String(err);
+      trialOk = false;
+    }
+  }
+
+  let evalOk = false;
+  let evalError: string | null = null;
+  if (evalExists) {
+    try {
+      const raw = await readJsonFile(evalAbs);
+      if (!isPlainObject(raw)) throw new Error("expected JSON object");
+      evalOk = true;
+    } catch (err: unknown) {
+      evalError = err instanceof Error ? err.message : String(err);
+      evalOk = false;
+    }
+  }
 
   const evidence = {
     staging: {
       rulesExists,
-      contracts: { hasDir: contracts.hasDir, jsonFileCount: contracts.fileCount, sample: contracts.sample },
+      rulesOk,
+      ...(rulesError ? { rulesError } : {}),
+      contracts: {
+        hasDir: contracts.hasDir,
+        jsonFileCount: contracts.fileCount,
+        sample: contracts.sample,
+        degraded: contracts.degraded,
+        ...(contracts.error ? { error: contracts.error } : {})
+      },
       styleExists,
+      styleOk,
+      ...(styleError ? { styleError } : {}),
       trialExists,
-      evalExists
+      trialOk,
+      ...(trialError ? { trialError } : {}),
+      evalExists,
+      evalOk,
+      ...(evalError ? { evalError } : {})
     }
   };
 
-  if (!rulesExists) {
+  if (!rulesOk) {
     return {
       step: formatStepId({ kind: "quickstart", phase: "world" }),
       reason: "quickstart:world",
@@ -697,7 +783,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     };
   }
 
-  if (!styleExists) {
+  if (!styleOk) {
     return {
       step: formatStepId({ kind: "quickstart", phase: "style" }),
       reason: "quickstart:style",
@@ -706,7 +792,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     };
   }
 
-  if (!trialExists) {
+  if (!trialOk) {
     return {
       step: formatStepId({ kind: "quickstart", phase: "trial" }),
       reason: "quickstart:trial",
@@ -715,7 +801,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     };
   }
 
-  if (!evalExists) {
+  if (!evalOk) {
     return {
       step: formatStepId({ kind: "quickstart", phase: "results" }),
       reason: "quickstart:results",
