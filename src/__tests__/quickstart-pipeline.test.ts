@@ -119,6 +119,58 @@ test("computeNextStep blocks quickstart rollback when quickstart_phase is presen
   await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
 });
 
+test("computeNextStep blocks quickstart rollback when quickstart_phase=characters but world artifacts are missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-characters-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: "characters"
+  });
+
+  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+});
+
+test("computeNextStep blocks quickstart rollback when quickstart_phase=style but style profile is missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-style-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: "style"
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+
+  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+});
+
+test("computeNextStep blocks quickstart rollback when quickstart_phase=trial but trial chapter is missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-trial-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: "trial"
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+
+  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+});
+
 test("buildInstructionPacket (quickstart) includes NOVEL_ASK gate when provided", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-novel-ask-"));
 

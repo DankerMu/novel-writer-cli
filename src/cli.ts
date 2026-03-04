@@ -185,10 +185,10 @@ function buildProgram(argv: string[]): Command {
         if (!novelAskFile || !answerPath) {
           throw new NovelCliError(`Invalid NOVEL_ASK gate: provide both --novel-ask-file and --answer-path.`, 2);
         }
-        const absAsk = resolveProjectRelativePath(rootDir, novelAskFile, "novelAskFile");
+        const absAsk = resolveProjectRelativePath(rootDir, novelAskFile, "--novel-ask-file");
         const rawSpec = await readJsonFile(absAsk);
         const spec = parseNovelAskQuestionSpec(rawSpec);
-        resolveProjectRelativePath(rootDir, answerPath, "answerPath");
+        resolveProjectRelativePath(rootDir, answerPath, "--answer-path");
         novelAskGate = { novel_ask: spec, answer_path: answerPath };
       }
 

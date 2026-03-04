@@ -782,10 +782,10 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
   };
 
   let selected: NextStepResult;
-  let selectedPhaseIdx: number;
+  let selectedPhase: QuickStartPhase;
 
   if (!rulesOk) {
-    selectedPhaseIdx = 0;
+    selectedPhase = "world";
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "world" }),
       reason: "quickstart:world",
@@ -793,7 +793,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       evidence
     };
   } else if (!contracts.hasDir || contracts.fileCount === 0) {
-    selectedPhaseIdx = 1;
+    selectedPhase = "characters";
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "characters" }),
       reason: "quickstart:characters",
@@ -801,7 +801,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       evidence
     };
   } else if (!styleOk) {
-    selectedPhaseIdx = 2;
+    selectedPhase = "style";
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "style" }),
       reason: "quickstart:style",
@@ -809,7 +809,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       evidence
     };
   } else if (!trialOk) {
-    selectedPhaseIdx = 3;
+    selectedPhase = "trial";
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "trial" }),
       reason: "quickstart:trial",
@@ -817,7 +817,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       evidence
     };
   } else if (!evalOk) {
-    selectedPhaseIdx = 4;
+    selectedPhase = "results";
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "results" }),
       reason: "quickstart:results",
@@ -825,7 +825,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       evidence
     };
   } else {
-    selectedPhaseIdx = 4;
+    selectedPhase = "results";
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "results" }),
       reason: "quickstart:results:artifacts_present",
@@ -834,14 +834,37 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     };
   }
 
+  const selectedPhaseIdx = QUICKSTART_PHASES.indexOf(selectedPhase);
+  if (selectedPhaseIdx < 0) {
+    throw new NovelCliError(`Internal error: invalid quickstart phase=${selectedPhase}`, 2);
+  }
+
   const checkpointPhase = checkpoint.quickstart_phase ?? null;
   if (checkpointPhase) {
     const idx = QUICKSTART_PHASES.indexOf(checkpointPhase);
     if (idx >= 0) {
       const floorIdx = Math.min(QUICKSTART_PHASES.length - 1, idx + 1);
       if (selectedPhaseIdx < floorIdx) {
+        const expectedPath = (() => {
+          switch (selectedPhase) {
+            case "world":
+              return QUICKSTART_STAGING_RELS.rulesJson;
+            case "characters":
+              return QUICKSTART_STAGING_RELS.contractsDir;
+            case "style":
+              return QUICKSTART_STAGING_RELS.styleProfileJson;
+            case "trial":
+              return QUICKSTART_STAGING_RELS.trialChapterMd;
+            case "results":
+              return QUICKSTART_STAGING_RELS.evaluationJson;
+            default: {
+              const _exhaustive: never = selectedPhase;
+              return String(_exhaustive);
+            }
+          }
+        })();
         throw new NovelCliError(
-          `Quickstart recovery blocked: .checkpoint.json.quickstart_phase=${checkpointPhase} but staging artifacts indicate missing/corrupt phase=${QUICKSTART_PHASES[selectedPhaseIdx]}. Restore staging/quickstart artifacts or repair .checkpoint.json.`,
+          `Quickstart recovery blocked: .checkpoint.json.quickstart_phase=${checkpointPhase} but staging artifacts indicate missing/corrupt phase=${selectedPhase} (expected: ${expectedPath}). Restore staging/quickstart artifacts, or set .checkpoint.json.quickstart_phase=null to redo quickstart.`,
           2
         );
       }

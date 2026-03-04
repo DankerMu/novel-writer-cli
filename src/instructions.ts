@@ -379,7 +379,12 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
 
 export async function buildInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
   const stepId = formatStepId(args.step);
-  if (args.step.kind === "review") return await buildReviewInstructionPacket(args);
+  if (args.step.kind === "review") {
+    if (args.novelAskGate) {
+      throw new NovelCliError(`NOVEL_ASK gate is not supported for review steps: ${stepId}`, 2);
+    }
+    return await buildReviewInstructionPacket(args);
+  }
   if (args.step.kind === "quickstart") return await buildQuickStartInstructionPacket(args);
   if (args.step.kind === "volume") {
     const step = args.step;
