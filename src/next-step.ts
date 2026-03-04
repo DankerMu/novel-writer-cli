@@ -688,7 +688,20 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       const raw = await readJsonFile(rulesAbs);
       if (!isPlainObject(raw)) throw new Error("expected JSON object");
       const obj = raw as Record<string, unknown>;
-      if (!Array.isArray(obj.rules)) throw new Error("missing 'rules' array");
+      const rules = obj.rules;
+      if (!Array.isArray(rules)) throw new Error("missing 'rules' array");
+      for (const [idx, rule] of rules.entries()) {
+        if (!isPlainObject(rule)) throw new Error(`rules[${idx}] must be an object`);
+        const r = rule as Record<string, unknown>;
+        if (typeof r.id !== "string" || r.id.trim().length === 0) throw new Error(`rules[${idx}].id must be a non-empty string`);
+        if (typeof r.category !== "string" || r.category.trim().length === 0) {
+          throw new Error(`rules[${idx}].category must be a non-empty string`);
+        }
+        if (typeof r.rule !== "string" || r.rule.trim().length === 0) throw new Error(`rules[${idx}].rule must be a non-empty string`);
+        const ct = r.constraint_type;
+        if (ct !== "hard" && ct !== "soft") throw new Error(`rules[${idx}].constraint_type must be hard|soft`);
+        if (!Array.isArray(r.exceptions)) throw new Error(`rules[${idx}].exceptions must be an array`);
+      }
       rulesOk = true;
     } catch (err: unknown) {
       rulesError = err instanceof Error ? err.message : String(err);

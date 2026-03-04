@@ -150,3 +150,44 @@ test("advance quickstart:results commits artifacts and transitions to VOL_PLANNI
   assert.equal(next.step, "volume:outline");
 });
 
+test("advance quickstart:results validates all contracts (not just a slice)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-contracts-all-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    volume_pipeline_stage: null
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), {
+    rules: [
+      {
+        id: "W-001",
+        category: "magic_system",
+        rule: "力量体系上限为九阶。",
+        constraint_type: "hard",
+        exceptions: [],
+        introduced_chapter: null,
+        last_verified: null
+      }
+    ]
+  });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), `# 试写章\n\n（测试）\n`);
+  await writeJson(join(rootDir, "staging/quickstart/evaluation.json"), { overall: 4.2, recommendation: "pass" });
+
+  for (let i = 1; i <= 10; i++) {
+    const id = String(i).padStart(2, "0");
+    await writeJson(join(rootDir, `staging/quickstart/contracts/contract-${id}.json`), { id: `c-${id}`, display_name: `角色${id}`, contracts: [] });
+  }
+  // 11th contract is invalid: validate:results must still catch it.
+  await writeJson(join(rootDir, "staging/quickstart/contracts/contract-11.json"), []);
+
+  await assert.rejects(
+    () => advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "results" } }),
+    /Invalid contract JSON/
+  );
+});

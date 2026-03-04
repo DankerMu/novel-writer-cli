@@ -316,10 +316,6 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     next_actions.push({ kind: "command", command: `novel instructions quickstart:trial --json`, note: "After advance, proceed to trial chapter." });
   } else if (step.phase === "trial") {
     agent = { kind: "subagent", name: "chapter-writer" };
-    // Ensure canonical keys are present with quickstart staging inputs.
-    paths.world_rules = qsRules;
-    paths.style_profile = qsStyleProfile ?? styleTemplate;
-    paths.character_contracts_dir = qsContractsDir;
     expected_outputs.push({ path: QUICKSTART_STAGING_RELS.trialChapterMd, required: true });
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
@@ -327,10 +323,6 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     next_actions.push({ kind: "command", command: `novel instructions quickstart:results --json`, note: "After advance, evaluate trial results." });
   } else if (step.phase === "results") {
     agent = { kind: "subagent", name: "quality-judge" };
-    paths.chapter_draft = qsTrialChapter;
-    paths.world_rules = qsRules;
-    paths.style_profile = qsStyleProfile ?? styleTemplate;
-    paths.character_contracts_dir = qsContractsDir;
     expected_outputs.push({
       path: QUICKSTART_STAGING_RELS.evaluationJson,
       required: true,

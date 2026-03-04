@@ -1,4 +1,4 @@
-import { readdir, rename } from "node:fs/promises";
+import { copyFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { Checkpoint, PipelineStage } from "./checkpoint.js";
@@ -129,12 +129,11 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
   if (step.kind === "quickstart") {
     const qsStep = step as QuickStartStep;
 
-    const moveFile = async (fromRel: string, toRel: string): Promise<void> => {
+    const copyFileSafe = async (fromRel: string, toRel: string): Promise<void> => {
       const fromAbs = join(args.rootDir, fromRel);
       const toAbs = join(args.rootDir, toRel);
       await ensureDir(dirname(toAbs));
-      await removePath(toAbs);
-      await rename(fromAbs, toAbs);
+      await copyFile(fromAbs, toAbs);
     };
 
     const commitQuickStartArtifacts = async (): Promise<void> => {
@@ -150,10 +149,10 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
         if (!(await pathExists(abs))) throw new NovelCliError(`Missing required file: ${rel}`, 2);
       }
 
-      await moveFile(QUICKSTART_STAGING_RELS.rulesJson, QUICKSTART_FINAL_RELS.worldRulesJson);
-      await moveFile(QUICKSTART_STAGING_RELS.styleProfileJson, QUICKSTART_FINAL_RELS.styleProfileJson);
-      await moveFile(QUICKSTART_STAGING_RELS.trialChapterMd, QUICKSTART_FINAL_RELS.trialChapterMd);
-      await moveFile(QUICKSTART_STAGING_RELS.evaluationJson, QUICKSTART_FINAL_RELS.evaluationJson);
+      await copyFileSafe(QUICKSTART_STAGING_RELS.rulesJson, QUICKSTART_FINAL_RELS.worldRulesJson);
+      await copyFileSafe(QUICKSTART_STAGING_RELS.styleProfileJson, QUICKSTART_FINAL_RELS.styleProfileJson);
+      await copyFileSafe(QUICKSTART_STAGING_RELS.trialChapterMd, QUICKSTART_FINAL_RELS.trialChapterMd);
+      await copyFileSafe(QUICKSTART_STAGING_RELS.evaluationJson, QUICKSTART_FINAL_RELS.evaluationJson);
 
       // Contracts dir → characters/active/*.json (overwrite by filename).
       const contractsAbs = join(args.rootDir, QUICKSTART_STAGING_RELS.contractsDir);
@@ -168,14 +167,8 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       const activeDirAbs = join(args.rootDir, QUICKSTART_FINAL_RELS.charactersActiveDir);
       await ensureDir(activeDirAbs);
       for (const name of jsonFiles) {
-        const fromAbs = join(contractsAbs, name);
-        const toAbs = join(activeDirAbs, name);
-        await removePath(toAbs);
-        await rename(fromAbs, toAbs);
+        await copyFile(join(contractsAbs, name), join(activeDirAbs, name));
       }
-
-      // Clear quickstart staging after committing.
-      await removePath(join(args.rootDir, QUICKSTART_STAGING_RELS.dir));
     };
 
     return await withWriteLock(args.rootDir, {}, async () => {
@@ -208,6 +201,7 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
 
       const updated: Checkpoint = { ...checkpoint };
       updated.inflight_chapter = null;
+      updated.pipeline_stage = null;
 
       if (qsStep.phase === "results") {
         await commitQuickStartArtifacts();
@@ -220,6 +214,15 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       updated.last_checkpoint_time = new Date().toISOString();
 
       await writeCheckpoint(args.rootDir, updated);
+
+      if (qsStep.phase === "results") {
+        // Best-effort cleanup: keep artifacts committed even if staging removal fails.
+        try {
+          await removePath(join(args.rootDir, QUICKSTART_STAGING_RELS.dir));
+        } catch {
+          // ignore
+        }
+      }
       return updated;
     });
   }

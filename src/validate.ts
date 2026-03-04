@@ -380,7 +380,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       if (jsonFiles.length === 0) {
         throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.contractsDir}: expected at least 1 *.json contract file.`, 2);
       }
-      for (const file of jsonFiles.slice(0, 10)) {
+      for (const file of jsonFiles) {
         const raw = await readJsonFile(join(contractsAbs, file));
         if (!isPlainObject(raw)) {
           throw new NovelCliError(`Invalid contract JSON: ${QUICKSTART_STAGING_RELS.contractsDir}/${file} must be an object.`, 2);
@@ -449,7 +449,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
         }
       }
 
-      for (const file of jsonFiles.slice(0, 10)) {
+      for (const file of jsonFiles) {
         const raw = await readJsonFile(join(contractsAbs, file));
         if (!isPlainObject(raw)) {
           throw new NovelCliError(`Invalid contract JSON: ${QUICKSTART_STAGING_RELS.contractsDir}/${file} must be an object.`, 2);
