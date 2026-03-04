@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { advanceCheckpointForStep } from "../advance.js";
 import { readCheckpoint } from "../checkpoint.js";
+import { buildInstructionPacket } from "../instructions.js";
 import { computeNextStep } from "../next-step.js";
 
 async function writeText(absPath: string, contents: string): Promise<void> {
@@ -53,9 +54,11 @@ test("advance quickstart:world transitions INIT -> QUICK_START", async () => {
 
   const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "world" } });
   assert.equal(updated.orchestrator_state, "QUICK_START");
+  assert.equal(updated.quickstart_phase, "world");
 
   const checkpoint = await readCheckpoint(rootDir);
   assert.equal(checkpoint.orchestrator_state, "QUICK_START");
+  assert.equal(checkpoint.quickstart_phase, "world");
 });
 
 test("computeNextStep recovers quickstart phase from staging artifacts", async () => {
@@ -99,6 +102,55 @@ test("computeNextStep recovers quickstart phase from staging artifacts", async (
   next = await computeNextStep(rootDir, await readCheckpoint(rootDir));
   assert.equal(next.step, "quickstart:results");
   assert.equal(next.reason, "quickstart:results:artifacts_present");
+});
+
+test("computeNextStep blocks quickstart rollback when quickstart_phase is present but artifacts are missing", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-checkpoint-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: "world"
+  });
+
+  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+});
+
+test("buildInstructionPacket (quickstart) includes NOVEL_ASK gate when provided", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-novel-ask-"));
+
+  const questionSpec = {
+    version: 1,
+    topic: "quickstart_gate",
+    questions: [
+      {
+        id: "genre",
+        header: "Genre",
+        question: "Pick a genre.",
+        kind: "single_choice",
+        required: true,
+        options: [{ label: "xuanhuan", description: "玄幻" }]
+      }
+    ]
+  };
+  const answerPath = "staging/novel-ask/quickstart.json";
+
+  const built = (await buildInstructionPacket({
+    rootDir,
+    checkpoint: { last_completed_chapter: 0, current_volume: 1, orchestrator_state: "INIT" as const },
+    step: { kind: "quickstart", phase: "world" },
+    embedMode: null,
+    writeManifest: false,
+    novelAskGate: { novel_ask: questionSpec as any, answer_path: answerPath }
+  })) as any;
+
+  assert.equal(built.packet.step, "quickstart:world");
+  assert.equal(built.packet.answer_path, answerPath);
+  assert.equal(built.packet.novel_ask.topic, questionSpec.topic);
+  assert.equal(built.packet.expected_outputs[0].path, answerPath);
 });
 
 test("advance quickstart:results commits artifacts and transitions to VOL_PLANNING", async () => {

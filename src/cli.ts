@@ -26,8 +26,10 @@ import { buildInstructionPacket } from "./instructions.js";
 import { getLockStatus, clearStaleLock, withWriteLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
 import { computeEngagementReport, loadEngagementMetricsStream, writeEngagementLogs } from "./engagement.js";
+import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { computePromiseLedgerReport, ensurePromiseLedgerInitialized, loadPromiseLedger, writePromiseLedgerLogs } from "./promise-ledger.js";
 import { pad2, pad3, parseStepId } from "./steps.js";
+import { resolveProjectRelativePath } from "./safe-path.js";
 import { isPlainObject } from "./type-guards.js";
 import { validateStep } from "./validate.js";
 import { VOL_REVIEW_RELS, collectVolumeData, computeBridgeCheck, computeForeshadowingAudit, computeStorylineRhythm } from "./volume-review.js";
@@ -166,19 +168,37 @@ function buildProgram(argv: string[]): Command {
     .argument("<step>", "Step id, e.g. chapter:048:draft")
     .option("--write-manifest", "Persist packet under staging/manifests/.")
     .option("--embed <mode>", "Optional embed mode (off by default). Example: --embed brief")
-    .action(async (step: string, localOpts: { writeManifest?: boolean; embed?: string }) => {
+    .option("--novel-ask-file <path>", "Project-relative path to a NOVEL_ASK QuestionSpec JSON file (enables gate).")
+    .option("--answer-path <path>", "Project-relative path to write the NOVEL_ASK AnswerSpec JSON record.")
+    .action(async (step: string, localOpts: { writeManifest?: boolean; embed?: string; novelAskFile?: string; answerPath?: string }) => {
       const opts = program.opts<GlobalOpts>();
       const json = Boolean(opts.json);
 
       const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
       const checkpoint = await readCheckpoint(rootDir);
       const parsedStep = parseStepId(step);
+
+      const novelAskFile = localOpts.novelAskFile ?? null;
+      const answerPath = localOpts.answerPath ?? null;
+      let novelAskGate: { novel_ask: NovelAskQuestionSpec; answer_path: string } | null = null;
+      if (novelAskFile !== null || answerPath !== null) {
+        if (!novelAskFile || !answerPath) {
+          throw new NovelCliError(`Invalid NOVEL_ASK gate: provide both --novel-ask-file and --answer-path.`, 2);
+        }
+        const absAsk = resolveProjectRelativePath(rootDir, novelAskFile, "novelAskFile");
+        const rawSpec = await readJsonFile(absAsk);
+        const spec = parseNovelAskQuestionSpec(rawSpec);
+        resolveProjectRelativePath(rootDir, answerPath, "answerPath");
+        novelAskGate = { novel_ask: spec, answer_path: answerPath };
+      }
+
       const packet = await buildInstructionPacket({
         rootDir,
         checkpoint,
         step: parsedStep,
         embedMode: localOpts.embed ?? null,
-        writeManifest: Boolean(localOpts.writeManifest)
+        writeManifest: Boolean(localOpts.writeManifest),
+        novelAskGate
       });
 
       if (json) {

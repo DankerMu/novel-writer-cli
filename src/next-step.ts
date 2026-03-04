@@ -17,7 +17,7 @@ import { computePrejudgeGuardrailsReport, loadPrejudgeGuardrailsReportIfFresh, p
 import { summarizeNamingIssues } from "./naming-lint.js";
 import { summarizeReadabilityIssues } from "./readability-lint.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
-import { chapterRelPaths, formatStepId } from "./steps.js";
+import { QUICKSTART_PHASES, chapterRelPaths, formatStepId, type QuickStartPhase } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 import { computeVolumeNextStep } from "./volume-planning.js";
 
@@ -755,6 +755,9 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
   }
 
   const evidence = {
+    checkpoint: {
+      quickstart_phase: (checkpoint.quickstart_phase ?? null) as QuickStartPhase | null
+    },
     staging: {
       rulesExists,
       rulesOk,
@@ -778,57 +781,74 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     }
   };
 
+  let selected: NextStepResult;
+  let selectedPhaseIdx: number;
+
   if (!rulesOk) {
-    return {
+    selectedPhaseIdx = 0;
+    selected = {
       step: formatStepId({ kind: "quickstart", phase: "world" }),
       reason: "quickstart:world",
       inflight: { chapter: null, pipeline_stage: null },
       evidence
     };
-  }
-
-  if (!contracts.hasDir || contracts.fileCount === 0) {
-    return {
+  } else if (!contracts.hasDir || contracts.fileCount === 0) {
+    selectedPhaseIdx = 1;
+    selected = {
       step: formatStepId({ kind: "quickstart", phase: "characters" }),
       reason: "quickstart:characters",
       inflight: { chapter: null, pipeline_stage: null },
       evidence
     };
-  }
-
-  if (!styleOk) {
-    return {
+  } else if (!styleOk) {
+    selectedPhaseIdx = 2;
+    selected = {
       step: formatStepId({ kind: "quickstart", phase: "style" }),
       reason: "quickstart:style",
       inflight: { chapter: null, pipeline_stage: null },
       evidence
     };
-  }
-
-  if (!trialOk) {
-    return {
+  } else if (!trialOk) {
+    selectedPhaseIdx = 3;
+    selected = {
       step: formatStepId({ kind: "quickstart", phase: "trial" }),
       reason: "quickstart:trial",
       inflight: { chapter: null, pipeline_stage: null },
       evidence
     };
-  }
-
-  if (!evalOk) {
-    return {
+  } else if (!evalOk) {
+    selectedPhaseIdx = 4;
+    selected = {
       step: formatStepId({ kind: "quickstart", phase: "results" }),
       reason: "quickstart:results",
       inflight: { chapter: null, pipeline_stage: null },
       evidence
     };
+  } else {
+    selectedPhaseIdx = 4;
+    selected = {
+      step: formatStepId({ kind: "quickstart", phase: "results" }),
+      reason: "quickstart:results:artifacts_present",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
   }
 
-  return {
-    step: formatStepId({ kind: "quickstart", phase: "results" }),
-    reason: "quickstart:results:artifacts_present",
-    inflight: { chapter: null, pipeline_stage: null },
-    evidence
-  };
+  const checkpointPhase = checkpoint.quickstart_phase ?? null;
+  if (checkpointPhase) {
+    const idx = QUICKSTART_PHASES.indexOf(checkpointPhase);
+    if (idx >= 0) {
+      const floorIdx = Math.min(QUICKSTART_PHASES.length - 1, idx + 1);
+      if (selectedPhaseIdx < floorIdx) {
+        throw new NovelCliError(
+          `Quickstart recovery blocked: .checkpoint.json.quickstart_phase=${checkpointPhase} but staging artifacts indicate missing/corrupt phase=${QUICKSTART_PHASES[selectedPhaseIdx]}. Restore staging/quickstart artifacts or repair .checkpoint.json.`,
+          2
+        );
+      }
+    }
+  }
+
+  return selected;
 }
 
 export async function computeNextStep(projectRootDir: string, checkpoint: Checkpoint): Promise<NextStepResult> {

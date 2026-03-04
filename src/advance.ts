@@ -202,6 +202,7 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       const updated: Checkpoint = { ...checkpoint };
       updated.inflight_chapter = null;
       updated.pipeline_stage = null;
+      updated.quickstart_phase = qsStep.phase;
 
       if (qsStep.phase === "results") {
         await commitQuickStartArtifacts();

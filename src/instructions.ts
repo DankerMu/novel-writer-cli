@@ -336,10 +336,22 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     throw new NovelCliError(`Unsupported quickstart phase: ${String(_exhaustive)}`, 2);
   }
 
+  const gate = args.novelAskGate ?? null;
+  const gateSpec = gate ? parseNovelAskQuestionSpec(gate.novel_ask) : null;
+  if (gate) {
+    resolveProjectRelativePath(args.rootDir, gate.answer_path, "novelAskGate.answer_path");
+    expected_outputs.unshift({
+      path: gate.answer_path,
+      required: true,
+      note: "AnswerSpec JSON record for the NOVEL_ASK gate (written before main step execution)."
+    });
+  }
+
   const packet: InstructionPacket = {
     version: 1,
     step: stepId,
     agent,
+    ...(gate ? { novel_ask: gateSpec as NovelAskQuestionSpec, answer_path: gate.answer_path } : {}),
     manifest: {
       mode: embedMode === "off" ? "paths" : "paths+embed",
       inline,
