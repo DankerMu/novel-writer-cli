@@ -37,6 +37,7 @@ export type ScoringPolicy = {
   genre_drive_type: string;
   weight_profile_id: string;
   weight_overrides?: Record<string, number>;
+  max_revisions?: number;
 };
 
 export type RetentionTitlePolicy = {
@@ -220,6 +221,9 @@ function parseScoringPolicy(raw: unknown, file: string): ScoringPolicy {
     genre_drive_type: requireStringField(obj, "genre_drive_type", file),
     weight_profile_id: requireStringField(obj, "weight_profile_id", file)
   };
+  if (obj.max_revisions !== undefined) {
+    out.max_revisions = requireNonNegativeIntValue(obj.max_revisions, file, "scoring.max_revisions");
+  }
   if (obj.weight_overrides !== undefined) {
     if (!isPlainObject(obj.weight_overrides)) throw new NovelCliError(`Invalid ${file}: 'scoring.weight_overrides' must be an object.`, 2);
     const wo = obj.weight_overrides as Record<string, unknown>;

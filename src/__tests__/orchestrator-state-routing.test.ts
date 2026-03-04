@@ -188,17 +188,15 @@ test("computeNextStep throws for VOL_PLANNING placeholder", async () => {
   );
 });
 
-test("computeNextStep throws for VOL_REVIEW placeholder", async () => {
+test("computeNextStep routes VOL_REVIEW to review pipeline", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-orchestrator-vol-review-"));
-  await assert.rejects(
-    () =>
-      computeNextStep(rootDir, {
-        last_completed_chapter: 0,
-        current_volume: 1,
-        orchestrator_state: "VOL_REVIEW",
-        pipeline_stage: null,
-        inflight_chapter: null
-      }),
-    /Not implemented: orchestrator_state=VOL_REVIEW/
-  );
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "VOL_REVIEW",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+  assert.equal(next.step, "review:collect");
+  assert.equal(next.reason, "vol_review:missing_quality_summary");
 });

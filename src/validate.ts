@@ -9,6 +9,7 @@ import { rejectPathTraversalInput } from "./safe-path.js";
 import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type Step } from "./steps.js";
 import { assertTitleFixOnlyChangedTitleLine, extractChapterTitleFromMarkdown } from "./title-policy.js";
 import { isPlainObject } from "./type-guards.js";
+import { VOL_REVIEW_RELS } from "./volume-review.js";
 
 export type ValidateReport = {
   ok: true;
@@ -36,9 +37,59 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
   const warnings: string[] = [];
   const stepId = formatStepId(args.step);
 
-  if (args.step.kind !== "chapter") {
-    throw new NovelCliError(`Unsupported step: ${stepId}`, 2);
+  if (args.step.kind === "review") {
+    const qualitySummaryAbs = join(args.rootDir, VOL_REVIEW_RELS.qualitySummary);
+    const auditReportAbs = join(args.rootDir, VOL_REVIEW_RELS.auditReport);
+    const reviewReportAbs = join(args.rootDir, VOL_REVIEW_RELS.reviewReport);
+    const foreshadowAbs = join(args.rootDir, VOL_REVIEW_RELS.foreshadowStatus);
+
+    if (args.step.phase === "collect") {
+      requireFile(await pathExists(qualitySummaryAbs), VOL_REVIEW_RELS.qualitySummary);
+      const raw = await readJsonFile(qualitySummaryAbs);
+      if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${VOL_REVIEW_RELS.qualitySummary}: expected JSON object.`, 2);
+      if ((raw as Record<string, unknown>).schema_version !== 1) warnings.push(`Unexpected schema_version in ${VOL_REVIEW_RELS.qualitySummary}.`);
+      return { ok: true, step: stepId, warnings };
+    }
+
+    if (args.step.phase === "audit") {
+      requireFile(await pathExists(qualitySummaryAbs), VOL_REVIEW_RELS.qualitySummary);
+      requireFile(await pathExists(auditReportAbs), VOL_REVIEW_RELS.auditReport);
+      const raw = await readJsonFile(auditReportAbs);
+      if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${VOL_REVIEW_RELS.auditReport}: expected JSON object.`, 2);
+      if ((raw as Record<string, unknown>).schema_version !== 1) warnings.push(`Unexpected schema_version in ${VOL_REVIEW_RELS.auditReport}.`);
+      return { ok: true, step: stepId, warnings };
+    }
+
+    if (args.step.phase === "report") {
+      requireFile(await pathExists(qualitySummaryAbs), VOL_REVIEW_RELS.qualitySummary);
+      requireFile(await pathExists(auditReportAbs), VOL_REVIEW_RELS.auditReport);
+      requireFile(await pathExists(reviewReportAbs), VOL_REVIEW_RELS.reviewReport);
+      const text = await readTextFile(reviewReportAbs);
+      if (text.trim().length === 0) throw new NovelCliError(`Empty report file: ${VOL_REVIEW_RELS.reviewReport}`, 2);
+      return { ok: true, step: stepId, warnings };
+    }
+
+    if (args.step.phase === "cleanup") {
+      requireFile(await pathExists(foreshadowAbs), VOL_REVIEW_RELS.foreshadowStatus);
+      const raw = await readJsonFile(foreshadowAbs);
+      if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${VOL_REVIEW_RELS.foreshadowStatus}: expected JSON object.`, 2);
+      if ((raw as Record<string, unknown>).schema_version !== 1) warnings.push(`Unexpected schema_version in ${VOL_REVIEW_RELS.foreshadowStatus}.`);
+      return { ok: true, step: stepId, warnings };
+    }
+
+    if (args.step.phase === "transition") {
+      requireFile(await pathExists(qualitySummaryAbs), VOL_REVIEW_RELS.qualitySummary);
+      requireFile(await pathExists(auditReportAbs), VOL_REVIEW_RELS.auditReport);
+      requireFile(await pathExists(reviewReportAbs), VOL_REVIEW_RELS.reviewReport);
+      requireFile(await pathExists(foreshadowAbs), VOL_REVIEW_RELS.foreshadowStatus);
+      return { ok: true, step: stepId, warnings };
+    }
+
+    const _exhaustive: never = args.step.phase;
+    throw new NovelCliError(`Unsupported review phase: ${String(_exhaustive)}`, 2);
   }
+
+  if (args.step.kind !== "chapter") throw new NovelCliError(`Unsupported step: ${stepId}`, 2);
 
   const rel = chapterRelPaths(args.step.chapter);
 
