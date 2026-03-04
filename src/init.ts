@@ -129,6 +129,8 @@ const STAGING_SUBDIRS = [
   "staging/evaluations",
   "staging/logs",
   "staging/storylines",
+  "staging/volumes",
+  "staging/foreshadowing",
   "staging/manifests"
 ];
 

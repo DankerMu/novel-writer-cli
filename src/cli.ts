@@ -21,6 +21,7 @@ import { readCheckpoint } from "./checkpoint.js";
 import { initProject, normalizePlatformId, resolveInitRootDir } from "./init.js";
 import { advanceCheckpointForStep } from "./advance.js";
 import { commitChapter } from "./commit.js";
+import { commitVolume } from "./volume-commit.js";
 import { buildInstructionPacket } from "./instructions.js";
 import { getLockStatus, clearStaleLock, withWriteLock } from "./lock.js";
 import { computeNextStep } from "./next-step.js";
@@ -235,14 +236,27 @@ function buildProgram(argv: string[]): Command {
   program
     .command("commit")
     .description("Commit staging artifacts into final locations (transaction).")
-    .requiredOption("--chapter <n>", "Chapter number to commit.", (v) => Number.parseInt(String(v), 10))
+    .option("--chapter <n>", "Chapter number to commit.", (v) => Number.parseInt(String(v), 10))
+    .option("--volume <n>", "Volume number to commit (volume planning artifacts).", (v) => Number.parseInt(String(v), 10))
     .option("--dry-run", "Show planned actions without applying them.")
-    .action(async (localOpts: { chapter: number; dryRun?: boolean }) => {
+    .action(async (localOpts: { chapter?: number; volume?: number; dryRun?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const json = Boolean(opts.json);
 
       const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
-      const result = await commitChapter({ rootDir, chapter: localOpts.chapter, dryRun: Boolean(localOpts.dryRun) });
+      const chapter = localOpts.chapter;
+      const volume = localOpts.volume;
+      if (chapter !== undefined && volume !== undefined) {
+        throw new NovelCliError("Invalid commit: provide exactly one of --chapter or --volume.", 2);
+      }
+      if (chapter === undefined && volume === undefined) {
+        throw new NovelCliError("Invalid commit: missing required option --chapter or --volume.", 2);
+      }
+
+      const result =
+        chapter !== undefined
+          ? await commitChapter({ rootDir, chapter, dryRun: Boolean(localOpts.dryRun) })
+          : await commitVolume({ rootDir, volume: volume as number, dryRun: Boolean(localOpts.dryRun) });
 
       if (json) {
         printJson(okJson("commit", { rootDir, ...result }));
@@ -253,7 +267,10 @@ function buildProgram(argv: string[]): Command {
       if (result.warnings.length > 0) {
         for (const w of result.warnings) process.stdout.write(`WARN: ${w}\n`);
       }
-      if (!localOpts.dryRun) process.stdout.write(`Committed chapter ${localOpts.chapter}.\n`);
+      if (!localOpts.dryRun) {
+        if (chapter !== undefined) process.stdout.write(`Committed chapter ${chapter}.\n`);
+        else process.stdout.write(`Committed volume ${volume}.\n`);
+      }
     });
 
   const volumeReview = program.command("volume-review").description("Volume-end review helper commands (issue #144).");
