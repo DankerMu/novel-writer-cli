@@ -205,6 +205,7 @@
     "光阴似箭",
     "日复一日",
     "不禁",
+    "不由得",
     "莫名",
     "油然而生",
     "心中暗道",
@@ -455,6 +456,7 @@
     ],
     "emotion_cliche": [
       { "word": "不禁", "replacement_hint": "删除“不可控”提示，直接写反应/动作" },
+      { "word": "不由得", "replacement_hint": "删除，直接写动作/反应" },
       { "word": "莫名", "replacement_hint": "删掉模糊词，写清楚原因与感受" },
       { "word": "油然而生", "replacement_hint": "删掉抽象触发词，写清楚触发点" },
       { "word": "心中暗道", "replacement_hint": "用更具体的内心独白/动作替代" },
@@ -560,12 +562,12 @@
       "date": "2026-03-05",
       "version": "2.0.0",
       "description": "扩展黑名单至 200+ 词（对齐 anti-ai-polish 10 类），新增 max_words/replacement_hint/per_chapter_max/category_metadata（narration_only/genre_override）。",
-      "words_count": 217
+      "words_count": 218
     }
   ]
 }
 ```
-```` 
+````
 
 ---
 
@@ -648,4 +650,4 @@
   "_analysis_notes_comment": "StyleAnalyzer 的分析备注"
 }
 ```
-```` 
+````

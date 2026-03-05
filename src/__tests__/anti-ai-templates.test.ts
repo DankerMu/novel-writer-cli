@@ -65,7 +65,10 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
     "enumeration_template",
     "academic_tone",
     "narration_connector",
+    "paragraph_opener",
+    "smooth_transition",
     "emotion_cliche",
+    "expression_cliche",
     "action_cliche",
     "environment_cliche",
     "narrative_filler",
@@ -80,9 +83,18 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   const meta = raw.category_metadata;
   assertPlainObject(meta.narration_connector, "category_metadata.narration_connector");
   assert.equal(meta.narration_connector.context, "narration_only");
+  assertPlainObject(meta.abstract_filler, "category_metadata.abstract_filler");
+  assertPlainObject(meta.abstract_filler.genre_override, "category_metadata.abstract_filler.genre_override");
+  assertPlainObject(meta.abstract_filler.genre_override["sci-fi"], "category_metadata.abstract_filler.genre_override.sci-fi");
+  assertPlainObject(
+    meta.abstract_filler.genre_override["sci-fi"].per_chapter_max,
+    "category_metadata.abstract_filler.genre_override.sci-fi.per_chapter_max"
+  );
 
   const allCategoryWords = new Set<string>();
   const narrationConnectorWords = new Set<string>();
+  const abstractFillerWords = new Set<string>();
+  const categorizedWordCounts = new Map<string, number>();
 
   for (const [categoryName, entries] of Object.entries(categories)) {
     assert.ok(Array.isArray(entries), `categories.${categoryName} must be an array`);
@@ -104,7 +116,10 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
         narrationConnectorWords.add(word);
         continue;
       }
+      if (categoryName === "abstract_filler") abstractFillerWords.add(word);
+
       allCategoryWords.add(word);
+      categorizedWordCounts.set(word, (categorizedWordCounts.get(word) ?? 0) + 1);
     }
   }
 
@@ -117,6 +132,16 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   for (const w of allCategoryWords) {
     assert.ok(wordSet.has(w), `Missing from words[]: ${w}`);
   }
+  for (const w of wordSet) {
+    assert.equal(categorizedWordCounts.get(w), 1, `Word must appear exactly once across categories: ${w}`);
+  }
+
+  const sciFiPerChapterMax = meta.abstract_filler.genre_override["sci-fi"].per_chapter_max as Record<string, unknown>;
+  for (const [key, value] of Object.entries(sciFiPerChapterMax)) {
+    assert.ok(abstractFillerWords.has(key), `genre_override.sci-fi.per_chapter_max references missing abstract_filler word: ${key}`);
+    assert.ok(Number.isInteger(value), `genre_override.sci-fi.per_chapter_max must be int: ${key}`);
+    assert.ok((value as number) > 0, `genre_override.sci-fi.per_chapter_max must be positive: ${key}`);
+  }
 
   assert.ok(Array.isArray(raw.update_log), "ai-blacklist.json.update_log must be an array");
   const updateLog = raw.update_log as unknown[];
@@ -126,4 +151,3 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   assert.equal(latest.version, "2.0.0");
   assert.equal(latest.words_count, words.length);
 });
-
