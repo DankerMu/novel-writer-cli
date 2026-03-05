@@ -6,25 +6,37 @@ import { readJsonFile, readTextFile } from "./fs-utils.js";
 import { QUICKSTART_STAGING_RELS } from "./quickstart.js";
 import { isPlainObject } from "./type-guards.js";
 
-function requireStringField(obj: Record<string, unknown>, field: string, file: string): string {
+function requireStringField(
+  obj: Record<string, unknown>,
+  field: string,
+  file: string,
+  opts?: { trim: boolean }
+): string {
   const v = obj[field];
-  if (typeof v !== "string" || v.length === 0) throw new NovelCliError(`Invalid ${file}: missing string field '${field}'.`, 2);
+  if (typeof v !== "string" || (opts?.trim ? v.trim().length === 0 : v.length === 0)) {
+    throw new NovelCliError(`Invalid ${file}: missing string field '${field}'.`, 2);
+  }
   return v;
 }
 
-export async function validateQuickstartRulesSchema(absPath: string): Promise<number> {
+type ValidateQuickstartRulesSchemaOptions = {
+  trimRequiredStrings?: boolean;
+};
+
+export async function validateQuickstartRulesSchema(absPath: string, options?: ValidateQuickstartRulesSchemaOptions): Promise<number> {
   const raw = await readJsonFile(absPath);
   if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: expected JSON object.`, 2);
   const obj = raw as Record<string, unknown>;
   const rules = obj.rules;
   if (!Array.isArray(rules)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: missing 'rules' array.`, 2);
+  const trimRequiredStrings = options?.trimRequiredStrings === true;
   for (const [idx, rule] of rules.entries()) {
     if (!isPlainObject(rule)) throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}] must be an object.`, 2);
     const r = rule as Record<string, unknown>;
-    requireStringField(r, "id", QUICKSTART_STAGING_RELS.rulesJson);
-    requireStringField(r, "category", QUICKSTART_STAGING_RELS.rulesJson);
-    requireStringField(r, "rule", QUICKSTART_STAGING_RELS.rulesJson);
-    const ct = requireStringField(r, "constraint_type", QUICKSTART_STAGING_RELS.rulesJson);
+    requireStringField(r, "id", QUICKSTART_STAGING_RELS.rulesJson, { trim: trimRequiredStrings });
+    requireStringField(r, "category", QUICKSTART_STAGING_RELS.rulesJson, { trim: trimRequiredStrings });
+    requireStringField(r, "rule", QUICKSTART_STAGING_RELS.rulesJson, { trim: trimRequiredStrings });
+    const ct = requireStringField(r, "constraint_type", QUICKSTART_STAGING_RELS.rulesJson, { trim: false });
     if (ct !== "hard" && ct !== "soft") {
       throw new NovelCliError(`Invalid ${QUICKSTART_STAGING_RELS.rulesJson}: rules[${idx}].constraint_type must be hard|soft.`, 2);
     }
@@ -85,4 +97,3 @@ export async function validateQuickstartTrialChapter(absPath: string): Promise<s
   }
   return null;
 }
-

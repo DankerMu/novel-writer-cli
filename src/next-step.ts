@@ -686,7 +686,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
   let rulesError: string | null = null;
   if (rulesExists) {
     try {
-      await validateQuickstartRulesSchema(rulesAbs);
+      await validateQuickstartRulesSchema(rulesAbs, { trimRequiredStrings: true });
       rulesOk = true;
     } catch (err: unknown) {
       rulesError = err instanceof Error ? err.message : String(err);

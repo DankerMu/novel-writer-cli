@@ -13,8 +13,6 @@ import { isPlainObject } from "./type-guards.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
 import { computeVolumeChapterRange, volumeFinalRelPaths, volumeForChapter, volumeStagingRelPaths } from "./volume-planning.js";
 import {
-  listQuickstartContractJsonFiles,
-  validateQuickstartContractJsonFiles,
   validateQuickstartContractsDir,
   validateQuickstartRulesSchema,
   validateQuickstartStyleProfileSchema,
@@ -362,12 +360,10 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       requireFile(await pathExists(trialAbs), QUICKSTART_STAGING_RELS.trialChapterMd);
       requireFile(await pathExists(evalAbs), QUICKSTART_STAGING_RELS.evaluationJson);
 
-      const jsonFiles = await listQuickstartContractJsonFiles(contractsAbs);
-
       // Re-validate the whole quickstart staging set before committing to final dirs.
       const rulesCount = await validateQuickstartRulesSchema(rulesAbs);
       if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
-      await validateQuickstartContractJsonFiles(contractsAbs, jsonFiles);
+      await validateQuickstartContractsDir(contractsAbs);
       await validateQuickstartStyleProfileSchema(styleAbs);
       const warning = await validateQuickstartTrialChapter(trialAbs);
       if (warning) warnings.push(warning);
