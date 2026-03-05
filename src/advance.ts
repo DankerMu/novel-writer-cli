@@ -202,11 +202,13 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       const updated: Checkpoint = { ...checkpoint };
       updated.inflight_chapter = null;
       updated.pipeline_stage = null;
+      updated.quickstart_phase = qsStep.phase;
 
       if (qsStep.phase === "results") {
         await commitQuickStartArtifacts();
         updated.orchestrator_state = "VOL_PLANNING";
         updated.volume_pipeline_stage = null;
+        updated.quickstart_phase = null;
       } else {
         updated.orchestrator_state = "QUICK_START";
       }

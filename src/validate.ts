@@ -430,18 +430,33 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     }
 
     if (args.step.phase === "characters") {
+      requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
+      const rulesCount = await validateRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
       requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
       await validateContractsDir(contractsAbs);
       return { ok: true, step: stepId, warnings };
     }
 
     if (args.step.phase === "style") {
+      requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
+      const rulesCount = await validateRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
+      requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
+      await validateContractsDir(contractsAbs);
       requireFile(await pathExists(styleAbs), QUICKSTART_STAGING_RELS.styleProfileJson);
       await validateStyleProfileSchema(styleAbs);
       return { ok: true, step: stepId, warnings };
     }
 
     if (args.step.phase === "trial") {
+      requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
+      const rulesCount = await validateRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
+      requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
+      await validateContractsDir(contractsAbs);
+      requireFile(await pathExists(styleAbs), QUICKSTART_STAGING_RELS.styleProfileJson);
+      await validateStyleProfileSchema(styleAbs);
       requireFile(await pathExists(trialAbs), QUICKSTART_STAGING_RELS.trialChapterMd);
       const warning = await validateTrialChapter(trialAbs);
       if (warning) warnings.push(warning);
@@ -458,7 +473,8 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       const jsonFiles = await listContractJsonFiles(contractsAbs);
 
       // Re-validate the whole quickstart staging set before committing to final dirs.
-      await validateRulesSchema(rulesAbs);
+      const rulesCount = await validateRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
       await validateContractJsonFiles(contractsAbs, jsonFiles);
       await validateStyleProfileSchema(styleAbs);
       const warning = await validateTrialChapter(trialAbs);

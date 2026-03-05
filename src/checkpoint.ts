@@ -2,7 +2,14 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { readJsonFile, writeJsonFile } from "./fs-utils.js";
-import { ORCHESTRATOR_STATES, VOLUME_PHASES, type OrchestratorState, type VolumePhase } from "./steps.js";
+import {
+  ORCHESTRATOR_STATES,
+  QUICKSTART_PHASES,
+  VOLUME_PHASES,
+  type OrchestratorState,
+  type QuickStartPhase,
+  type VolumePhase
+} from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 
 export const PIPELINE_STAGES = ["drafting", "drafted", "refined", "judged", "revising", "committed"] as const;
@@ -14,6 +21,7 @@ export type Checkpoint = Record<string, unknown> & {
   orchestrator_state: OrchestratorState;
   pipeline_stage?: PipelineStage | null;
   volume_pipeline_stage?: VolumePhase | null;
+  quickstart_phase?: QuickStartPhase | null;
   last_committed_volume?: number;
   inflight_chapter?: number | null;
   revision_count?: number;
@@ -30,6 +38,7 @@ export function createDefaultCheckpoint(nowIso?: string): Checkpoint {
     orchestrator_state: "INIT",
     pipeline_stage: null,
     volume_pipeline_stage: null,
+    quickstart_phase: null,
     inflight_chapter: null,
     revision_count: 0,
     hook_fix_count: 0,
@@ -137,6 +146,25 @@ function parseCheckpoint(data: unknown): Checkpoint {
     throw new NovelCliError(`.checkpoint.json.volume_pipeline_stage must be a string (or null)`, 2);
   }
 
+  const quickstartPhaseRaw = data.quickstart_phase;
+  let quickstartPhase: QuickStartPhase | null | undefined;
+  if (quickstartPhaseRaw === undefined) {
+    quickstartPhase = undefined;
+  } else if (quickstartPhaseRaw === null) {
+    quickstartPhase = null;
+  } else if (typeof quickstartPhaseRaw === "string") {
+    if (QUICKSTART_PHASES.includes(quickstartPhaseRaw as QuickStartPhase)) {
+      quickstartPhase = quickstartPhaseRaw as QuickStartPhase;
+    } else {
+      throw new NovelCliError(
+        `.checkpoint.json.quickstart_phase must be one of: ${QUICKSTART_PHASES.join(", ")} (or null)`,
+        2
+      );
+    }
+  } else {
+    throw new NovelCliError(`.checkpoint.json.quickstart_phase must be a string (or null)`, 2);
+  }
+
   const lastCommitted = data.last_committed_volume;
   if (lastCommitted !== undefined) {
     const lc = asInt(lastCommitted);
@@ -206,6 +234,7 @@ function parseCheckpoint(data: unknown): Checkpoint {
 
   if (pipelineStage !== undefined) checkpoint.pipeline_stage = pipelineStage;
   if (volumeStage !== undefined) checkpoint.volume_pipeline_stage = volumeStage;
+  if (quickstartPhase !== undefined) checkpoint.quickstart_phase = quickstartPhase;
   if (inflight !== undefined) checkpoint.inflight_chapter = inflight;
 
   return checkpoint;
