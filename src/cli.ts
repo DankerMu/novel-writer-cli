@@ -41,8 +41,17 @@ type GlobalOpts = {
 };
 
 function detectCommandName(argv: string[]): string {
-  for (const token of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
     if (token === "--") return "unknown";
+
+    // Global option: consumes the next token as a value.
+    if (token === "--project") {
+      i++;
+      continue;
+    }
+    if (token.startsWith("--project=")) continue;
+
     if (!token.startsWith("-")) return token;
   }
   return "unknown";
@@ -863,49 +872,78 @@ function buildProgram(argv: string[]): Command {
 
       if (!localOpts.force) {
         const checkpoint = await readCheckpoint(rootDir);
+        const beforePresent = Object.prototype.hasOwnProperty.call(checkpoint, "quickstart_phase");
         const before = (checkpoint.quickstart_phase ?? null) as string | null;
-        const changed = before !== null;
+        const wouldChange = !beforePresent || before !== null;
 
         if (json) {
-          printJson(okJson("repair", { rootDir, applied: false, actions: ["reset_quickstart"], changed, before, after: before }));
+          printJson(
+            okJson("repair", {
+              rootDir,
+              applied: false,
+              actions: ["reset_quickstart"],
+              before_present: beforePresent,
+              after_present: beforePresent,
+              changed: false,
+              would_change: wouldChange,
+              before,
+              after: before,
+              target_after: null
+            })
+          );
           return;
         }
 
-        if (!changed) {
+        if (!wouldChange) {
           process.stdout.write("No changes needed: quickstart_phase is already null.\n");
           return;
         }
-        process.stdout.write(`Preview: reset quickstart_phase ${before} -> null\n`);
+        process.stdout.write(`Preview: set quickstart_phase ${beforePresent ? before : "<missing>"} -> null\n`);
         process.stdout.write("Re-run with --force to apply.\n");
         return;
       }
 
       const applied = await withWriteLock(rootDir, {}, async () => {
         const checkpoint = await readCheckpoint(rootDir);
+        const beforePresent = Object.prototype.hasOwnProperty.call(checkpoint, "quickstart_phase");
         const before = (checkpoint.quickstart_phase ?? null) as string | null;
-        const changed = before !== null;
-        if (!changed) return { before, changed, checkpoint };
+        const wouldChange = !beforePresent || before !== null;
+        if (!wouldChange) return { beforePresent, before, wouldChange, wrote: false, checkpoint };
 
         const updated = { ...checkpoint, quickstart_phase: null, last_checkpoint_time: new Date().toISOString() };
         await writeCheckpoint(rootDir, updated);
-        return { before, changed, checkpoint: await readCheckpoint(rootDir) };
+        return { beforePresent, before, wouldChange, wrote: true, checkpoint: await readCheckpoint(rootDir) };
       });
 
+      const afterPresent = Object.prototype.hasOwnProperty.call(applied.checkpoint, "quickstart_phase");
       const after = applied.checkpoint.quickstart_phase ?? null;
-      if (after !== null) {
+      if (!afterPresent || after !== null) {
         throw new NovelCliError(`Repair failed: quickstart_phase is still ${String(after)} (expected null).`, 2);
       }
 
       if (json) {
-        printJson(okJson("repair", { rootDir, applied: true, actions: ["reset_quickstart"], changed: applied.changed, before: applied.before, after: null }));
+        printJson(
+          okJson("repair", {
+            rootDir,
+            applied: true,
+            actions: ["reset_quickstart"],
+            before_present: applied.beforePresent,
+            after_present: afterPresent,
+            changed: applied.wrote,
+            would_change: applied.wouldChange,
+            before: applied.before,
+            after: null,
+            target_after: null
+          })
+        );
         return;
       }
 
-      if (!applied.changed) {
+      if (!applied.wrote) {
         process.stdout.write("No changes needed: quickstart_phase is already null.\n");
         return;
       }
-      process.stdout.write(`Reset quickstart_phase ${applied.before} -> null\n`);
+      process.stdout.write(`Set quickstart_phase ${applied.beforePresent ? applied.before : "<missing>"} -> null\n`);
     });
 
   const lock = program.command("lock").description("Manage project lock (.novel.lock).");
