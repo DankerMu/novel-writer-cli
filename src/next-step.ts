@@ -10,6 +10,7 @@ import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
 import { QUICKSTART_STAGING_RELS } from "./quickstart.js";
+import { validateQuickstartRulesSchema, validateQuickstartStyleProfileSchema } from "./quickstart-validators.js";
 import { computeReviewNext } from "./volume-review.js";
 
 type LoadedProfile = { relPath: string; profile: PlatformProfile };
@@ -685,23 +686,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
   let rulesError: string | null = null;
   if (rulesExists) {
     try {
-      const raw = await readJsonFile(rulesAbs);
-      if (!isPlainObject(raw)) throw new Error("expected JSON object");
-      const obj = raw as Record<string, unknown>;
-      const rules = obj.rules;
-      if (!Array.isArray(rules)) throw new Error("missing 'rules' array");
-      for (const [idx, rule] of rules.entries()) {
-        if (!isPlainObject(rule)) throw new Error(`rules[${idx}] must be an object`);
-        const r = rule as Record<string, unknown>;
-        if (typeof r.id !== "string" || r.id.trim().length === 0) throw new Error(`rules[${idx}].id must be a non-empty string`);
-        if (typeof r.category !== "string" || r.category.trim().length === 0) {
-          throw new Error(`rules[${idx}].category must be a non-empty string`);
-        }
-        if (typeof r.rule !== "string" || r.rule.trim().length === 0) throw new Error(`rules[${idx}].rule must be a non-empty string`);
-        const ct = r.constraint_type;
-        if (ct !== "hard" && ct !== "soft") throw new Error(`rules[${idx}].constraint_type must be hard|soft`);
-        if (!Array.isArray(r.exceptions)) throw new Error(`rules[${idx}].exceptions must be an array`);
-      }
+      await validateQuickstartRulesSchema(rulesAbs);
       rulesOk = true;
     } catch (err: unknown) {
       rulesError = err instanceof Error ? err.message : String(err);
@@ -713,14 +698,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
   let styleError: string | null = null;
   if (styleExists) {
     try {
-      const raw = await readJsonFile(styleAbs);
-      if (!isPlainObject(raw)) throw new Error("expected JSON object");
-      const obj = raw as Record<string, unknown>;
-      const sourceType = obj.source_type;
-      if (typeof sourceType !== "string" || sourceType.trim().length === 0) throw new Error("missing 'source_type'");
-      if (sourceType !== "original" && sourceType !== "reference" && sourceType !== "template" && sourceType !== "write_then_extract") {
-        throw new Error(`invalid source_type=${sourceType}`);
-      }
+      await validateQuickstartStyleProfileSchema(styleAbs);
       styleOk = true;
     } catch (err: unknown) {
       styleError = err instanceof Error ? err.message : String(err);
