@@ -28,7 +28,7 @@
 ## 4. Blacklist Metadata
 
 - [x] 4.1 Add `max_words: 250` field to `templates/ai-blacklist.json` root level
-- [x] 4.2 Add `replacement_hint` field support to blacklist entry schema (optional string)
+- [x] 4.2 Add `replacement_hint` field support to blacklist entry schema (required string)
 - [x] 4.3 Add `per_chapter_max` field support to blacklist entry schema (optional int)
 - [x] 4.4 Add `genre_override` field support to `category_metadata` (optional object mapping genre → adjusted rules)
 - [x] 4.5 Update `version` to `"2.0.0"` and add entry to `update_log` documenting the expansion (date, description, new count)
@@ -40,6 +40,6 @@
 - [x] 5.3 Verify `narration_connector` category has `context: "narration_only"` in `category_metadata`
 - [x] 5.4 Verify all entries in flat `words` array are unique (no duplicates)
 - [x] 5.5 Verify `max_words` (250) >= current total unique entries
-- [x] 5.6 Verify every entry has optional `replacement_hint` where applicable
+- [x] 5.6 Verify every entry has `replacement_hint`
 - [x] 5.7 Verify `per_chapter_max` entries have valid positive integer values
 - [x] 5.8 Cross-reference with `docs/anti-ai-polish.md` — verify all 10 categories from the guide are represented

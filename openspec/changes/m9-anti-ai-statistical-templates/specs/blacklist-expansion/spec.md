@@ -7,7 +7,7 @@ A new `category_metadata` object SHALL be added to `ai-blacklist.json` at root l
 Entries in `narration_connector` SHALL NOT be added to the flat `words` array (to avoid global enforcement before context-aware lint is implemented in CS-A4). They exist only in `categories.narration_connector`.
 
 #### Scenario: narration_connector category entries forbidden in narration paragraphs only
-- **GIVEN** `ai-blacklist.json` has a `narration_connector` category with entries like "然而", "不过", "显然"
+- **GIVEN** `ai-blacklist.json` has a `narration_connector` category with entries like "然而", "不过", "因此"
 - **AND** `category_metadata.narration_connector.context` is `"narration_only"`
 - **WHEN** a lint tool processes a narration paragraph containing "然而"
 - **THEN** the word is flagged as a blacklist violation
