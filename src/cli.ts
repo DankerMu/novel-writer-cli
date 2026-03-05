@@ -883,7 +883,7 @@ function buildProgram(argv: string[]): Command {
               applied: false,
               actions: ["reset_quickstart"],
               before_present: beforePresent,
-              after_present: beforePresent,
+              after_present: true,
               changed: false,
               would_change: wouldChange,
               before,

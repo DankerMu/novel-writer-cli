@@ -140,6 +140,67 @@ test("novel repair --reset-quickstart --force normalizes missing quickstart_phas
   assert.equal(checkpoint.quickstart_phase, null);
 });
 
+test("novel repair --reset-quickstart --force is idempotent when already null (json mode)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-cli-repair-quickstart-noop-"));
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: null
+  });
+
+  const res = await runCli(["--json", "--project", rootDir, "repair", "--reset-quickstart", "--force"]);
+  assert.equal(res.code, 0);
+  const payload = JSON.parse(res.stdout.trim());
+  assert.equal(payload.ok, true);
+  assert.equal(payload.data.applied, true);
+  assert.equal(payload.data.changed, false);
+  assert.equal(payload.data.would_change, false);
+  assert.equal(payload.data.before, null);
+  assert.equal(payload.data.after, null);
+});
+
+test("novel repair --reset-quickstart fails gracefully when checkpoint missing (json mode)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-cli-repair-quickstart-no-checkpoint-"));
+
+  const res = await runCli(["--json", "--project", rootDir, "repair", "--reset-quickstart", "--force"]);
+  assert.equal(res.code, 2);
+  const payload = JSON.parse(res.stdout.trim());
+  assert.equal(payload.ok, false);
+  assert.equal(payload.command, "repair");
+});
+
+test("novel repair --reset-quickstart fails gracefully when checkpoint is corrupt JSON (json mode)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-cli-repair-quickstart-corrupt-"));
+  await writeText(join(rootDir, ".checkpoint.json"), "{ broken json !!!}");
+
+  const res = await runCli(["--json", "--project", rootDir, "repair", "--reset-quickstart", "--force"]);
+  assert.ok(res.code !== 0, `expected non-zero exit code, got ${res.code}`);
+  const payload = JSON.parse(res.stdout.trim());
+  assert.equal(payload.ok, false);
+  assert.equal(payload.command, "repair");
+});
+
+test("novel repair preview reports after_present=true even when field is missing (json mode)", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-cli-repair-quickstart-preview-missing-"));
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  const res = await runCli(["--json", "--project", rootDir, "repair", "--reset-quickstart"]);
+  assert.equal(res.code, 0);
+  const payload = JSON.parse(res.stdout.trim());
+  assert.equal(payload.data.before_present, false);
+  assert.equal(payload.data.after_present, true);
+  assert.equal(payload.data.would_change, true);
+});
+
 test("novel repair rejects missing actions (json mode)", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-cli-repair-missing-action-"));
   await writeJson(join(rootDir, ".checkpoint.json"), {
