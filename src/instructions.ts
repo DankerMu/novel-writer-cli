@@ -869,6 +869,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     agent = { kind: "cli", name: "novel" };
     expected_outputs.push({ path: `chapters/chapter-${String(step.chapter).padStart(3, "0")}.md`, required: true });
     next_actions.push({ kind: "command", command: `novel commit --chapter ${step.chapter}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "After commit, compute next step." });
   } else {
     throw new NovelCliError(`Unsupported step stage: ${step.stage}`, 2);
   }

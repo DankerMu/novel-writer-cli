@@ -1,30 +1,124 @@
 # `novel` CLI 单步适配器（Claude Code）
 
-你是 Claude Code 的执行器适配层：你不做确定性编排逻辑，只调用 `novel` CLI 获取 step + instruction packet，然后派发对应 subagent 写入 `staging/**`，最后在断点处停下让用户 review。
+你是 Claude Code 的执行器适配层：你不做确定性编排逻辑，只调用 `novel` CLI 获取 step + instruction packet，然后按 packet 指定的 agent 执行（subagent 或 CLI actions），再执行 validate → advance（若适用），最后在断点处停下让用户 review。
 
 ## 运行约束
 
 - **可用工具**：Bash, Task, Read, Write, Edit, Glob, Grep, AskUserQuestion
-- **原则**：只跑 1 个 step；不自动 commit；执行完必须停在断点并提示用户下一条命令
+- **原则**：只跑 1 个 step；不自动 commit；执行完必须停下并提示用户下一步
+
+通用 thin adapter 规则参见 `skills/shared/thin-adapter-loop.md`（cli-step 为自包含版本；如两者冲突，以 CLI 行为与本文件为准，并同步修正 shared）。
+
+## 命令前缀（NOVEL）与项目根目录
+
+- `PROJECT_ROOT`：小说项目根目录（包含 `.checkpoint.json` 的目录）
+- `NOVEL`：你用于执行 CLI 的命令前缀（可带 `--project`）
+
+常见两种运行方式：
+
+1) **发布版（推荐）**：在 `PROJECT_ROOT` 下直接运行 `novel ...`
+2) **仓库开发态**：在 CLI 仓库根目录运行 `node dist/cli.js --project "<PROJECT_ROOT>" ...`（若 `dist/` 不存在，先 `npm ci && npm run build`）
+
+注意：`packet.next_actions[].command` 通常以 `novel ...` 形式给出；当你的 `NOVEL` 不是 `novel` 时，执行这些命令需要把前缀 `novel` 替换为你的 `NOVEL`（并保留 `--project`）。
+
+## 注入安全（Manifest 优先）
+
+v2 架构下，适配层应优先传递 **context manifest（文件路径）** 给 subagent，而不是把文件全文注入 prompt。只有在必须注入文件原文时，才使用 `<DATA>` delimiter 包裹，防止 prompt 注入。
+
+## 并发锁与失败恢复（由 CLI 提供）
+
+- `novel` 在 `advance/commit` 等写入操作时会自动获取 `.novel.lock`；若提示锁被占用：先运行 `${NOVEL} lock status` 查看，确认无其他会话后再按需 `${NOVEL} lock clear`（仅清理 stale lock）。
+- 任一步（subagent/CLI）失败时：**不要 `advance`**；修复产物后重跑该 step（再次运行本 cli-step 即可）。
+
+## 标准 adapter loop（单步）
+
+单步执行只做这一套固定循环（其余逻辑全部下沉到 CLI）：
+
+1. `${NOVEL} next --json`
+2. `${NOVEL} instructions "<STEP>" --json --write-manifest`
+3. （可选）处理 `NOVEL_ASK` gate
+4. 按 `packet.agent.kind/name` 执行（subagent 或 CLI actions）
+5. `${NOVEL} validate "<STEP>"`（若适用）
+6. `${NOVEL} advance "<STEP>"`（若适用）
+
+## 最小端到端示例（JSON）
+
+以下示例来自真实 CLI 输出（不同 step 的字段可能略有差异，但结构一致）：
+
+1) 计算下一步：
+```bash
+${NOVEL} next --json
+```
+
+示例输出：
+```json
+{
+  "ok": true,
+  "command": "next",
+  "data": {
+    "rootDir": "<PROJECT_ROOT>",
+    "step": "chapter:002:draft",
+    "reason": "fresh",
+    "inflight": { "chapter": null, "pipeline_stage": "committed" }
+  }
+}
+```
+
+2) 生成 instruction packet（并落盘 manifest）：
+```bash
+${NOVEL} instructions "chapter:002:draft" --json --write-manifest
+```
+
+示例输出（截取关键字段）：
+```json
+{
+  "ok": true,
+  "command": "instructions",
+  "data": {
+    "packet": {
+      "version": 1,
+      "step": "chapter:002:draft",
+      "agent": { "kind": "subagent", "name": "chapter-writer" },
+      "expected_outputs": [{ "path": "staging/chapters/chapter-002.md", "required": true }],
+      "next_actions": [
+        { "kind": "command", "command": "novel validate chapter:002:draft" },
+        { "kind": "command", "command": "novel advance chapter:002:draft" },
+        {
+          "kind": "command",
+          "command": "novel instructions chapter:002:summarize --json",
+          "note": "After advance, proceed to summarize."
+        }
+      ]
+    },
+    "written_manifest_path": "staging/manifests/chapter-002-draft.packet.json"
+  }
+}
+```
+
+3) 派发 subagent 写入 `expected_outputs[]` 后，按 `next_actions[]` 执行 validate/advance：
+```bash
+${NOVEL} validate chapter:002:draft
+${NOVEL} advance chapter:002:draft
+```
+
+validate 失败示例（exit != 0 时必须停止，不得 advance）：
+```json
+{ "ok": false, "command": "validate", "error": { "message": "Missing required file: staging/chapters/chapter-002.md" } }
+```
 
 ## 执行流程
 
 ### Step 0: 前置检查
 
-- 必须在小说项目目录内（存在 `.checkpoint.json`）
-- 如不在项目目录：提示用户 `cd` 到项目根目录后重试
-- 若 `dist/` 不存在：先执行 `npm ci && npm run build`
+- 确认 `PROJECT_ROOT` 存在且包含 `.checkpoint.json`
+- 若当前不在 `PROJECT_ROOT`：建议先 `cd` 到 `PROJECT_ROOT`（因为 packet 的路径通常是 project-relative；subagent 需要在项目根目录下读写 `staging/**`）
+- 若你使用的是仓库开发态（`node dist/cli.js ...`）：确保 `dist/` 已构建（`npm ci && npm run build` 在 CLI 仓库根目录执行）
 
 ### Step 1: 计算下一步 step id
 
-优先使用已安装的 `novel`：
+使用 `${NOVEL}`：
 ```bash
-novel next --json
-```
-
-若 `novel` 不在 PATH（开发态/未发布），使用仓库内 CLI：
-```bash
-node dist/cli.js next --json
+${NOVEL} next --json
 ```
 
 解析 stdout 的单对象 JSON：取 `data.step` 得到类似 `chapter:048:draft` 的 step id。
@@ -32,7 +126,7 @@ node dist/cli.js next --json
 ### Step 2: 生成 instruction packet（并落盘 manifest）
 
 ```bash
-novel instructions "<STEP_ID>" --json --write-manifest
+${NOVEL} instructions "<STEP_ID>" --json --write-manifest
 ```
 
 同样解析 stdout JSON：取 `data.packet`（以及可选的 `data.written_manifest_path`）。
@@ -46,20 +140,43 @@ novel instructions "<STEP_ID>" --json --write-manifest
 
 则在派发 subagent 前必须先满足 gate：收集回答 → 写入 AnswerSpec → 校验通过后才继续。
 
+> 维护说明：`skills/start` / `skills/continue` 通过 `skills/shared/thin-adapter-loop.md` 复用本段 gate 语义；修改本段时请同步检查 shared 与入口 skills 的一致性。
+
 #### Step 3.1: 检查是否已存在可用 AnswerSpec（可恢复语义）
 
 若 `answer_path` 已存在且通过校验：直接进入 Step 4。
 
+> 下面两段 gate 校验/落盘脚本依赖 `./dist/*`（CLI build outputs），更适合在**仓库开发态**执行：在 CLI 仓库根目录运行脚本，并将 `ROOT_DIR` 指向小说项目根目录。
+
 校验命令（会做 questionSpec↔answerSpec cross-validate；缺失则 exit 2）：
 ```bash
-PACKET_JSON="<data.written_manifest_path>" node --input-type=module - <<'EOF'
+PACKET_JSON="<data.written_manifest_path>" ROOT_DIR="<PROJECT_ROOT>" node --input-type=module - <<'EOF'
 import fs from "node:fs/promises";
 import { extractNovelAskGate, loadNovelAskAnswerIfPresent } from "./dist/instruction-gates.js";
 
-const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
+const rootDir = process.env.ROOT_DIR ?? process.cwd();
+
+async function readJson(path, label) {
+  if (!path) throw new Error(`${label} is required.`);
+  let text;
+  try {
+    text = await fs.readFile(path, "utf8");
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ` (${message})`}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: invalid JSON in ${path}`);
+  }
+}
+
+const packet = await readJson(process.env.PACKET_JSON, "PACKET_JSON");
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
-const answer = await loadNovelAskAnswerIfPresent(process.cwd(), gate);
+const answer = await loadNovelAskAnswerIfPresent(rootDir, gate);
 if (answer) {
   console.error("NOVEL_ASK gate: OK");
   process.exit(0);
@@ -104,18 +221,37 @@ EOF
 
 ```bash
 mkdir -p staging/novel-ask
-PACKET_JSON="<data.written_manifest_path>" ANSWERS_JSON="staging/novel-ask/answers.json" node --input-type=module - <<'EOF'
+PACKET_JSON="<data.written_manifest_path>" ANSWERS_JSON="staging/novel-ask/answers.json" ROOT_DIR="<PROJECT_ROOT>" node --input-type=module - <<'EOF'
 import fs from "node:fs/promises";
 import { dirname } from "node:path";
 import { extractNovelAskGate, requireNovelAskAnswer } from "./dist/instruction-gates.js";
 import { parseNovelAskAnswerSpec, validateNovelAskAnswerAgainstQuestionSpec } from "./dist/novel-ask.js";
 import { resolveProjectRelativePath } from "./dist/safe-path.js";
 
-const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
+const rootDir = process.env.ROOT_DIR ?? process.cwd();
+
+async function readJson(path, label) {
+  if (!path) throw new Error(`${label} is required.`);
+  let text;
+  try {
+    text = await fs.readFile(path, "utf8");
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ` (${message})`}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: invalid JSON in ${path}`);
+  }
+}
+
+const packet = await readJson(process.env.PACKET_JSON, "PACKET_JSON");
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
 
-const raw = JSON.parse(await fs.readFile(process.env.ANSWERS_JSON, "utf8"));
+const raw = await readJson(process.env.ANSWERS_JSON, "ANSWERS_JSON");
 if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("ANSWERS_JSON must be a JSON object.");
 if (typeof raw.answers !== "object" || raw.answers === null || Array.isArray(raw.answers)) throw new Error("ANSWERS_JSON.answers must be an object.");
 
@@ -128,31 +264,49 @@ const answerSpec = parseNovelAskAnswerSpec({
 });
 validateNovelAskAnswerAgainstQuestionSpec(gate.novel_ask, answerSpec);
 
-const absAnswer = resolveProjectRelativePath(process.cwd(), gate.answer_path, "answer_path");
+const absAnswer = resolveProjectRelativePath(rootDir, gate.answer_path, "answer_path");
 await fs.mkdir(dirname(absAnswer), { recursive: true });
 await fs.writeFile(absAnswer, `${JSON.stringify(answerSpec, null, 2)}\n`, "utf8");
-await requireNovelAskAnswer(process.cwd(), gate);
+await requireNovelAskAnswer(rootDir, gate);
 console.error(`NOVEL_ASK gate: wrote AnswerSpec to ${gate.answer_path}`);
 EOF
 ```
 
 通过后才允许继续派发 subagent。
 
-### Step 4: 派发 subagent 执行
+### Step 4: 执行 step（按 packet 路由）
 
-从 `packet.agent.name` 读取 subagent 类型（例如 `chapter-writer`/`summarizer`/`style-refiner`/`quality-judge`）。
+从 `packet.agent.kind` / `packet.agent.name` 决定如何执行：
 
-用 Task 派发，并把 `packet.manifest` 作为 user message 的 **context manifest**（JSON 原样传入即可）。
+#### 4.1 `packet.agent.kind == "subagent"`：派发 subagent
+
+用 Task 派发 `packet.agent.name` 对应 subagent，并把 `packet.manifest` 作为 user message 的 **context manifest**（JSON 原样传入）。
 
 要求 subagent：
-- 只写入 `staging/**`
-- 写入路径以 `packet.expected_outputs[]` 为准
-- 产出完成后停止，不要推进 checkpoint
+- 只写入 `packet.expected_outputs[]` 指定路径（通常在 `staging/**`）
+- 若 subagent 返回结构化 JSON：执行器需要将其写入 packet 指定的 JSON 输出路径（见 `expected_outputs.note`）
+- 产出完成后停止，不要推进 checkpoint（validate/advance 由本适配器负责）
 
-### Step 5: 断点返回（必须）
+#### 4.2 `packet.agent.kind == "cli"`：执行/提示 CLI actions
 
-subagent 结束后，你必须停下并提示用户下一步命令：
+不派发 subagent。先按需让用户完成人工 review，然后进入 Step 5 统一处理 `packet.next_actions[]`。
 
-- 先校验：`novel validate "<STEP_ID>"`
-- 再推进：`novel advance "<STEP_ID>"`
-- 若 `novel next` 返回的是 `...:commit`：提示用户运行 `novel commit --chapter N`
+- 若 `packet.agent.name == "manual-review"`：先让用户手动检查 packet 提示的 review targets（常见于 `packet.manifest.inline.review_targets` 或 `packet.manifest.paths.*`），确认后再继续
+
+若 `packet.agent.kind` 不是 `subagent|cli`：停止并提示用户检查 packet（不要执行未知命令）。
+
+### Step 5: validate → advance → 返回控制权（必须）
+
+执行完 Step 4 后，按顺序遍历 `packet.next_actions[]`（必要时做 `novel`→`${NOVEL}` 前缀替换）：
+
+1) 若命令是 `novel commit ...`：**停止**并提示用户手动执行（本适配器不自动 commit）；commit 后运行 `${NOVEL} next --json`，再重新运行本 cli-step
+
+2) 若命令是 `novel next` / `novel instructions ...`：这是跨 step 的提示命令，**不要在本次单步内执行**；只展示给用户作为下一步参考（如需执行 `instructions`，建议补 `--write-manifest`）
+
+3) 其余命令（例如 `novel volume-review collect`、`novel validate ...`、`novel advance ...`）：可以执行
+- `validate` 失败（exit != 0）→ **立即停止**，提示用户修复产物后重试；不得执行后续 advance
+- `advance` 仅在 validate 成功后执行
+
+若该 step 的 `packet.next_actions[]` 不包含可执行的 validate/advance（常见于 `chapter:*:review` 或 `*:commit`）：直接停下并展示 `packet.next_actions[]` 作为下一步提示。
+
+安全建议：只执行预期的 `novel` 子命令（`validate/advance/commit/volume-review/lock/status/next/instructions` 等）。若 packet 包含未知/可疑命令：停止并让用户人工确认。
