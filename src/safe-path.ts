@@ -1,4 +1,5 @@
-import { isAbsolute, join, sep } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join, sep } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 
@@ -28,5 +29,26 @@ export function resolveProjectRelativePath(projectRootAbs: string, relPath: stri
   rejectPathTraversalInput(relPath, label);
   const abs = join(projectRootAbs, relPath);
   assertInsideProjectRoot(projectRootAbs, abs);
+
+  // Symlink-aware containment check: prevent resolving to a path outside the project root.
+  // - If the target exists, validate its realpath.
+  // - If the target doesn't exist yet (write target), validate the nearest existing ancestor dir realpath.
+  const rootReal = realpathSync(projectRootAbs);
+  if (existsSync(abs)) {
+    const realAbs = realpathSync(abs);
+    assertInsideProjectRoot(rootReal, realAbs);
+  } else {
+    let probe = dirname(abs);
+    while (probe !== projectRootAbs && !existsSync(probe)) {
+      const parent = dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+    }
+    if (existsSync(probe)) {
+      const realProbe = realpathSync(probe);
+      assertInsideProjectRoot(rootReal, realProbe);
+    }
+  }
+
   return abs;
 }

@@ -841,33 +841,42 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
 
   const checkpointPhase = checkpoint.quickstart_phase ?? null;
   if (checkpointPhase) {
-    const idx = QUICKSTART_PHASES.indexOf(checkpointPhase);
-    if (idx >= 0) {
-      const floorIdx = Math.min(QUICKSTART_PHASES.length - 1, idx + 1);
-      if (selectedPhaseIdx < floorIdx) {
-        const expectedPath = (() => {
-          switch (selectedPhase) {
-            case "world":
-              return QUICKSTART_STAGING_RELS.rulesJson;
-            case "characters":
-              return QUICKSTART_STAGING_RELS.contractsDir;
-            case "style":
-              return QUICKSTART_STAGING_RELS.styleProfileJson;
-            case "trial":
-              return QUICKSTART_STAGING_RELS.trialChapterMd;
-            case "results":
-              return QUICKSTART_STAGING_RELS.evaluationJson;
-            default: {
-              const _exhaustive: never = selectedPhase;
-              return String(_exhaustive);
-            }
+    const checkpointIdx = QUICKSTART_PHASES.indexOf(checkpointPhase);
+    if (checkpointIdx >= 0 && selectedPhaseIdx < checkpointIdx) {
+      const expectedPath = (() => {
+        switch (selectedPhase) {
+          case "world":
+            return QUICKSTART_STAGING_RELS.rulesJson;
+          case "characters":
+            return QUICKSTART_STAGING_RELS.contractsDir;
+          case "style":
+            return QUICKSTART_STAGING_RELS.styleProfileJson;
+          case "trial":
+            return QUICKSTART_STAGING_RELS.trialChapterMd;
+          case "results":
+            return QUICKSTART_STAGING_RELS.evaluationJson;
+          default: {
+            const _exhaustive: never = selectedPhase;
+            return String(_exhaustive);
           }
-        })();
-        throw new NovelCliError(
-          `Quickstart recovery blocked: .checkpoint.json.quickstart_phase=${checkpointPhase} but staging artifacts indicate missing/corrupt phase=${selectedPhase} (expected: ${expectedPath}). Restore staging/quickstart artifacts, or set .checkpoint.json.quickstart_phase=null to redo quickstart.`,
-          2
-        );
-      }
+        }
+      })();
+
+      return {
+        ...selected,
+        reason: `quickstart:recovery_blocked:${checkpointPhase}`,
+        evidence: {
+          ...evidence,
+          recovery_blocked: {
+            checkpoint_phase: checkpointPhase,
+            checkpoint_phase_idx: checkpointIdx,
+            inferred_phase: selectedPhase,
+            inferred_phase_idx: selectedPhaseIdx,
+            inferred_reason: selected.reason,
+            expected_path: expectedPath
+          }
+        }
+      };
     }
   }
 

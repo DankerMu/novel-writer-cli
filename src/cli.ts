@@ -159,6 +159,19 @@ function buildProgram(argv: string[]): Command {
         return;
       }
 
+      if (isPlainObject(next.evidence)) {
+        const blocked = (next.evidence as Record<string, unknown>).recovery_blocked;
+        if (isPlainObject(blocked)) {
+          const obj = blocked as Record<string, unknown>;
+          const checkpointPhase = typeof obj.checkpoint_phase === "string" ? obj.checkpoint_phase : "unknown";
+          const inferredPhase = typeof obj.inferred_phase === "string" ? obj.inferred_phase : "unknown";
+          const expectedPath = typeof obj.expected_path === "string" ? obj.expected_path : "unknown";
+          process.stderr.write(
+            `WARN: quickstart recovery blocked (checkpoint_phase=${checkpointPhase}, inferred_phase=${inferredPhase}, expected=${expectedPath}). Run 'novel status' for details.\n`
+          );
+        }
+      }
+
       process.stdout.write(`${next.step}\n`);
     });
 

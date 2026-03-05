@@ -208,6 +208,7 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
         await commitQuickStartArtifacts();
         updated.orchestrator_state = "VOL_PLANNING";
         updated.volume_pipeline_stage = null;
+        updated.quickstart_phase = null;
       } else {
         updated.orchestrator_state = "QUICK_START";
       }

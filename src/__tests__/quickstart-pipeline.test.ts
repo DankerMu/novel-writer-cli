@@ -104,7 +104,7 @@ test("computeNextStep recovers quickstart phase from staging artifacts", async (
   assert.equal(next.reason, "quickstart:results:artifacts_present");
 });
 
-test("computeNextStep blocks quickstart rollback when quickstart_phase is present but artifacts are missing", async () => {
+test("computeNextStep allows redoing current quickstart phase when artifacts are missing", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-checkpoint-"));
 
   await writeJson(join(rootDir, ".checkpoint.json"), {
@@ -116,7 +116,9 @@ test("computeNextStep blocks quickstart rollback when quickstart_phase is presen
     quickstart_phase: "world"
   });
 
-  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+  const next = await computeNextStep(rootDir, await readCheckpoint(rootDir));
+  assert.equal(next.step, "quickstart:world");
+  assert.equal(next.reason, "quickstart:world");
 });
 
 test("computeNextStep blocks quickstart rollback when quickstart_phase=characters but world artifacts are missing", async () => {
@@ -131,10 +133,15 @@ test("computeNextStep blocks quickstart rollback when quickstart_phase=character
     quickstart_phase: "characters"
   });
 
-  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+  const next = await computeNextStep(rootDir, await readCheckpoint(rootDir));
+  assert.equal(next.step, "quickstart:world");
+  assert.match(next.reason, /quickstart:recovery_blocked/);
+  assert.equal((next.evidence as any).recovery_blocked.checkpoint_phase, "characters");
+  assert.equal((next.evidence as any).recovery_blocked.inferred_phase, "world");
+  assert.equal((next.evidence as any).recovery_blocked.expected_path, "staging/quickstart/rules.json");
 });
 
-test("computeNextStep blocks quickstart rollback when quickstart_phase=style but style profile is missing", async () => {
+test("computeNextStep allows redoing style phase when style profile is missing", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-style-"));
 
   await writeJson(join(rootDir, ".checkpoint.json"), {
@@ -149,10 +156,12 @@ test("computeNextStep blocks quickstart rollback when quickstart_phase=style but
   await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
   await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
 
-  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+  const next = await computeNextStep(rootDir, await readCheckpoint(rootDir));
+  assert.equal(next.step, "quickstart:style");
+  assert.equal(next.reason, "quickstart:style");
 });
 
-test("computeNextStep blocks quickstart rollback when quickstart_phase=trial but trial chapter is missing", async () => {
+test("computeNextStep allows redoing trial phase when trial chapter is missing", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-trial-"));
 
   await writeJson(join(rootDir, ".checkpoint.json"), {
@@ -168,7 +177,31 @@ test("computeNextStep blocks quickstart rollback when quickstart_phase=trial but
   await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
 
-  await assert.rejects(async () => computeNextStep(rootDir, await readCheckpoint(rootDir)), /Quickstart recovery blocked/);
+  const next = await computeNextStep(rootDir, await readCheckpoint(rootDir));
+  assert.equal(next.step, "quickstart:trial");
+  assert.equal(next.reason, "quickstart:trial");
+});
+
+test("computeNextStep continues forward when checkpoint quickstart_phase is consistent with staging artifacts", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-recover-happy-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: "style"
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+
+  const next = await computeNextStep(rootDir, await readCheckpoint(rootDir));
+  assert.equal(next.step, "quickstart:trial");
+  assert.equal(next.reason, "quickstart:trial");
+  assert.equal((next.evidence as any).recovery_blocked ?? null, null);
 });
 
 test("buildInstructionPacket (quickstart) includes NOVEL_ASK gate when provided", async () => {
@@ -238,6 +271,7 @@ test("advance quickstart:results commits artifacts and transitions to VOL_PLANNI
   const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "results" } });
   assert.equal(updated.orchestrator_state, "VOL_PLANNING");
   assert.equal(updated.volume_pipeline_stage, null);
+  assert.equal(updated.quickstart_phase ?? null, null);
 
   // Staging quickstart cleared
   assert.equal(await pathExists(join(rootDir, "staging/quickstart")), false);
