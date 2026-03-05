@@ -1,13 +1,13 @@
 ---
 name: novel-cli-step
 description: >
-  Codex adapter: run ONE `novel` step via instruction packet (next → instructions → spawn subagent),
+  Codex adapter: run ONE `novel` step via instruction packet (next → instructions → dispatch agent),
   then stop for human review (no auto-commit).
 ---
 
 # Codex CLI 单步适配器
 
-目标：把确定性编排交给 `novel` CLI，把生成执行交给 subagent；每步后都留断点给用户 review。
+目标：把确定性编排交给 `novel` CLI，把执行交给 instruction packet 指定的 agent（subagent 或 CLI actions）；每步后都留断点给用户 review。
 
 ## 流程（单步）
 
@@ -16,6 +16,8 @@ description: >
 npm ci
 npm run build
 ```
+
+注意：`data.packet.next_actions[]` 里的命令默认以 `novel ...` 形式给出。若当前环境没有安装 `novel` 二进制，请将每条命令的前缀 `novel` 替换为 `node dist/cli.js` 执行。
 
 1) 计算下一步：
 ```bash
@@ -135,18 +137,26 @@ console.error(`NOVEL_ASK gate: wrote AnswerSpec to ${gate.answer_path}`);
 EOF
 ```
 
-4) 执行 subagent：
-- draft → `chapter-writer`
-- summarize → `summarizer`
-- refine → `style-refiner`
-- judge → `quality-judge`（返回 JSON 后，执行器需写入 `staging/evaluations/chapter-XXX-eval.json`）
+4) 按 packet 执行（thin adapter：不做 stage→agent 映射）
 
-5) 断点返回：
-```bash
-node dist/cli.js validate "<STEP>"
-node dist/cli.js advance "<STEP>"
-```
-若 `next` 返回 `...:commit`，则运行：
-```bash
-node dist/cli.js commit --chapter N
-```
+从 `data.packet.agent` 读取执行方式：
+
+- `agent.kind == "subagent"`：
+  - 派发 `agent.name` 对应 subagent（例如 `plot-architect`/`world-builder`/`character-weaver`/`style-analyzer`/`chapter-writer`/`summarizer`/`style-refiner`/`quality-judge`/`consistency-auditor`）
+  - 将 `data.packet.manifest`（JSON 原样）作为 context manifest 传入
+  - 要求 subagent **只写入** `data.packet.expected_outputs[]` 指定路径（通常在 `staging/**`）
+  - 若 subagent 返回结构化 JSON：执行器需将其写入 packet 指定的 JSON 输出路径（见 `expected_outputs.note`）
+
+- `agent.kind == "cli"`：
+  - 不派发 subagent
+  - 逐条执行/提示 `data.packet.next_actions[]`（必要时将 `novel` 前缀替换为 `node dist/cli.js`）
+  - 若 `agent.name == "manual-review"`：先让用户手动检查/确认，再继续执行后续 validate/advance
+  - 若 `next_actions[]` 含 `novel commit ...`：本适配器不自动 commit，应停下并提示用户手动执行该命令
+
+5) 执行 validate/advance（若适用）并返回控制权
+
+优先遵循 `data.packet.next_actions[]`：
+
+- 若包含 `novel validate ...`：执行它；失败则停止（不得 advance）
+- 若包含 `novel advance ...`：仅在 validate 成功后执行
+- 若不包含 validate/advance（常见于 `chapter:*:review` 或 `*:commit`）：直接停下并向用户展示 `next_actions[]` 作为下一步提示

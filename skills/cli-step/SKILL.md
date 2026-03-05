@@ -1,11 +1,22 @@
 # `novel` CLI 单步适配器（Claude Code）
 
-你是 Claude Code 的执行器适配层：你不做确定性编排逻辑，只调用 `novel` CLI 获取 step + instruction packet，然后派发对应 subagent 写入 `staging/**`，最后在断点处停下让用户 review。
+你是 Claude Code 的执行器适配层：你不做确定性编排逻辑，只调用 `novel` CLI 获取 step + instruction packet，然后按 packet 指定的 agent 执行（subagent 或 CLI actions），再执行 validate → advance（若适用），最后在断点处停下让用户 review。
 
 ## 运行约束
 
 - **可用工具**：Bash, Task, Read, Write, Edit, Glob, Grep, AskUserQuestion
-- **原则**：只跑 1 个 step；不自动 commit；执行完必须停在断点并提示用户下一条命令
+- **原则**：只跑 1 个 step；不自动 commit；执行完必须停下并提示用户下一步
+
+## 标准 adapter loop（单步）
+
+单步执行只做这一套固定循环（其余逻辑全部下沉到 CLI）：
+
+1. `novel next --json`
+2. `novel instructions "<STEP>" --json --write-manifest`
+3. （可选）处理 `NOVEL_ASK` gate
+4. 按 `packet.agent.kind/name` 执行（subagent 或 CLI actions）
+5. `novel validate "<STEP>"`（若适用）
+6. `novel advance "<STEP>"`（若适用）
 
 ## 执行流程
 
@@ -138,21 +149,34 @@ EOF
 
 通过后才允许继续派发 subagent。
 
-### Step 4: 派发 subagent 执行
+### Step 4: 执行 step（按 packet 路由）
 
-从 `packet.agent.name` 读取 subagent 类型（例如 `chapter-writer`/`summarizer`/`style-refiner`/`quality-judge`）。
+从 `packet.agent.kind` / `packet.agent.name` 决定如何执行：
 
-用 Task 派发，并把 `packet.manifest` 作为 user message 的 **context manifest**（JSON 原样传入即可）。
+#### 4.1 `packet.agent.kind == "subagent"`：派发 subagent
+
+用 Task 派发 `packet.agent.name` 对应 subagent，并把 `packet.manifest` 作为 user message 的 **context manifest**（JSON 原样传入）。
 
 要求 subagent：
-- 只写入 `staging/**`
-- 写入路径以 `packet.expected_outputs[]` 为准
-- 产出完成后停止，不要推进 checkpoint
+- 只写入 `packet.expected_outputs[]` 指定路径（通常在 `staging/**`）
+- 若 subagent 返回结构化 JSON：执行器需要将其写入 packet 指定的 JSON 输出路径（见 `expected_outputs.note`）
+- 产出完成后停止，不要推进 checkpoint（validate/advance 由本适配器负责）
 
-### Step 5: 断点返回（必须）
+#### 4.2 `packet.agent.kind == "cli"`：执行/提示 CLI actions
 
-subagent 结束后，你必须停下并提示用户下一步命令：
+不派发 subagent。按 `packet.next_actions[]` 执行/提示命令。
 
-- 先校验：`novel validate "<STEP_ID>"`
-- 再推进：`novel advance "<STEP_ID>"`
-- 若 `novel next` 返回的是 `...:commit`：提示用户运行 `novel commit --chapter N`
+- 若 `packet.agent.name == "manual-review"`：先让用户手动检查 packet 提示的 review targets（常见于 `packet.manifest.inline.review_targets`），确认后才继续执行后续 validate/advance
+- 若 `packet.next_actions[]` 含 `novel commit ...`：本适配器不自动 commit，应在 Step 5 直接停下并提示用户手动执行该命令
+
+### Step 5: validate → advance → 返回控制权（必须）
+
+执行完 Step 4 后：
+
+1) 若 `packet.next_actions[]` 包含 `novel validate "<STEP_ID>"`：执行它
+- 若 validate 失败（exit != 0）→ **立即停止**，提示用户修复产物后重试；不得 advance
+
+2) 若 `packet.next_actions[]` 包含 `novel advance "<STEP_ID>"`：仅在 validate 成功后执行它
+
+3) 若该 step 的 `packet.next_actions[]` 不包含 validate/advance（例如 `chapter:*:review` 或 `*:commit`）：
+- 直接停下，向用户展示 `packet.next_actions[]`，并提示下一条可执行命令
