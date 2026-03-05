@@ -473,7 +473,8 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       const jsonFiles = await listContractJsonFiles(contractsAbs);
 
       // Re-validate the whole quickstart staging set before committing to final dirs.
-      await validateRulesSchema(rulesAbs);
+      const rulesCount = await validateRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
       await validateContractJsonFiles(contractsAbs, jsonFiles);
       await validateStyleProfileSchema(styleAbs);
       const warning = await validateTrialChapter(trialAbs);
