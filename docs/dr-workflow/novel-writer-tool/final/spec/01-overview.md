@@ -57,7 +57,7 @@ Phase 3: 入口 Skill 层
 ```json
 {
   "name": "novel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "中文网文多 Agent 协作创作系统 — 卷制滚动工作流 + 去 AI 化输出",
   "author": {
     "name": "DankerMu",
