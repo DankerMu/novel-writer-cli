@@ -30,3 +30,33 @@ test("readCheckpoint rejects invalid quickstart_phase string", async () => {
   await assert.rejects(() => readCheckpoint(rootDir), /quickstart_phase must be one of:/);
 });
 
+test("readCheckpoint rejects non-string quickstart_phase", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-checkpoint-quickstart-phase-non-string-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    quickstart_phase: 42
+  });
+
+  await assert.rejects(() => readCheckpoint(rootDir), /quickstart_phase must be a string/);
+});
+
+test("readCheckpoint accepts legacy checkpoint without quickstart_phase", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-checkpoint-quickstart-phase-legacy-missing-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(Object.prototype.hasOwnProperty.call(checkpoint, "quickstart_phase"), false);
+  assert.equal(checkpoint.quickstart_phase, undefined);
+});

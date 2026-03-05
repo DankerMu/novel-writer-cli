@@ -30,3 +30,25 @@ test("resolveProjectRelativePath rejects symlink escapes outside project root", 
   );
 });
 
+test("resolveProjectRelativePath rejects symlink escapes for non-existent write targets", async (t) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-safe-path-root-write-"));
+  const outsideDir = await mkdtemp(join(tmpdir(), "novel-safe-path-outside-write-"));
+
+  await mkdir(join(rootDir, "staging"), { recursive: true });
+
+  try {
+    await symlink(outsideDir, join(rootDir, "staging/evil"), "dir");
+  } catch (err: unknown) {
+    const code = err instanceof Error ? (err as any).code : null;
+    if (code === "EPERM" || code === "EACCES") {
+      t.skip(`symlink not permitted in this environment: ${code}`);
+      return;
+    }
+    throw err;
+  }
+
+  assert.throws(
+    () => resolveProjectRelativePath(rootDir, "staging/evil/subdir/newfile.json", "testPath"),
+    /Unsafe path outside project root/
+  );
+});
