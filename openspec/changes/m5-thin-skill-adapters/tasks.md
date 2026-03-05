@@ -20,6 +20,11 @@
 - [x] 验证 cli-step 单步执行并返回控制权
 - [x] 验证 skill 层无残留的确定性编排逻辑（全部下沉到 CLI）
 
+### 验证记录（简要）
+
+- 通过临时目录 `--project <tmp>` 跑通 `init(minimal) → quickstart → volume:outline/validate/commit → WRITING`，并确认下一步为 `chapter:001:draft`
+- 在仓库示例项目 `text-novel/` 下运行 `status/next` 确认可从 `WRITING` 恢复推进
+
 ## References
 
 - `openspec/changes/m5-thin-skill-adapters/proposal.md`

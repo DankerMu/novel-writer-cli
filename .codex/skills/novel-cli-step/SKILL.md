@@ -56,7 +56,24 @@ import fs from "node:fs/promises";
 import { extractNovelAskGate, loadNovelAskAnswerIfPresent } from "./dist/instruction-gates.js";
 
 const rootDir = process.env.ROOT_DIR ?? process.cwd();
-const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
+
+async function readJson(path, label) {
+  if (!path) throw new Error(`${label} is required.`);
+  let text;
+  try {
+    text = await fs.readFile(path, "utf8");
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ""}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: invalid JSON in ${path}`);
+  }
+}
+
+const packet = await readJson(process.env.PACKET_JSON, "PACKET_JSON");
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
 const answer = await loadNovelAskAnswerIfPresent(rootDir, gate);
@@ -116,11 +133,28 @@ import { parseNovelAskAnswerSpec, validateNovelAskAnswerAgainstQuestionSpec } fr
 import { resolveProjectRelativePath } from "./dist/safe-path.js";
 
 const rootDir = process.env.ROOT_DIR ?? process.cwd();
-const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
+
+async function readJson(path, label) {
+  if (!path) throw new Error(`${label} is required.`);
+  let text;
+  try {
+    text = await fs.readFile(path, "utf8");
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
+    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ""}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${label}: invalid JSON in ${path}`);
+  }
+}
+
+const packet = await readJson(process.env.PACKET_JSON, "PACKET_JSON");
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
 
-const raw = JSON.parse(await fs.readFile(process.env.ANSWERS_JSON, "utf8"));
+const raw = await readJson(process.env.ANSWERS_JSON, "ANSWERS_JSON");
 if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("ANSWERS_JSON must be a JSON object.");
 if (typeof raw.answers !== "object" || raw.answers === null || Array.isArray(raw.answers)) throw new Error("ANSWERS_JSON.answers must be an object.");
 
@@ -161,10 +195,12 @@ EOF
 
 按顺序遍历 `data.packet.next_actions[]`（必要时做 `novel`→`node dist/cli.js` 前缀替换）：
 
-- 若命令是 `novel commit ...`：停止并提示用户手动执行（本适配器不自动 commit）
+- 若命令是 `novel commit ...`：停止并提示用户手动执行（本适配器不自动 commit）；commit 后运行 `node dist/cli.js next --json`，再回到第 1 步继续
 - 若命令是 `novel next` / `novel instructions ...`：跨 step 提示命令，不在本次单步内执行；只展示给用户作为下一步参考（如需执行 `instructions`，建议补 `--write-manifest`）
 - 其余命令（例如 `novel volume-review collect`、`novel validate ...`、`novel advance ...`）：可以执行
   - `validate` 失败（exit != 0）→ 立即停止；不得执行后续 advance
   - `advance` 仅在 validate 成功后执行
 
 若该 step 的 `next_actions[]` 不包含可执行的 validate/advance（常见于 `chapter:*:review` 或 `*:commit`）：直接停下并展示 `next_actions[]` 作为下一步提示
+
+并发锁提示：若 CLI 报错提示 lock 被占用，可用 `node dist/cli.js lock status` 查看；确认是 stale lock 后再用 `node dist/cli.js lock clear` 清理。
