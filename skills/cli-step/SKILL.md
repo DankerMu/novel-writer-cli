@@ -94,7 +94,8 @@ async function readJson(path, label) {
     text = await fs.readFile(path, "utf8");
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
-    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ""}`);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ` (${message})`}`);
   }
   try {
     return JSON.parse(text);
@@ -167,7 +168,8 @@ async function readJson(path, label) {
     text = await fs.readFile(path, "utf8");
   } catch (err) {
     const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
-    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ""}`);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`${label}: failed to read ${path}${code === "ENOENT" ? " (not found)" : ` (${message})`}`);
   }
   try {
     return JSON.parse(text);

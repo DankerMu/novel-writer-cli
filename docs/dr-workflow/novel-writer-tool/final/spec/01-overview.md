@@ -11,7 +11,7 @@
 | # | 路径 | 用途 | 依赖 |
 |---|------|------|------|
 | 1 | `.claude-plugin/plugin.json` | 插件元数据 | 无 |
-| 2 | `skills/start/SKILL.md` | `/novel:start` 状态感知交互入口 | plugin.json |
+| 2 | `skills/start/SKILL.md` | `/novel:start` 启动适配层（Thin Adapter） | plugin.json |
 | 3 | `skills/continue/SKILL.md` | `/novel:continue [N]` 续写 N 章 | plugin.json |
 | 4 | `skills/status/SKILL.md` | `/novel:status` 只读状态展示 | plugin.json |
 | 5 | `agents/world-builder.md` | 世界观构建 Agent（Opus） | SKILL.md |

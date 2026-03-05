@@ -23,7 +23,7 @@
 ### 验证记录（简要）
 
 - 通过临时目录 `--project <tmp>` 跑通 `init(minimal) → quickstart → volume:outline/validate/commit → WRITING`，并确认下一步为 `chapter:001:draft`
-- 在仓库示例项目 `text-novel/` 下运行 `status/next` 确认可从 `WRITING` 恢复推进
+- （可选）在本地示例项目 `text-novel/` 下运行 `status/next` 确认可从 `WRITING` 恢复推进（该目录不随仓库追踪）
 
 ## References
 
