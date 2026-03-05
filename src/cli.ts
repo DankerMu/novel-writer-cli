@@ -17,7 +17,7 @@ import { NovelCliError } from "./errors.js";
 import { errJson, okJson, printJson } from "./output.js";
 import { pathExists, readJsonFile, writeJsonFile, writeTextFile } from "./fs-utils.js";
 import { resolveProjectRoot } from "./project.js";
-import { readCheckpoint } from "./checkpoint.js";
+import { readCheckpoint, writeCheckpoint } from "./checkpoint.js";
 import { initProject, normalizePlatformId, resolveInitRootDir } from "./init.js";
 import { advanceCheckpointForStep } from "./advance.js";
 import { commitChapter } from "./commit.js";
@@ -844,6 +844,68 @@ function buildProgram(argv: string[]): Command {
       }
       if (wrote) process.stdout.write(`\nWrote character-voice-drift.json.\n`);
       else if (!localOpts.apply) process.stdout.write(`\nPreview-only. Use --apply to write character-voice-drift.json.\n`);
+    });
+
+  program
+    .command("repair")
+    .description("Repair project state (checkpoint recovery helpers).")
+    .option("--reset-quickstart", "Set .checkpoint.json.quickstart_phase to null.")
+    .option("--force", "Apply the repair (otherwise preview only).")
+    .action(async (localOpts: { resetQuickstart?: boolean; force?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      const json = Boolean(opts.json);
+
+      const rootDir = await resolveProjectRoot({ cwd: process.cwd(), projectOverride: opts.project });
+
+      if (!localOpts.resetQuickstart) {
+        throw new NovelCliError("Invalid repair: no actions specified. Use --reset-quickstart.", 2);
+      }
+
+      if (!localOpts.force) {
+        const checkpoint = await readCheckpoint(rootDir);
+        const before = (checkpoint.quickstart_phase ?? null) as string | null;
+        const changed = before !== null;
+
+        if (json) {
+          printJson(okJson("repair", { rootDir, applied: false, actions: ["reset_quickstart"], changed, before, after: before }));
+          return;
+        }
+
+        if (!changed) {
+          process.stdout.write("No changes needed: quickstart_phase is already null.\n");
+          return;
+        }
+        process.stdout.write(`Preview: reset quickstart_phase ${before} -> null\n`);
+        process.stdout.write("Re-run with --force to apply.\n");
+        return;
+      }
+
+      const applied = await withWriteLock(rootDir, {}, async () => {
+        const checkpoint = await readCheckpoint(rootDir);
+        const before = (checkpoint.quickstart_phase ?? null) as string | null;
+        const changed = before !== null;
+        if (!changed) return { before, changed, checkpoint };
+
+        const updated = { ...checkpoint, quickstart_phase: null, last_checkpoint_time: new Date().toISOString() };
+        await writeCheckpoint(rootDir, updated);
+        return { before, changed, checkpoint: await readCheckpoint(rootDir) };
+      });
+
+      const after = applied.checkpoint.quickstart_phase ?? null;
+      if (after !== null) {
+        throw new NovelCliError(`Repair failed: quickstart_phase is still ${String(after)} (expected null).`, 2);
+      }
+
+      if (json) {
+        printJson(okJson("repair", { rootDir, applied: true, actions: ["reset_quickstart"], changed: applied.changed, before: applied.before, after: null }));
+        return;
+      }
+
+      if (!applied.changed) {
+        process.stdout.write("No changes needed: quickstart_phase is already null.\n");
+        return;
+      }
+      process.stdout.write(`Reset quickstart_phase ${applied.before} -> null\n`);
     });
 
   const lock = program.command("lock").description("Manage project lock (.novel.lock).");
