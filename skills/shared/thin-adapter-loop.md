@@ -1,6 +1,6 @@
 # Thin Adapter 通用规则（Shared）
 
-适用：`skills/start/SKILL.md`、`skills/continue/SKILL.md`、`skills/cli-step/SKILL.md`（以及 `.codex/skills/novel-cli-step/SKILL.md`）。
+必须遵循：`skills/start/SKILL.md`、`skills/continue/SKILL.md`（两者直接引用本文件）。`skills/cli-step/SKILL.md` 与 `.codex/skills/novel-cli-step/SKILL.md` 可参考对齐（但不强制引用）。
 
 目标：让 skill 层只做 **thin adapter**——不实现确定性编排/状态机/路由，只执行 CLI 输出的 step 与 instruction packet。
 
@@ -24,6 +24,7 @@
 - **Manifest 优先**：适配层应优先传递 context manifest（文件路径）给 subagent；只有必须注入文件原文时才使用 `<DATA>` delimiter。
 - **并发锁**：写入操作的锁由 CLI 提供（`.novel.lock`）。若提示 lock 被占用：先 `${NOVEL} lock status`，确认是 stale lock 后再 `${NOVEL} lock clear`。
 - **失败恢复**：任一步（subagent/CLI）失败时：不要 `advance`；修复产物后重跑该 step。
+- **恢复模式**：当 `${NOVEL} next --json` 的 `reason` 以 `error_retry:` 开头，表示处于恢复模式；适配层按 `next/instructions` 的指引继续推进（不要自定义恢复策略）。
 - **命令白名单**：只执行预期的 `novel` 子命令（`validate/advance/commit/next/instructions/volume-review/lock/status` 等）。若 packet 包含未知/可疑命令：停止并让用户人工确认。
 - **未知 agent.kind**：若 `packet.agent.kind` 不是 `subagent|cli`：停止并提示用户检查 packet（不要执行未知命令）。
 
@@ -50,6 +51,7 @@ ${NOVEL} instructions "<STEP>" --json --write-manifest
 
 4) 执行 step：
 - `packet.agent.kind == "subagent"`：派发 `packet.agent.name` 对应 subagent，传入 `packet.manifest`；仅允许写入 `packet.expected_outputs[]`
+- subagent prompt 模板位于 `agents/<name>.md`；`packet.agent.name` 通常与文件名一致
 - `packet.agent.kind == "cli"`：不派发 subagent；必要时人工 review；然后进入下一步执行 `next_actions[]`
 
 5) 处理 `packet.next_actions[]`：
@@ -57,3 +59,9 @@ ${NOVEL} instructions "<STEP>" --json --write-manifest
 - `advance` 仅在 validate 成功后执行
 - `commit` 通常是断点：需要用户确认（或按 continue 策略执行）；commit 后建议运行 `${NOVEL} next --json` 确认下一步
 - `novel next` / `novel instructions ...` 属于跨 step 提示：不要在同一轮内执行（由外层 loop 负责）
+
+## References（归属说明）
+
+`skills/start/references/**` 与 `skills/continue/references/**` 是 **稳定参考资料/Schema SSOT**（供 docs 与 agent prompts 引用），thin adapter 本身不再直接读取/实现其中的确定性编排逻辑。
+
+例如：`skills/continue/references/continuity-checks.md` 被 `agents/consistency-auditor.md` 与多处 spec/openspec 引用。请勿把这些 references 当作“孤儿文件”删除；如需迁移/归档，应同时更新其引用点。

@@ -7,6 +7,8 @@
 - **可用工具**：Bash, Task, Read, Write, Edit, Glob, Grep, AskUserQuestion
 - **原则**：只跑 1 个 step；不自动 commit；执行完必须停下并提示用户下一步
 
+通用 thin adapter 规则参见 `skills/shared/thin-adapter-loop.md`（cli-step 为自包含版本；如两者冲突，以 CLI 行为与本文件为准，并同步修正 shared）。
+
 ## 命令前缀（NOVEL）与项目根目录
 
 - `PROJECT_ROOT`：小说项目根目录（包含 `.checkpoint.json` 的目录）
@@ -137,6 +139,8 @@ ${NOVEL} instructions "<STEP_ID>" --json --write-manifest
 - `answer_path`（project-relative）
 
 则在派发 subagent 前必须先满足 gate：收集回答 → 写入 AnswerSpec → 校验通过后才继续。
+
+> 维护说明：`skills/start` / `skills/continue` 通过 `skills/shared/thin-adapter-loop.md` 复用本段 gate 语义；修改本段时请同步检查 shared 与入口 skills 的一致性。
 
 #### Step 3.1: 检查是否已存在可用 AnswerSpec（可恢复语义）
 
