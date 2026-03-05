@@ -14,4 +14,3 @@
 - Guardrails（留存/可读性/命名）：[Guardrails](guardrails.md)
 - 交互式门控（NOVEL_ASK）：[交互式门控](interactive-gates.md)
 - 故事线（storylines）：[故事线](storylines.md)
-
