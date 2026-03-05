@@ -61,6 +61,95 @@ test("advance quickstart:world transitions INIT -> QUICK_START", async () => {
   assert.equal(checkpoint.quickstart_phase, "world");
 });
 
+test("advance quickstart:characters writes quickstart_phase correctly", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-characters-advance-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+
+  const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "characters" } });
+  assert.equal(updated.orchestrator_state, "QUICK_START");
+  assert.equal(updated.quickstart_phase, "characters");
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(checkpoint.orchestrator_state, "QUICK_START");
+  assert.equal(checkpoint.quickstart_phase, "characters");
+});
+
+test("advance quickstart:style writes quickstart_phase correctly", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-style-advance-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+
+  const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "style" } });
+  assert.equal(updated.orchestrator_state, "QUICK_START");
+  assert.equal(updated.quickstart_phase, "style");
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(checkpoint.orchestrator_state, "QUICK_START");
+  assert.equal(checkpoint.quickstart_phase, "style");
+});
+
+test("advance quickstart:trial writes quickstart_phase correctly", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-trial-advance-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "# Trial\n\nText\n");
+
+  const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "trial" } });
+  assert.equal(updated.orchestrator_state, "QUICK_START");
+  assert.equal(updated.quickstart_phase, "trial");
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(checkpoint.orchestrator_state, "QUICK_START");
+  assert.equal(checkpoint.quickstart_phase, "trial");
+});
+
+test("advance quickstart rejects wrong orchestrator_state", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-advance-wrong-state-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  await assert.rejects(
+    () => advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "world" } }),
+    /Cannot advance quickstart:world unless orchestrator_state=INIT or QUICK_START/
+  );
+});
+
 test("computeNextStep recovers quickstart phase from staging artifacts", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-resume-"));
 
