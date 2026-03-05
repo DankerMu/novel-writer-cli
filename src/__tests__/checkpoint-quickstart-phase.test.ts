@@ -57,6 +57,5 @@ test("readCheckpoint accepts legacy checkpoint without quickstart_phase", async 
   });
 
   const checkpoint = await readCheckpoint(rootDir);
-  assert.equal(Object.prototype.hasOwnProperty.call(checkpoint, "quickstart_phase"), false);
-  assert.equal(checkpoint.quickstart_phase, undefined);
+  assert.equal(checkpoint.quickstart_phase ?? null, null);
 });

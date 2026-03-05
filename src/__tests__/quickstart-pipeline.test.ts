@@ -73,7 +73,7 @@ test("advance quickstart:characters writes quickstart_phase correctly", async ()
   });
 
   await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
-  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero" });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
 
   const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "characters" } });
   assert.equal(updated.orchestrator_state, "QUICK_START");
@@ -96,7 +96,7 @@ test("advance quickstart:style writes quickstart_phase correctly", async () => {
   });
 
   await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
-  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero" });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
 
   const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "style" } });
@@ -120,7 +120,7 @@ test("advance quickstart:trial writes quickstart_phase correctly", async () => {
   });
 
   await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
-  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero" });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
   await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "# Trial\n\nText\n");
 

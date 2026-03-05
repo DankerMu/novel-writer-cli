@@ -17,7 +17,7 @@ test("resolveProjectRelativePath rejects symlink escapes outside project root", 
     await symlink(outsideDir, join(rootDir, "staging/evil"), "dir");
   } catch (err: unknown) {
     const code = err instanceof Error ? (err as any).code : null;
-    if (code === "EPERM" || code === "EACCES") {
+    if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP" || code === "ENOSYS") {
       t.skip(`symlink not permitted in this environment: ${code}`);
       return;
     }
@@ -40,7 +40,7 @@ test("resolveProjectRelativePath rejects symlink escapes for non-existent write 
     await symlink(outsideDir, join(rootDir, "staging/evil"), "dir");
   } catch (err: unknown) {
     const code = err instanceof Error ? (err as any).code : null;
-    if (code === "EPERM" || code === "EACCES") {
+    if (code === "EPERM" || code === "EACCES" || code === "ENOTSUP" || code === "ENOSYS") {
       t.skip(`symlink not permitted in this environment: ${code}`);
       return;
     }
