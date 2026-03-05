@@ -18,6 +18,8 @@
 
 下面用 `NOVEL` 表示命令前缀（`novel` 或 `node dist/cli.js`）。
 
+注意：`packet.next_actions[].command` 通常以 `novel ...` 形式给出；当 `NOVEL` 不是 `novel` 时，执行这些命令需要把前缀 `novel` 替换为 `${NOVEL}`。
+
 ## Step 0: 前置检查 + 状态展示
 
 1) 必须在小说项目目录内（存在 `.checkpoint.json`）
@@ -36,7 +38,7 @@ ${NOVEL} next --json
 
 ## Step 1: Adapter loop（重复直到达成 N 章或遇到断点）
 
-维护计数：`committed_chapters = 0`；当你成功执行 `novel commit --chapter <N>` 时计数 +1。其余 commit（如 `--volume`）不计入章节数。
+维护计数：`committed_chapters = 0`；当你成功执行 `commit --chapter <N>` 时计数 +1。其余 commit（如 `--volume`）不计入章节数。
 
 重复以下循环：
 
@@ -74,7 +76,7 @@ ${NOVEL} instructions "<STEP>" --json --write-manifest
   - 若 subagent 返回结构化 JSON：执行器需将其写入 packet 指定的 JSON 输出路径（见 `expected_outputs.note`）
 
 - 若 `packet.agent.kind == "cli"`：
-  - 不派发 subagent，按 `packet.next_actions[]` 执行/提示命令
+  - 不派发 subagent，进入 Step 5 统一处理 `packet.next_actions[]`
   - 若 `packet.agent.name == "manual-review"` 或 step 为 `chapter:*:review`：
     - 这是人工断点：先让用户手动检查/修复（目标通常在 `packet.manifest.inline.review_targets` 或 `packet.manifest.paths.*`）
     - 用户确认后再继续（通常会进入重新 `judge` 或推进 `advance`）
@@ -91,7 +93,11 @@ ${NOVEL} instructions "<STEP>" --json --write-manifest
 
 - 若命令是 `novel commit ...`：
   - 按 Step 0 选择的策略执行/确认/暂停
-  - 若执行的是 `novel commit --chapter X` 且成功：`committed_chapters += 1`
+  - 若执行的是 `commit --chapter X` 且成功：`committed_chapters += 1`
+
+- 若命令是 `novel next` / `novel instructions ...`：
+  - 这些是跨 step 的提示命令：**不要在同一轮执行**（adapter loop 自己会回到 1) 重新 `next/instructions`）
+  - 若你确实要手动执行 `instructions`，请补 `--write-manifest` 以保留 gate 审计语义
 
 ### 6) 退出条件
 
@@ -101,4 +107,3 @@ ${NOVEL} next --json
 ```
 
 也可以继续运行 `/novel:continue [N]` 续写更多章节。
-

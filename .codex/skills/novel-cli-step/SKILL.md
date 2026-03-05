@@ -11,6 +11,8 @@ description: >
 
 ## 流程（单步）
 
+前置：确保在**小说项目根目录**（包含 `.checkpoint.json`）运行；如果你不在项目根目录，请为所有 `node dist/cli.js` 命令加上 `--project "<PROJECT_ROOT>"`（并把该目录也用于 gate 的 `ROOT_DIR`）。
+
 前置：若 `dist/` 不存在，先执行：
 ```bash
 npm ci
@@ -49,14 +51,15 @@ node dist/cli.js instructions "<STEP>" --json --write-manifest
 
 校验命令（会做 questionSpec↔answerSpec cross-validate）：
 ```bash
-PACKET_JSON="<data.written_manifest_path>" node --input-type=module - <<'EOF'
+PACKET_JSON="<data.written_manifest_path>" ROOT_DIR="<PROJECT_ROOT>" node --input-type=module - <<'EOF'
 import fs from "node:fs/promises";
 import { extractNovelAskGate, loadNovelAskAnswerIfPresent } from "./dist/instruction-gates.js";
 
+const rootDir = process.env.ROOT_DIR ?? process.cwd();
 const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
-const answer = await loadNovelAskAnswerIfPresent(process.cwd(), gate);
+const answer = await loadNovelAskAnswerIfPresent(rootDir, gate);
 if (answer) {
   console.error("NOVEL_ASK gate: OK");
   process.exit(0);
@@ -105,13 +108,14 @@ EOF
 （建议）把 fallback JSON 先落盘为 `staging/novel-ask/answers.json`，再用以下命令构造 + 写入 AnswerSpec：
 ```bash
 mkdir -p staging/novel-ask
-PACKET_JSON="<data.written_manifest_path>" ANSWERS_JSON="staging/novel-ask/answers.json" node --input-type=module - <<'EOF'
+PACKET_JSON="<data.written_manifest_path>" ANSWERS_JSON="staging/novel-ask/answers.json" ROOT_DIR="<PROJECT_ROOT>" node --input-type=module - <<'EOF'
 import fs from "node:fs/promises";
 import { dirname } from "node:path";
 import { extractNovelAskGate, requireNovelAskAnswer } from "./dist/instruction-gates.js";
 import { parseNovelAskAnswerSpec, validateNovelAskAnswerAgainstQuestionSpec } from "./dist/novel-ask.js";
 import { resolveProjectRelativePath } from "./dist/safe-path.js";
 
+const rootDir = process.env.ROOT_DIR ?? process.cwd();
 const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
@@ -129,10 +133,10 @@ const answerSpec = parseNovelAskAnswerSpec({
 });
 validateNovelAskAnswerAgainstQuestionSpec(gate.novel_ask, answerSpec);
 
-const absAnswer = resolveProjectRelativePath(process.cwd(), gate.answer_path, "answer_path");
+const absAnswer = resolveProjectRelativePath(rootDir, gate.answer_path, "answer_path");
 await fs.mkdir(dirname(absAnswer), { recursive: true });
 await fs.writeFile(absAnswer, `${JSON.stringify(answerSpec, null, 2)}\n`, "utf8");
-await requireNovelAskAnswer(process.cwd(), gate);
+await requireNovelAskAnswer(rootDir, gate);
 console.error(`NOVEL_ASK gate: wrote AnswerSpec to ${gate.answer_path}`);
 EOF
 ```
@@ -149,14 +153,18 @@ EOF
 
 - `agent.kind == "cli"`：
   - 不派发 subagent
-  - 逐条执行/提示 `data.packet.next_actions[]`（必要时将 `novel` 前缀替换为 `node dist/cli.js`）
+  - 进入第 5 步按规则处理 `data.packet.next_actions[]`（必要时将 `novel` 前缀替换为 `node dist/cli.js`；`novel next`/`novel instructions ...` 仅作提示）
   - 若 `agent.name == "manual-review"`：先让用户手动检查/确认，再继续执行后续 validate/advance
   - 若 `next_actions[]` 含 `novel commit ...`：本适配器不自动 commit，应停下并提示用户手动执行该命令
 
 5) 执行 validate/advance（若适用）并返回控制权
 
-优先遵循 `data.packet.next_actions[]`：
+按顺序遍历 `data.packet.next_actions[]`（必要时做 `novel`→`node dist/cli.js` 前缀替换）：
 
-- 若包含 `novel validate ...`：执行它；失败则停止（不得 advance）
-- 若包含 `novel advance ...`：仅在 validate 成功后执行
-- 若不包含 validate/advance（常见于 `chapter:*:review` 或 `*:commit`）：直接停下并向用户展示 `next_actions[]` 作为下一步提示
+- 若命令是 `novel commit ...`：停止并提示用户手动执行（本适配器不自动 commit）
+- 若命令是 `novel next` / `novel instructions ...`：跨 step 提示命令，不在本次单步内执行；只展示给用户作为下一步参考（如需执行 `instructions`，建议补 `--write-manifest`）
+- 其余命令（例如 `novel volume-review collect`、`novel validate ...`、`novel advance ...`）：可以执行
+  - `validate` 失败（exit != 0）→ 立即停止；不得执行后续 advance
+  - `advance` 仅在 validate 成功后执行
+
+若该 step 的 `next_actions[]` 不包含可执行的 validate/advance（常见于 `chapter:*:review` 或 `*:commit`）：直接停下并展示 `next_actions[]` 作为下一步提示

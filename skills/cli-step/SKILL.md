@@ -7,35 +7,42 @@
 - **可用工具**：Bash, Task, Read, Write, Edit, Glob, Grep, AskUserQuestion
 - **原则**：只跑 1 个 step；不自动 commit；执行完必须停下并提示用户下一步
 
+## 命令前缀（NOVEL）与项目根目录
+
+- `PROJECT_ROOT`：小说项目根目录（包含 `.checkpoint.json` 的目录）
+- `NOVEL`：你用于执行 CLI 的命令前缀（可带 `--project`）
+
+常见两种运行方式：
+
+1) **发布版（推荐）**：在 `PROJECT_ROOT` 下直接运行 `novel ...`
+2) **仓库开发态**：在 CLI 仓库根目录运行 `node dist/cli.js --project "<PROJECT_ROOT>" ...`（若 `dist/` 不存在，先 `npm ci && npm run build`）
+
+注意：`packet.next_actions[].command` 通常以 `novel ...` 形式给出；当你的 `NOVEL` 不是 `novel` 时，执行这些命令需要把前缀 `novel` 替换为你的 `NOVEL`（并保留 `--project`）。
+
 ## 标准 adapter loop（单步）
 
 单步执行只做这一套固定循环（其余逻辑全部下沉到 CLI）：
 
-1. `novel next --json`
-2. `novel instructions "<STEP>" --json --write-manifest`
+1. `${NOVEL} next --json`
+2. `${NOVEL} instructions "<STEP>" --json --write-manifest`
 3. （可选）处理 `NOVEL_ASK` gate
 4. 按 `packet.agent.kind/name` 执行（subagent 或 CLI actions）
-5. `novel validate "<STEP>"`（若适用）
-6. `novel advance "<STEP>"`（若适用）
+5. `${NOVEL} validate "<STEP>"`（若适用）
+6. `${NOVEL} advance "<STEP>"`（若适用）
 
 ## 执行流程
 
 ### Step 0: 前置检查
 
-- 必须在小说项目目录内（存在 `.checkpoint.json`）
-- 如不在项目目录：提示用户 `cd` 到项目根目录后重试
-- 若 `dist/` 不存在：先执行 `npm ci && npm run build`
+- 确认 `PROJECT_ROOT` 存在且包含 `.checkpoint.json`
+- 若当前不在 `PROJECT_ROOT`：建议先 `cd` 到 `PROJECT_ROOT`（因为 packet 的路径通常是 project-relative；subagent 需要在项目根目录下读写 `staging/**`）
+- 若你使用的是仓库开发态（`node dist/cli.js ...`）：确保 `dist/` 已构建（`npm ci && npm run build` 在 CLI 仓库根目录执行）
 
 ### Step 1: 计算下一步 step id
 
-优先使用已安装的 `novel`：
+使用 `${NOVEL}`：
 ```bash
-novel next --json
-```
-
-若 `novel` 不在 PATH（开发态/未发布），使用仓库内 CLI：
-```bash
-node dist/cli.js next --json
+${NOVEL} next --json
 ```
 
 解析 stdout 的单对象 JSON：取 `data.step` 得到类似 `chapter:048:draft` 的 step id。
@@ -43,7 +50,7 @@ node dist/cli.js next --json
 ### Step 2: 生成 instruction packet（并落盘 manifest）
 
 ```bash
-novel instructions "<STEP_ID>" --json --write-manifest
+${NOVEL} instructions "<STEP_ID>" --json --write-manifest
 ```
 
 同样解析 stdout JSON：取 `data.packet`（以及可选的 `data.written_manifest_path`）。
@@ -61,16 +68,19 @@ novel instructions "<STEP_ID>" --json --write-manifest
 
 若 `answer_path` 已存在且通过校验：直接进入 Step 4。
 
+> 下面两段 gate 校验/落盘脚本依赖 `./dist/*`（CLI build outputs），更适合在**仓库开发态**执行：在 CLI 仓库根目录运行脚本，并将 `ROOT_DIR` 指向小说项目根目录。
+
 校验命令（会做 questionSpec↔answerSpec cross-validate；缺失则 exit 2）：
 ```bash
-PACKET_JSON="<data.written_manifest_path>" node --input-type=module - <<'EOF'
+PACKET_JSON="<data.written_manifest_path>" ROOT_DIR="<PROJECT_ROOT>" node --input-type=module - <<'EOF'
 import fs from "node:fs/promises";
 import { extractNovelAskGate, loadNovelAskAnswerIfPresent } from "./dist/instruction-gates.js";
 
+const rootDir = process.env.ROOT_DIR ?? process.cwd();
 const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
-const answer = await loadNovelAskAnswerIfPresent(process.cwd(), gate);
+const answer = await loadNovelAskAnswerIfPresent(rootDir, gate);
 if (answer) {
   console.error("NOVEL_ASK gate: OK");
   process.exit(0);
@@ -115,13 +125,14 @@ EOF
 
 ```bash
 mkdir -p staging/novel-ask
-PACKET_JSON="<data.written_manifest_path>" ANSWERS_JSON="staging/novel-ask/answers.json" node --input-type=module - <<'EOF'
+PACKET_JSON="<data.written_manifest_path>" ANSWERS_JSON="staging/novel-ask/answers.json" ROOT_DIR="<PROJECT_ROOT>" node --input-type=module - <<'EOF'
 import fs from "node:fs/promises";
 import { dirname } from "node:path";
 import { extractNovelAskGate, requireNovelAskAnswer } from "./dist/instruction-gates.js";
 import { parseNovelAskAnswerSpec, validateNovelAskAnswerAgainstQuestionSpec } from "./dist/novel-ask.js";
 import { resolveProjectRelativePath } from "./dist/safe-path.js";
 
+const rootDir = process.env.ROOT_DIR ?? process.cwd();
 const packet = JSON.parse(await fs.readFile(process.env.PACKET_JSON, "utf8"));
 const gate = extractNovelAskGate(packet);
 if (!gate) process.exit(0);
@@ -139,10 +150,10 @@ const answerSpec = parseNovelAskAnswerSpec({
 });
 validateNovelAskAnswerAgainstQuestionSpec(gate.novel_ask, answerSpec);
 
-const absAnswer = resolveProjectRelativePath(process.cwd(), gate.answer_path, "answer_path");
+const absAnswer = resolveProjectRelativePath(rootDir, gate.answer_path, "answer_path");
 await fs.mkdir(dirname(absAnswer), { recursive: true });
 await fs.writeFile(absAnswer, `${JSON.stringify(answerSpec, null, 2)}\n`, "utf8");
-await requireNovelAskAnswer(process.cwd(), gate);
+await requireNovelAskAnswer(rootDir, gate);
 console.error(`NOVEL_ASK gate: wrote AnswerSpec to ${gate.answer_path}`);
 EOF
 ```
@@ -164,19 +175,20 @@ EOF
 
 #### 4.2 `packet.agent.kind == "cli"`：执行/提示 CLI actions
 
-不派发 subagent。按 `packet.next_actions[]` 执行/提示命令。
+不派发 subagent。先按需让用户完成人工 review，然后进入 Step 5 统一处理 `packet.next_actions[]`。
 
-- 若 `packet.agent.name == "manual-review"`：先让用户手动检查 packet 提示的 review targets（常见于 `packet.manifest.inline.review_targets`），确认后才继续执行后续 validate/advance
-- 若 `packet.next_actions[]` 含 `novel commit ...`：本适配器不自动 commit，应在 Step 5 直接停下并提示用户手动执行该命令
+- 若 `packet.agent.name == "manual-review"`：先让用户手动检查 packet 提示的 review targets（常见于 `packet.manifest.inline.review_targets` 或 `packet.manifest.paths.*`），确认后再继续
 
 ### Step 5: validate → advance → 返回控制权（必须）
 
-执行完 Step 4 后：
+执行完 Step 4 后，按顺序遍历 `packet.next_actions[]`（必要时做 `novel`→`${NOVEL}` 前缀替换）：
 
-1) 若 `packet.next_actions[]` 包含 `novel validate "<STEP_ID>"`：执行它
-- 若 validate 失败（exit != 0）→ **立即停止**，提示用户修复产物后重试；不得 advance
+1) 若命令是 `novel commit ...`：**停止**并提示用户手动执行（本适配器不自动 commit）
 
-2) 若 `packet.next_actions[]` 包含 `novel advance "<STEP_ID>"`：仅在 validate 成功后执行它
+2) 若命令是 `novel next` / `novel instructions ...`：这是跨 step 的提示命令，**不要在本次单步内执行**；只展示给用户作为下一步参考（如需执行 `instructions`，建议补 `--write-manifest`）
 
-3) 若该 step 的 `packet.next_actions[]` 不包含 validate/advance（例如 `chapter:*:review` 或 `*:commit`）：
-- 直接停下，向用户展示 `packet.next_actions[]`，并提示下一条可执行命令
+3) 其余命令（例如 `novel volume-review collect`、`novel validate ...`、`novel advance ...`）：可以执行
+- `validate` 失败（exit != 0）→ **立即停止**，提示用户修复产物后重试；不得执行后续 advance
+- `advance` 仅在 validate 成功后执行
+
+若该 step 的 `packet.next_actions[]` 不包含可执行的 validate/advance（常见于 `chapter:*:review` 或 `*:commit`）：直接停下并展示 `packet.next_actions[]` 作为下一步提示。
