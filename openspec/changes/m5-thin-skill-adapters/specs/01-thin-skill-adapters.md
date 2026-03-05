@@ -6,6 +6,7 @@
 
 - 适用：`skills/start/SKILL.md`、`skills/continue/SKILL.md`、`skills/cli-step/SKILL.md`
 - 可选适配：`.codex/skills/novel-cli-step/SKILL.md`
+- 共享规则（用于减少重复）：`skills/shared/thin-adapter-loop.md`（内容需与本 spec 对齐）
 
 ## Adapter Loop（规范）
 
@@ -30,4 +31,3 @@
 - **命令白名单**：仅执行预期的 `novel` 子命令（如 `validate/advance/commit/next/instructions/volume-review/lock/status` 等）；若 packet 含未知/可疑命令，必须停下人工确认。
 - **并发锁**：写入操作的锁由 CLI 提供（`.novel.lock`）；出现锁冲突时，使用 `novel lock status/clear` 排查/清理 stale lock。
 - **恢复模式**：当 `next --json` 的 `reason` 以 `error_retry:` 开头，表示处于恢复模式；适配层按 CLI 指引继续推进，不做自定义恢复策略。
-
