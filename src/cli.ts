@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
 import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -40,6 +41,18 @@ type GlobalOpts = {
   project?: string;
 };
 
+const require = createRequire(import.meta.url);
+function resolveCliVersion(): string {
+  try {
+    const pkg = require("../package.json") as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const CLI_VERSION = resolveCliVersion();
+
 function detectCommandName(argv: string[]): string {
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -66,6 +79,7 @@ function buildProgram(argv: string[]): Command {
 
   const program = new Command();
   program.name("novel").description("Executor-agnostic novel orchestration CLI.");
+  program.version(CLI_VERSION);
   program.option("--json", "Emit machine-readable JSON (single object).");
   program.option("--project <dir>", "Project root directory (defaults to auto-detect via .checkpoint.json).");
 
@@ -1014,7 +1028,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
 
     if (err instanceof CommanderError) {
-      if (err.code === "commander.helpDisplayed") {
+      if (err.code === "commander.helpDisplayed" || err.code === "commander.version") {
         return 0;
       }
       if (jsonMode) {
