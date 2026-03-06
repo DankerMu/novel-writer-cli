@@ -41,7 +41,7 @@
 ## 5. Genre Override Mechanism (§2.11)
 
 - [x] 5.1 Add new §2.11 section header "类型覆写机制"
-- [x] 5.2 Define genre override source: `concept.md` "类型覆写" section or `platform-profile.json` genre field
+- [x] 5.2 Define genre override source: `concept.md` "类型覆写" section or `brief.md` genre field
 - [x] 5.3 Document override table for 4 genres:
   - 科幻: 单句段15-30%, 每段可到120字, 感叹号≤5/章, 抽象空词"难以形容/不可名状"每章≤2处
   - 悬疑: 单句段20-35%, 每段可到100字
