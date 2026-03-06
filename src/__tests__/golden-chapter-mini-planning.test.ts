@@ -311,3 +311,230 @@ test("commitVolume merges formal vol-01 plan into existing F0 seed artifacts", a
     await rm(rootDir, { recursive: true, force: true });
   }
 });
+
+
+test("resolveVolumeChapterRange does not skip chapters when vol-01 seed already contains later contracts", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-range-mixed-seed-"));
+  try {
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: volumeFinalRelPaths(1),
+      range: { start: 1, end: 3 },
+      prefix: "seed-",
+      initialHeroLocation: "prologue"
+    });
+    await writeJson(join(rootDir, volumeFinalRelPaths(1).chapterContractJson(4)), {
+      chapter: 4,
+      storyline_id: "main-arc",
+      objectives: [{ id: "OBJ-4-1", required: true, description: "bad extra" }],
+      preconditions: { character_states: { Hero: { location: "zone-3" } } },
+      postconditions: { state_changes: { Hero: { location: "zone-4" } } }
+    });
+
+    const range = await resolveVolumeChapterRange({ rootDir, current_volume: 1, last_completed_chapter: 0 });
+    assert.deepEqual(range, { start: 1, end: 30 });
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("commitVolume rejects duplicate seed contracts during merge without mutating final files", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-merge-preflight-"));
+  try {
+    const finalRels = volumeFinalRelPaths(1);
+    const stagingRels = volumeStagingRelPaths(1);
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: finalRels,
+      range: { start: 1, end: 3 },
+      prefix: "seed-",
+      initialHeroLocation: "prologue"
+    });
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: stagingRels,
+      range: { start: 4, end: 30 },
+      prefix: "formal-",
+      initialHeroLocation: "zone-3"
+    });
+    await writeJson(join(rootDir, stagingRels.chapterContractJson(1)), {
+      chapter: 1,
+      storyline_id: "main-arc",
+      objectives: [{ id: "OBJ-1-1", required: true, description: "duplicate seed" }],
+      preconditions: { character_states: { Hero: { location: "prologue" } } },
+      postconditions: { state_changes: { Hero: { location: "zone-1" } } }
+    });
+    await writeJson(join(rootDir, ".checkpoint.json"), {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "VOL_PLANNING",
+      pipeline_stage: null,
+      inflight_chapter: null,
+      volume_pipeline_stage: "commit"
+    });
+
+    const outlineBefore = await readFile(join(rootDir, finalRels.outlineMd), "utf8");
+    const scheduleBefore = await readFile(join(rootDir, finalRels.storylineScheduleJson), "utf8");
+    const foreshadowingBefore = await readFile(join(rootDir, finalRels.foreshadowingJson), "utf8");
+    const newCharactersBefore = await readFile(join(rootDir, finalRels.newCharactersJson), "utf8");
+
+    await assert.rejects(() => commitVolume({ rootDir, volume: 1, dryRun: false }), /unexpected contract chapter 1 outside required range/);
+
+    assert.equal(await readFile(join(rootDir, finalRels.outlineMd), "utf8"), outlineBefore);
+    assert.equal(await readFile(join(rootDir, finalRels.storylineScheduleJson), "utf8"), scheduleBefore);
+    assert.equal(await readFile(join(rootDir, finalRels.foreshadowingJson), "utf8"), foreshadowingBefore);
+    assert.equal(await readFile(join(rootDir, finalRels.newCharactersJson), "utf8"), newCharactersBefore);
+    assert.equal(await exists(join(rootDir, stagingRels.dir)), true);
+    assert.equal(await exists(join(rootDir, finalRels.chapterContractJson(4))), false);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+
+test("validateStep(volume:validate) rejects staging outline that rewrites seed chapters", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-validate-outline-seed-"));
+  try {
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: volumeFinalRelPaths(1),
+      range: { start: 1, end: 3 },
+      prefix: "seed-",
+      initialHeroLocation: "prologue"
+    });
+    const stagingRels = volumeStagingRelPaths(1);
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: stagingRels,
+      range: { start: 4, end: 30 },
+      prefix: "formal-",
+      initialHeroLocation: "zone-3"
+    });
+    const formalOutline = await readFile(join(rootDir, stagingRels.outlineMd), "utf8");
+    const formalBody = formalOutline.split(/\r?\n/u).slice(2).join("\n").trim();
+    const pollutedOutline = `${outlineForRange({ start: 1, end: 1 }, "bad-seed-").trimEnd()}\n\n${formalBody}\n`;
+    await writeText(join(rootDir, stagingRels.outlineMd), pollutedOutline);
+
+    await assert.rejects(
+      () =>
+        validateStep({
+          rootDir,
+          checkpoint: {
+            last_completed_chapter: 0,
+            current_volume: 1,
+            orchestrator_state: "VOL_PLANNING",
+            pipeline_stage: null,
+            volume_pipeline_stage: "validate",
+            inflight_chapter: null,
+            quickstart_phase: null,
+            revision_count: 0,
+            hook_fix_count: 0,
+            title_fix_count: 0
+          },
+          step: { kind: "volume", phase: "validate" }
+        }),
+      /unexpected chapter block\(s\) 1 outside required range/
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("validateStep(volume:validate) rejects staging contracts that rewrite seed chapters", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-validate-contract-seed-"));
+  try {
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: volumeFinalRelPaths(1),
+      range: { start: 1, end: 3 },
+      prefix: "seed-",
+      initialHeroLocation: "prologue"
+    });
+    const stagingRels = volumeStagingRelPaths(1);
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: stagingRels,
+      range: { start: 4, end: 30 },
+      prefix: "formal-",
+      initialHeroLocation: "zone-3"
+    });
+    await writeJson(join(rootDir, stagingRels.chapterContractJson(1)), {
+      chapter: 1,
+      storyline_id: "main-arc",
+      objectives: [{ id: "OBJ-1-1", required: true, description: "duplicate seed" }],
+      preconditions: { character_states: { Hero: { location: "prologue" } } },
+      postconditions: { state_changes: { Hero: { location: "zone-1" } } }
+    });
+
+    await assert.rejects(
+      () =>
+        validateStep({
+          rootDir,
+          checkpoint: {
+            last_completed_chapter: 0,
+            current_volume: 1,
+            orchestrator_state: "VOL_PLANNING",
+            pipeline_stage: null,
+            volume_pipeline_stage: "validate",
+            inflight_chapter: null,
+            quickstart_phase: null,
+            revision_count: 0,
+            hook_fix_count: 0,
+            title_fix_count: 0
+          },
+          step: { kind: "volume", phase: "validate" }
+        }),
+      /unexpected contract chapter 1 outside required range/
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("commitVolume resumes merge when final already contains formal vol-01 artifacts", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-volume-merge-resume-"));
+  try {
+    const finalRels = volumeFinalRelPaths(1);
+    const stagingRels = volumeStagingRelPaths(1);
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: finalRels,
+      range: { start: 1, end: 3 },
+      prefix: "seed-",
+      initialHeroLocation: "prologue"
+    });
+    await writeVolumePlanArtifacts({
+      rootDir,
+      rels: stagingRels,
+      range: { start: 4, end: 30 },
+      prefix: "formal-",
+      initialHeroLocation: "zone-3"
+    });
+    const formalOutline = await readFile(join(rootDir, stagingRels.outlineMd), "utf8");
+    const formalBody = formalOutline.split(/\r?\n/u).slice(2).join("\n").trim();
+    const mergedOutline = `${outlineForRange({ start: 1, end: 3 }, "seed-").trimEnd()}\n\n${formalBody}\n`;
+    await writeText(join(rootDir, finalRels.outlineMd), mergedOutline);
+    await writeFile(
+      join(rootDir, finalRels.chapterContractJson(4)),
+      await readFile(join(rootDir, stagingRels.chapterContractJson(4)))
+    );
+    await writeJson(join(rootDir, ".checkpoint.json"), {
+      last_completed_chapter: 0,
+      current_volume: 1,
+      orchestrator_state: "VOL_PLANNING",
+      pipeline_stage: null,
+      inflight_chapter: null,
+      volume_pipeline_stage: "commit"
+    });
+
+    await commitVolume({ rootDir, volume: 1, dryRun: false });
+
+    assert.equal(await exists(join(rootDir, stagingRels.dir)), false);
+    assert.equal(await exists(join(rootDir, finalRels.chapterContractJson(30))), true);
+    const outline = await readFile(join(rootDir, finalRels.outlineMd), "utf8");
+    assert.match(outline, /### 第 1 章: seed-1/);
+    assert.match(outline, /### 第 30 章: formal-30/);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});

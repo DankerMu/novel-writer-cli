@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
@@ -12,7 +13,7 @@ import { QUICKSTART_PHASES, chapterRelPaths, formatStepId, titleFixSnapshotRel, 
 import { assertTitleFixOnlyChangedTitleLine, extractChapterTitleFromMarkdown } from "./title-policy.js";
 import { isPlainObject } from "./type-guards.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
-import { QUICKSTART_MINI_PLANNING_RANGE, resolveVolumeChapterRange, volumeFinalRelPaths, volumeForChapter, volumeStagingRelPaths } from "./volume-planning.js";
+import { hasQuickstartMiniPlanningArtifacts, QUICKSTART_MINI_PLANNING_RANGE, resolveVolumeChapterRange, volumeFinalRelPaths, volumeForChapter, volumeStagingRelPaths } from "./volume-planning.js";
 import {
   validateQuickstartContractsDir,
   validateQuickstartRulesSchema,
@@ -42,6 +43,48 @@ function requireNumberField(obj: Record<string, unknown>, field: string, file: s
   return v;
 }
 
+function assertOutlineHasNoOutOfRangeChapters(args: { seen: Set<number>; relPath: string; range: { start: number; end: number } }): void {
+  const extras = Array.from(args.seen)
+    .filter((chapter) => chapter < args.range.start || chapter > args.range.end)
+    .sort((left, right) => left - right);
+  if (extras.length === 0) return;
+  throw new NovelCliError(
+    `Invalid outline: unexpected chapter block(s) ${extras.join(", ")} outside required range (${args.range.start}-${args.range.end}). File: ${args.relPath}`,
+    2
+  );
+}
+
+async function assertContractDirMatchesRange(args: {
+  rootDir: string;
+  rels: ReturnType<typeof volumeStagingRelPaths>;
+  range: { start: number; end: number };
+}): Promise<void> {
+  requireFile(await pathExists(join(args.rootDir, args.rels.chapterContractsDir)), args.rels.chapterContractsDir);
+  const entries = await readdir(join(args.rootDir, args.rels.chapterContractsDir), { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const match = /^chapter-(\d+)\.json$/u.exec(entry.name);
+    if (!match) {
+      throw new NovelCliError(`Invalid ${args.rels.chapterContractsDir}: unexpected filename '${entry.name}'.`, 2);
+    }
+    const chapter = Number.parseInt(match[1] ?? "", 10);
+    if (chapter < args.range.start || chapter > args.range.end) {
+      throw new NovelCliError(
+        `Invalid ${args.rels.chapterContractsDir}: unexpected contract chapter ${chapter} outside required range (${args.range.start}-${args.range.end}).`,
+        2
+      );
+    }
+  }
+}
+
+async function requireCommittedQuickstartMiniPlanning(rootDir: string): Promise<void> {
+  if (await hasQuickstartMiniPlanningArtifacts(rootDir)) return;
+  throw new NovelCliError(
+    `Missing committed quickstart mini-planning artifacts required before trial/results: ${volumeFinalRelPaths(1).outlineMd}`,
+    2
+  );
+}
 
 async function validateVolumePlanArtifacts(args: {
   rootDir: string;
@@ -57,6 +100,7 @@ async function validateVolumePlanArtifacts(args: {
     requireFile(await pathExists(join(rootDir, rels.storylineScheduleJson)), rels.storylineScheduleJson);
     requireFile(await pathExists(join(rootDir, rels.foreshadowingJson)), rels.foreshadowingJson);
     requireFile(await pathExists(join(rootDir, rels.newCharactersJson)), rels.newCharactersJson);
+    requireFile(await pathExists(join(rootDir, rels.chapterContractsDir)), rels.chapterContractsDir);
     for (let ch = range.start; ch <= range.end; ch++) {
       requireFile(await pathExists(join(rootDir, rels.chapterContractJson(ch))), rels.chapterContractJson(ch));
     }
@@ -101,6 +145,7 @@ async function validateVolumePlanArtifacts(args: {
         );
       }
     }
+    assertOutlineHasNoOutOfRangeChapters({ seen, relPath: rels.outlineMd, range });
 
     const requiredKeys = [
       "Storyline",
@@ -226,6 +271,7 @@ async function validateVolumePlanArtifacts(args: {
   };
 
   const validateContracts = async (chapterMetadata: Map<number, { storylineId: string; excitementType: ExcitementType | null }>): Promise<void> => {
+    await assertContractDirMatchesRange({ rootDir, rels, range });
     for (let ch = range.start; ch <= range.end; ch++) {
       const rel = rels.chapterContractJson(ch);
       const raw = await readJsonFile(join(rootDir, rel));
@@ -368,6 +414,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       requireFile(await pathExists(join(args.rootDir, rels.storylineScheduleJson)), rels.storylineScheduleJson);
       requireFile(await pathExists(join(args.rootDir, rels.foreshadowingJson)), rels.foreshadowingJson);
       requireFile(await pathExists(join(args.rootDir, rels.newCharactersJson)), rels.newCharactersJson);
+      requireFile(await pathExists(join(args.rootDir, rels.chapterContractsDir)), rels.chapterContractsDir);
       for (let ch = range.start; ch <= range.end; ch++) {
         requireFile(await pathExists(join(args.rootDir, rels.chapterContractJson(ch))), rels.chapterContractJson(ch));
       }
@@ -413,6 +460,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
           );
         }
       }
+      assertOutlineHasNoOutOfRangeChapters({ seen, relPath: rels.outlineMd, range });
 
       const requiredKeys = [
         "Storyline",
@@ -541,6 +589,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     };
 
     const validateContracts = async (chapterMetadata: Map<number, { storylineId: string; excitementType: ExcitementType | null }>): Promise<void> => {
+      await assertContractDirMatchesRange({ rootDir: args.rootDir, rels, range });
       for (let ch = range.start; ch <= range.end; ch++) {
         const rel = rels.chapterContractJson(ch);
         const raw = await readJsonFile(join(args.rootDir, rel));
@@ -661,6 +710,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
       requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
       requireFile(await pathExists(styleAbs), QUICKSTART_STAGING_RELS.styleProfileJson);
+      await requireCommittedQuickstartMiniPlanning(args.rootDir);
       requireFile(await pathExists(trialAbs), QUICKSTART_STAGING_RELS.trialChapterMd);
       requireFile(await pathExists(evalAbs), QUICKSTART_STAGING_RELS.evaluationJson);
 
@@ -707,7 +757,10 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
           if (warning) warnings.push(warning);
           break;
         }
-        case "f0":
+        case "f0": {
+          await requireCommittedQuickstartMiniPlanning(args.rootDir);
+          break;
+        }
         case "results":
           break;
         default: {

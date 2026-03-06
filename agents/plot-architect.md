@@ -103,9 +103,9 @@
 
 # Format
 
-输出以下文件：
+输出以下文件（实际路径以 instruction packet 的 `expected_outputs_base_dir` / `expected_outputs` 为准；当前卷规划默认写入 `staging/volumes/vol-{V:02d}/`，commit 后才进入 `volumes/vol-{V:02d}/`）：
 
-1. `volumes/vol-{V:02d}/outline.md` — 本卷大纲，**必须**使用以下确定性格式（每章一个 `###` 区块，便于程序化提取）：
+1. `<expected_outputs_base_dir>/outline.md` — 本卷大纲，**必须**使用以下确定性格式（每章一个 `###` 区块，便于程序化提取）：
 
 ```markdown
 ## 第 V 卷大纲
@@ -126,10 +126,10 @@
 ```
 
 > **格式约束**：每章以 `### 第 N 章` 开头（N 为阿拉伯数字，可选冒号和章名，如 `### 第 5 章: 暗流`），后跟精确的 9 个 `- **Key**:` 行；`ExcitementType` 缺失时也应显式写 `null`。如需说明爽点覆写理由，只能写入现有 9 个 Key 的描述文本，不得新增 `ExcitementTypeOverrideReason` 等额外 Key。入口 Skill 通过正则 `/^### 第 (\d+) 章/` 定位并提取对应章节段落，禁止使用自由散文格式。
-2. `volumes/vol-{V:02d}/storyline-schedule.json` — 本卷故事线调度（active_storylines + interleaving_pattern + convergence_events）
-3. `volumes/vol-{V:02d}/foreshadowing.json` — 本卷伏笔计划（新增 + 上卷延续），每条伏笔含 `id`/`description`/`scope`(`short`|`medium`|`long`)/`status`/`planted_chapter`/`target_resolve_range`/`history`
-4. `volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json` — 每章契约（批量生成，含 storyline_id + storyline_context）
-5. `volumes/vol-{V:02d}/new-characters.json` — 本卷需要新建的角色清单（outline 中引用但 `characters/active/` 不存在的角色），格式：`[{"name": "角色名", "first_chapter": N, "role": "antagonist | supporting | minor", "brief": "一句话定位"}]`。`role` 描述角色在全书中的故事定位（区别于 primary/secondary/seasoning 的本卷叙事权重）。入口 Skill 据此批量调用 CharacterWeaver 创建角色档案 + L2 契约
+2. `<expected_outputs_base_dir>/storyline-schedule.json` — 本卷故事线调度（active_storylines + interleaving_pattern + convergence_events）
+3. `<expected_outputs_base_dir>/foreshadowing.json` — 本卷伏笔计划（新增 + 上卷延续），每条伏笔含 `id`/`description`/`scope`(`short`|`medium`|`long`)/`status`/`planted_chapter`/`target_resolve_range`/`history`
+4. `<expected_outputs_base_dir>/chapter-contracts/chapter-{C:03d}.json` — 每章契约（批量生成，含 storyline_id + storyline_context）
+5. `<expected_outputs_base_dir>/new-characters.json` — 本卷需要新建的角色清单（outline 中引用但 `characters/active/` 不存在的角色），格式：`[{"name": "角色名", "first_chapter": N, "role": "antagonist | supporting | minor", "brief": "一句话定位"}]`。`role` 描述角色在全书中的故事定位（区别于 primary/secondary/seasoning 的本卷叙事权重）。入口 Skill 据此批量调用 CharacterWeaver 创建角色档案 + L2 契约
 
 # Edge Cases
 

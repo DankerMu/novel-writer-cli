@@ -70,6 +70,7 @@ async function writeCommittedMiniPlanning(rootDir: string): Promise<void> {
   );
   await writeJson(join(rootDir, "volumes/vol-01/storyline-schedule.json"), { active_storylines: ["main-arc"] });
   await writeJson(join(rootDir, "volumes/vol-01/foreshadowing.json"), { schema_version: 1, items: [{ id: "seed-1" }] });
+  await writeJson(join(rootDir, "volumes/vol-01/new-characters.json"), []);
   for (const chapter of [1, 2, 3]) {
     await writeJson(join(rootDir, `volumes/vol-01/chapter-contracts/chapter-${String(chapter).padStart(3, "0")}.json`), {
       chapter,
@@ -177,6 +178,7 @@ test("advance quickstart:trial writes quickstart_phase correctly", async () => {
   await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
   await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeCommittedMiniPlanning(rootDir);
   await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "# Trial\n\nText\n");
 
   const updated = await advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "trial" } });
@@ -186,6 +188,28 @@ test("advance quickstart:trial writes quickstart_phase correctly", async () => {
   const checkpoint = await readCheckpoint(rootDir);
   assert.equal(checkpoint.orchestrator_state, "QUICK_START");
   assert.equal(checkpoint.quickstart_phase, "trial");
+});
+
+test("advance quickstart:trial requires committed mini-planning artifacts", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-trial-requires-f0-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "# Trial\n\nText\n");
+
+  await assert.rejects(
+    () => advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "trial" } }),
+    /Missing committed quickstart mini-planning artifacts/
+  );
 });
 
 test("advance quickstart rejects wrong orchestrator_state", async () => {
@@ -415,6 +439,33 @@ test("buildInstructionPacket (quickstart) includes NOVEL_ASK gate when provided"
   assert.equal(built.packet.expected_outputs[0].path, answerPath);
 });
 
+test("advance quickstart:results requires committed mini-planning artifacts", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-results-requires-f0-"));
+
+  await writeJson(join(rootDir, ".checkpoint.json"), {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "QUICK_START",
+    pipeline_stage: null,
+    inflight_chapter: null,
+    volume_pipeline_stage: null
+  });
+
+  await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
+  await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
+  await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), `# 试写章
+
+（测试）
+`);
+  await writeJson(join(rootDir, "staging/quickstart/evaluation.json"), { overall: 4.2, recommendation: "pass" });
+
+  await assert.rejects(
+    () => advanceCheckpointForStep({ rootDir, step: { kind: "quickstart", phase: "results" } }),
+    /Missing committed quickstart mini-planning artifacts/
+  );
+});
+
 test("advance quickstart:results commits artifacts and transitions to VOL_PLANNING", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-quickstart-commit-"));
 
@@ -442,6 +493,7 @@ test("advance quickstart:results commits artifacts and transitions to VOL_PLANNI
   });
   await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeCommittedMiniPlanning(rootDir);
   await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), `# 试写章\n\n（测试）\n`);
   await writeJson(join(rootDir, "staging/quickstart/evaluation.json"), { overall: 4.2, recommendation: "pass" });
 
@@ -491,6 +543,7 @@ test("advance quickstart:results validates all contracts (not just a slice)", as
     ]
   });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeCommittedMiniPlanning(rootDir);
   await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), `# 试写章\n\n（测试）\n`);
   await writeJson(join(rootDir, "staging/quickstart/evaluation.json"), { overall: 4.2, recommendation: "pass" });
 

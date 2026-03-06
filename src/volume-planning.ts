@@ -1,8 +1,9 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
-import { pathExists } from "./fs-utils.js";
+import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import type { NextStepResult } from "./next-step.js";
 import { formatStepId, pad2, pad3 } from "./steps.js";
 
@@ -75,20 +76,102 @@ export function volumeFinalRelPaths(volume: number): {
   };
 }
 
-export async function hasQuickstartMiniPlanningArtifacts(rootDir: string): Promise<boolean> {
+function extractOutlineChapterNumbers(text: string): number[] {
+  const chapterHeadingRe = /^###\s*第\s*(\d+)\s*章/u;
+  const chapters: number[] = [];
+  for (const line of text.split(/\r?\n/u)) {
+    const match = chapterHeadingRe.exec(line);
+    if (!match) continue;
+    const chapter = Number.parseInt(match[1] ?? "", 10);
+    if (!Number.isInteger(chapter) || chapter < 1) continue;
+    chapters.push(chapter);
+  }
+  return chapters;
+}
+
+function matchesQuickstartSeedChapterSequence(chapters: number[]): boolean {
+  const expectedChapters = [
+    QUICKSTART_MINI_PLANNING_RANGE.start,
+    QUICKSTART_MINI_PLANNING_RANGE.start + 1,
+    QUICKSTART_MINI_PLANNING_RANGE.end
+  ];
+  return chapters.length === expectedChapters.length && chapters.every((chapter, index) => chapter === expectedChapters[index]);
+}
+
+export async function hasQuickstartMiniPlanningSeedBase(rootDir: string): Promise<boolean> {
   const final = volumeFinalRelPaths(1);
   const requiredPaths = [
     final.outlineMd,
     final.storylineScheduleJson,
     final.foreshadowingJson,
+    final.newCharactersJson,
+    final.chapterContractsDir,
     final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.start),
-    final.chapterContractJson(2),
+    final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.start + 1),
     final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.end)
   ];
-  for (const relPath of requiredPaths) {
-    if (!(await pathExists(join(rootDir, relPath)))) return false;
+
+  try {
+    for (const relPath of requiredPaths) {
+      if (!(await pathExists(join(rootDir, relPath)))) return false;
+    }
+
+    const outline = await readTextFile(join(rootDir, final.outlineMd));
+    const outlineChapters = extractOutlineChapterNumbers(outline);
+    if (
+      outlineChapters.length < QUICKSTART_MINI_PLANNING_RANGE.end
+      || outlineChapters[0] !== QUICKSTART_MINI_PLANNING_RANGE.start
+      || outlineChapters[1] !== QUICKSTART_MINI_PLANNING_RANGE.start + 1
+      || outlineChapters[2] !== QUICKSTART_MINI_PLANNING_RANGE.end
+    ) {
+      return false;
+    }
+
+    await readJsonFile(join(rootDir, final.storylineScheduleJson));
+    await readJsonFile(join(rootDir, final.foreshadowingJson));
+    await readJsonFile(join(rootDir, final.newCharactersJson));
+
+    for (const chapter of [
+      QUICKSTART_MINI_PLANNING_RANGE.start,
+      QUICKSTART_MINI_PLANNING_RANGE.start + 1,
+      QUICKSTART_MINI_PLANNING_RANGE.end
+    ]) {
+      const raw = await readJsonFile(join(rootDir, final.chapterContractJson(chapter)));
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+      if ((raw as Record<string, unknown>).chapter !== chapter) return false;
+    }
+
+    return true;
+  } catch {
+    return false;
   }
-  return true;
+}
+
+export async function hasQuickstartMiniPlanningArtifacts(rootDir: string): Promise<boolean> {
+  if (!(await hasQuickstartMiniPlanningSeedBase(rootDir))) return false;
+
+  const final = volumeFinalRelPaths(1);
+  try {
+    const outline = await readTextFile(join(rootDir, final.outlineMd));
+    if (!matchesQuickstartSeedChapterSequence(extractOutlineChapterNumbers(outline))) return false;
+
+    const visibleContractEntries = (await readdir(join(rootDir, final.chapterContractsDir), { withFileTypes: true }))
+      .filter((entry) => !entry.name.startsWith("."));
+    if (visibleContractEntries.some((entry) => !entry.isFile())) return false;
+
+    const contractFiles = visibleContractEntries.map((entry) => entry.name).sort();
+    const expectedContractFiles = [
+      QUICKSTART_MINI_PLANNING_RANGE.start,
+      QUICKSTART_MINI_PLANNING_RANGE.start + 1,
+      QUICKSTART_MINI_PLANNING_RANGE.end
+    ].map((chapter) => `chapter-${pad3(chapter)}.json`);
+    return (
+      contractFiles.length === expectedContractFiles.length
+      && !contractFiles.some((fileName, index) => fileName !== expectedContractFiles[index])
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function resolveVolumeChapterRange(args: { rootDir: string; current_volume: number; last_completed_chapter: number }): Promise<VolumeChapterRange> {
@@ -101,7 +184,13 @@ export async function resolveVolumeChapterRange(args: { rootDir: string; current
     return range;
   }
 
-  if (!(await hasQuickstartMiniPlanningArtifacts(args.rootDir))) return range;
+  if (await hasQuickstartMiniPlanningArtifacts(args.rootDir)) {
+    return { start: QUICKSTART_MINI_PLANNING_RANGE.end + 1, end: range.end };
+  }
+
+  const stagingExists = await pathExists(join(args.rootDir, volumeStagingRelPaths(1).dir));
+  if (!stagingExists) return range;
+  if (!(await hasQuickstartMiniPlanningSeedBase(args.rootDir))) return range;
   return { start: QUICKSTART_MINI_PLANNING_RANGE.end + 1, end: range.end };
 }
 
