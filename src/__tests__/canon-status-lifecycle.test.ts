@@ -60,9 +60,9 @@ test("buildInstructionPacket filters rules and characters by canon_status", asyn
       rules: [
         { id: "W-001", category: "physics", rule: "旧规则也要生效", constraint_type: "hard" },
         { id: "W-002", category: "physics", rule: "当前已生效规则", constraint_type: "hard", canon_status: "established" },
-        { id: "W-003", category: "magic_system", rule: "未来卷才生效的设定", constraint_type: "hard", canon_status: "planned" },
+        { id: "W-003", category: "magic_system", rule: "未来卷才生效的设定", constraint_type: "hard", canon_status: " Planned " },
         { id: "W-004", category: "social", rule: "已废弃规则", constraint_type: "hard", canon_status: "deprecated" },
-        { id: "W-005", category: "social", rule: "未来的软规则提示", constraint_type: "soft", canon_status: "planned" }
+        { id: "W-005", category: "social", rule: "未来的软规则提示", constraint_type: "soft", canon_status: " PLANNED " }
       ]
     });
 
@@ -81,7 +81,7 @@ test("buildInstructionPacket filters rules and characters by canon_status", asyn
 
     for (const [slug, displayName, canonStatus] of [
       ["alice", "Alice", undefined],
-      ["bob", "Bob", "planned"],
+      ["bob", "Bob", " Planned "],
       ["carol", "Carol", "deprecated"],
       ["dave", "Dave", "established"]
     ] as const) {
@@ -143,6 +143,57 @@ test("buildInstructionPacket filters rules and characters by canon_status", asyn
       "characters/active/alice.md",
       "characters/active/bob.md"
     ]);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket caps fallback character context and keeps empty hard_rules_list explicit", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-fallback-"));
+  try {
+    for (let index = 1; index <= 18; index += 1) {
+      const slug = `char-${String(index).padStart(2, "0")}`;
+      const canonStatus = index === 5 ? "planned" : index === 18 ? "deprecated" : "established";
+      await writeJson(join(rootDir, `characters/active/${slug}.json`), {
+        id: slug,
+        display_name: `角色${index}`,
+        canon_status: canonStatus,
+        contracts: [{ id: `C-${index}`, type: "personality", rule: `rule-${index}` }]
+      });
+      await writeText(join(rootDir, `characters/active/${slug}.md`), `# 角色${index}\n`);
+    }
+
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const expectedContracts = Array.from({ length: 15 }, (_, index) => `characters/active/char-${String(index + 1).padStart(2, "0")}.json`);
+    const expectedProfiles = Array.from({ length: 15 }, (_, index) => `characters/active/char-${String(index + 1).padStart(2, "0")}.md`);
+
+    const draftPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as { packet: any };
+
+    assert.deepEqual(draftPacket.packet.manifest.inline.hard_rules_list, []);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, expectedContracts);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, expectedProfiles);
+    assert.match(draftPacket.packet.manifest.paths.character_contracts[4], /char-05\.json$/);
+    assert.equal(draftPacket.packet.manifest.paths.character_contracts.includes("characters/active/char-18.json"), false);
+
+    const judgePacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as { packet: any };
+
+    assert.deepEqual(judgePacket.packet.manifest.inline.hard_rules_list, []);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_contracts, expectedContracts);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, expectedProfiles);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

@@ -46,13 +46,13 @@ CharacterWeaver SHALL set `canon_status` explicitly when creating or updating ch
 
 #### Scenario: Character with status planned
 - **GIVEN** a character JSON has `canon_status: "planned"`
-- **WHEN** the continue Skill assembles context (Step 2.4)
+- **WHEN** the novel CLI assembles the chapter instruction packet
 - **THEN** the character's contract is visible in context but NOT enforced as an L2 constraint
 - **AND** QualityJudge does NOT verify L2 compliance for this character
 
 #### Scenario: Character with status deprecated
 - **GIVEN** a character JSON has `canon_status: "deprecated"`
-- **WHEN** the continue Skill assembles context (Step 2.4)
+- **WHEN** the novel CLI assembles the chapter instruction packet
 - **THEN** the character is skipped entirely in context assembly
 - **AND** the character does NOT appear in `character_contracts` or `character_profiles` path lists
 
@@ -72,13 +72,13 @@ ChapterWriter SHALL distinguish between constraint enforcement levels based on `
 
 #### Scenario: Only established rules appear in hard_rules_list
 - **GIVEN** `rules.json` contains 5 rules: 3 `established`, 1 `planned`, 1 `deprecated`
-- **WHEN** the continue Skill assembles `hard_rules_list` (Step 2.2)
+- **WHEN** the novel CLI assembles `hard_rules_list` for the chapter instruction packet
 - **THEN** `hard_rules_list` contains exactly the 3 `established` rules
 - **AND** rules with `constraint_type: "hard"` but `canon_status: "planned"` are excluded from `hard_rules_list`
 
 #### Scenario: Planned rules appear in a separate informational section
 - **GIVEN** `rules.json` contains rules with `canon_status: "planned"`
-- **WHEN** the continue Skill assembles the ChapterWriter manifest
+- **WHEN** the novel CLI assembles the ChapterWriter instruction packet
 - **THEN** planned rules are provided in a distinct `planned_rules_info` field (or equivalent)
 - **AND** ChapterWriter's prompt clearly labels these as "not yet in effect — for foreshadowing reference only"
 
@@ -118,4 +118,5 @@ QualityJudge Track 1 (Contract Verification) SHALL skip L1/L2 compliance checks 
 - `agents/character-weaver.md` — L2 character contract schema
 - `agents/chapter-writer.md` — constraint consumption and writing context
 - `agents/quality-judge.md` — Track 1 contract verification
-- `skills/continue/SKILL.md` — Step 2.2 (hard_rules_list) and Step 2.4 (character contract trimming)
+- `src/instructions.ts` — chapter draft/judge instruction packet assembly (`hard_rules_list`, `planned_rules_info`, character contract trimming)
+- `skills/continue/SKILL.md` — thin-adapter passthrough contract

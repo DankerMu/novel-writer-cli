@@ -4,12 +4,12 @@
 - [x] 1.2 Update `agents/character-weaver.md`: add `canon_status` field to character `.json` output schema; CharacterWeaver sets it explicitly on create/update
 - [x] 1.3 Document backward compatibility rule: all consumers treat missing `canon_status` as `"established"`
 
-## 2. Context Assembly (continue Skill)
+## 2. Context Assembly (novel CLI instruction packet)
 
-- [x] 2.1 Update `skills/continue/SKILL.md` Step 2.2: filter `hard_rules_list` to only include rules where `canon_status == "established"` or field is missing
-- [x] 2.2 Update `skills/continue/SKILL.md` Step 2.2: collect `planned` rules into a separate `planned_rules_info` manifest field (for ChapterWriter informational reference)
-- [x] 2.3 Update `skills/continue/SKILL.md` Step 2.4: skip characters with `canon_status == "deprecated"` during L2 contract trimming (exclude from `character_contracts` and `character_profiles` path lists)
-- [x] 2.4 Update `skills/continue/SKILL.md` Step 2.4: include `planned` characters in context but annotate them as non-enforced
+- [x] 2.1 Implement in `src/instructions.ts` and document in `skills/continue/SKILL.md`: filter `hard_rules_list` to only include rules where `canon_status == "established"` or field is missing
+- [x] 2.2 Implement in `src/instructions.ts` and document in `skills/continue/SKILL.md`: collect `planned` rules into a separate `planned_rules_info` manifest field (for ChapterWriter informational reference)
+- [x] 2.3 Implement in `src/instructions.ts` and document in `skills/continue/SKILL.md`: skip characters with `canon_status == "deprecated"` during L2 contract trimming (exclude from `character_contracts` and `character_profiles` path lists)
+- [x] 2.4 Implement in `src/instructions.ts` and document in `skills/continue/SKILL.md`: include `planned` characters in context but annotate them as non-enforced
 
 ## 3. ChapterWriter Consumption
 

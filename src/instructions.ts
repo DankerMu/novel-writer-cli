@@ -126,7 +126,11 @@ type CharacterContext = {
 };
 
 function normalizeCanonStatus(raw: unknown): CanonStatus {
-  return raw === "planned" || raw === "deprecated" || raw === "established" ? raw : "established";
+  if (typeof raw !== "string") return "established";
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "planned" || normalized === "deprecated" || normalized === "established"
+    ? normalized
+    : "established";
 }
 
 function asNonEmptyString(raw: unknown): string | null {
@@ -213,6 +217,7 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
   try {
     const entries = await readdir(charsDirAbs, { withFileTypes: true });
     const candidates: Array<{ id: string; displayName: string; canonStatus: CanonStatus; jsonRel: string; mdRel: string; matched: boolean }> = [];
+    const hasDesiredRefs = desiredRefs.size > 0;
 
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
@@ -224,7 +229,7 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
         const id = asNonEmptyString(obj.id) ?? entry.name.replace(/\.json$/u, "");
         const displayName = asNonEmptyString(obj.display_name) ?? id;
         const canonStatus = normalizeCanonStatus(obj.canon_status);
-        const matched = desiredRefs.size === 0 || desiredRefs.has(id.toLowerCase()) || desiredRefs.has(displayName.toLowerCase());
+        const matched = hasDesiredRefs && (desiredRefs.has(id.toLowerCase()) || desiredRefs.has(displayName.toLowerCase()));
         candidates.push({
           id,
           displayName,
@@ -239,8 +244,9 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
     }
 
     candidates.sort((left, right) => left.jsonRel.localeCompare(right.jsonRel));
-    const preferred = candidates.filter((candidate) => candidate.matched);
-    const selected = (preferred.length > 0 ? preferred : candidates.slice(0, 15)).filter((candidate) => candidate.canonStatus !== "deprecated");
+    const preferred = hasDesiredRefs ? candidates.filter((candidate) => candidate.matched) : [];
+    const selectedBase = preferred.length > 0 ? preferred : candidates.slice(0, 15);
+    const selected = selectedBase.filter((candidate) => candidate.canonStatus !== "deprecated");
 
     const characterProfiles: string[] = [];
     for (const candidate of selected) {
@@ -899,7 +905,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     }
 
     const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
-    if (ruleLifecycle.hardRulesList.length > 0) inline.hard_rules_list = ruleLifecycle.hardRulesList;
+    inline.hard_rules_list = ruleLifecycle.hardRulesList;
     if (ruleLifecycle.plannedRulesInfo.length > 0) inline.planned_rules_info = ruleLifecycle.plannedRulesInfo;
 
     const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
@@ -976,7 +982,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     paths.cross_references = relIfExists(rel.staging.crossrefJson, await pathExists(join(args.rootDir, rel.staging.crossrefJson)));
 
     const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
-    if (ruleLifecycle.hardRulesList.length > 0) inline.hard_rules_list = ruleLifecycle.hardRulesList;
+    inline.hard_rules_list = ruleLifecycle.hardRulesList;
 
     const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
     if (characterContext.characterContracts.length > 0) paths.character_contracts = characterContext.characterContracts;
