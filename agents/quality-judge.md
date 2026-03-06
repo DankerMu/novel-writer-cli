@@ -23,6 +23,7 @@
 - ner_entities（可选，scripts/run-ner.sh NER 输出 JSON）
 - continuity_report_summary（可选，一致性检查裁剪摘要）
 - golden_chapter_gates（可选；仅 chapter ≤ 3 且平台门控模板存在时注入，包含当前平台的黄金三章硬门控）
+- genre_golden_standards（可选；仅 chapter ≤ 3 且 `brief.md` 题材命中 `genre-golden-standards.json` 时注入，包含题材特定 `focus_dimensions / criteria / minimum_thresholds`）
 - excitement_type（可选；由入口基于 `chapter_contract.excitement_type` / `outline.md` 回填，缺失或未知时视为 `null`）
 
 **B. 文件路径**（你需要用 Read 工具自行读取）：
@@ -92,15 +93,17 @@
 当且仅当以下条件同时满足时，执行 Track 3：
 
 - `chapter <= 3`
-- `manifest.inline.golden_chapter_gates` 存在
+- `manifest.inline.golden_chapter_gates` **或** `manifest.inline.genre_golden_standards` 至少存在一个
 
 执行规则：
 
-1. 读取 `golden_chapter_gates.current_chapter.gates`，逐条核验当前章节是否满足
-2. 对每条门控输出 `pass | fail` 结论、失败细节与原文证据
-3. 若 `golden_chapter_gates.invalid_combination_warnings[]` 存在，可写入 `warnings` / `issues`，但**仅警告，不直接阻断**
-4. 只要任一 gate 失败，`golden_chapter_gates.passed=false`
-5. 只要 `golden_chapter_gates.passed=false`，最终 `recommendation` **必须**为 `"revise"`，不受 overall 分数影响
+1. 若 `golden_chapter_gates` 存在：读取 `golden_chapter_gates.current_chapter.gates`，逐条核验当前章节是否满足平台硬门控
+2. 若 `genre_golden_standards` 存在：逐条检查 `minimum_thresholds` 中的评分维度（如 `character >= 4.0`、`immersion >= 3.5`），并用 `focus_dimensions / criteria` 解释为什么这是当前题材的关键门槛
+3. 平台门控与题材门槛都写入同一个 `golden_chapter_gates.checks[]`；题材门槛建议使用类似 `genre_threshold:romance:character` 的 `id`
+4. 若 `golden_chapter_gates.invalid_combination_warnings[]` 存在，可写入 `warnings` / `issues`，但**仅警告，不直接阻断**
+5. 平台门控和题材门槛都会独立生效：任一检查失败都必须令 `golden_chapter_gates.passed=false`
+6. 只要 `golden_chapter_gates.passed=false`，最终 `recommendation` **必须**为 `"revise"`，不受 overall 分数影响
+7. 若平台门控缺失但题材门槛存在，仍要输出 `activated=true`；此时 `platform` 可写 `null`，但 gate failure 语义不变
 
 输出要求：
 
@@ -108,15 +111,22 @@
 {
   "golden_chapter_gates": {
     "activated": true,
-    "platform": "fanqie | qidian | jinjiang",
+    "platform": "fanqie | qidian | jinjiang | null",
+    "genre": "xuanhuan | dushi | scifi | history | suspense | romance | null",
     "chapter": 1,
     "passed": false,
-    "failed_gate_ids": ["protagonist_within_200_words"],
+    "failed_gate_ids": ["protagonist_within_200_words", "genre_threshold:romance:character"],
     "checks": [
       {
         "id": "protagonist_within_200_words",
         "status": "pass | fail",
         "detail": "为什么通过/失败",
+        "evidence": "原文证据（尽量短）"
+      },
+      {
+        "id": "genre_threshold:romance:character",
+        "status": "pass | fail",
+        "detail": "言情前 3 章要求角色立体度 >= 4.0；当前仅 3.5，CP 化学反应尚未站住。",
         "evidence": "原文证据（尽量短）"
       }
     ],
@@ -365,7 +375,8 @@ else:
 - **关键章双裁判模式**：卷首/卷尾/交汇事件章由入口 Skill 使用 Task(model=opus) 发起第二次调用并取较低分，QualityJudge 自身按正常流程执行即可
 - **lint-blacklist 缺失**：若未提供 lint 统计，你仍需给出黑名单命中率与例句，但需标注为估计值；若提供则以其为准
 - **7 指标上下文不足**：若当前上下文拿不到可靠的句长 / 段长 / 词汇多样性 / 技法多样性判断，可回退 `indicator_mode: "4-indicator-compat"`，但必须在 `anti_ai` 中明确写出该模式
-- **黄金三章门控未注入**：当 `golden_chapter_gates` 缺失或 `chapter > 3` 时，输出 `activated=false`，不要自行补造平台门控
+- **黄金三章门控未注入**：当 `golden_chapter_gates` 与 `genre_golden_standards` 都缺失，或 `chapter > 3` 时，输出 `activated=false`；不要自行补造平台门控或题材门槛
+- **题材标准缺失/未命中**：当 `genre_golden_standards` 缺失，或 `brief.md` 题材无法命中配置时，跳过题材门槛，仅保留平台门控（如存在）
 - **`excitement_type` 缺失或未知**：按 `null` 处理，维持原有 pacing 评审逻辑；不要因为字段缺失而强行猜测爽点类型
 - **`setup` 章节**：优先判断铺垫是否有效，而不是要求本章必须有高烈度冲突或即时回报
 - **修订后重评**：ChapterWriter 修订后重新评估时，应与前次评估对比确认问题已修复

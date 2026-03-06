@@ -153,6 +153,8 @@ type TemplateEntry =
 const DEFAULT_TEMPLATES: TemplateEntry[] = [
   { relPath: "brief.md", templateName: "brief-template.md", kind: "text" },
   { relPath: "style-profile.json", templateName: "style-profile-template.json", kind: "json" },
+  { relPath: "genre-excitement-map.json", templateName: "genre-excitement-map.json", kind: "json" },
+  { relPath: "genre-golden-standards.json", templateName: "genre-golden-standards.json", kind: "json" },
   { relPath: "ai-blacklist.json", templateName: "ai-blacklist.json", kind: "json" },
   { relPath: "web-novel-cliche-lint.json", templateName: "web-novel-cliche-lint.json", kind: "json" }
 ];

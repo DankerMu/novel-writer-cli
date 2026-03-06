@@ -155,6 +155,7 @@ quality_judge_manifest = {
   ner_entities: obj | null,                      # scripts/run-ner.sh 输出
   continuity_report_summary: obj | null,         # logs/continuity/latest.json 裁剪
   golden_chapter_gates?: obj,                    # 可选：chapter <= 3 时注入的当前平台黄金三章硬门控
+  genre_golden_standards?: obj,                  # 可选：chapter <= 3 且 brief.genre 命中时注入的题材特定 minimum_thresholds/focus_dimensions/criteria
 
   # ── paths ──
   paths: {

@@ -9,7 +9,7 @@ import { normalizeExcitementType, type ExcitementType } from "./excitement-type.
 import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { loadGoldenChapterGates, selectGoldenChapterGatesForPlatform } from "./golden-chapter-gates.js";
-import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
+import { computeEffectiveScoringWeights, isKnownScoringDimension, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
 import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
@@ -110,6 +110,156 @@ async function loadChapterExcitementType(args: { rootDir: string; volume: number
 
   const outlineExcitementType = await loadOutlineExcitementType(args);
   return outlineExcitementType === undefined ? null : outlineExcitementType;
+}
+
+type CanonicalGenre = "xuanhuan" | "dushi" | "scifi" | "history" | "suspense" | "romance";
+
+type GenreExcitementMapSelection = {
+  genre: CanonicalGenre;
+  chapters: Record<"1" | "2" | "3", ExcitementType>;
+  source: string;
+};
+
+type GenreGoldenStandardsSelection = {
+  genre: CanonicalGenre;
+  focus_dimensions: string[];
+  criteria: string[];
+  minimum_thresholds: Record<string, number>;
+  source: string;
+};
+
+const GENRE_ALIASES: Record<string, CanonicalGenre> = {
+  xuanhuan: "xuanhuan",
+  "玄幻": "xuanhuan",
+  dushi: "dushi",
+  "都市": "dushi",
+  scifi: "scifi",
+  sci_fi: "scifi",
+  "sci-fi": "scifi",
+  "科幻": "scifi",
+  history: "history",
+  "历史": "history",
+  suspense: "suspense",
+  mystery: "suspense",
+  "悬疑": "suspense",
+  romance: "romance",
+  "言情": "romance"
+};
+
+function normalizeProjectGenre(raw: unknown): CanonicalGenre | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+
+  const withoutParens = trimmed.replace(/[（(].*$/u, "").trim();
+  if (withoutParens.length === 0) return null;
+
+  const compact = withoutParens.replace(/\s+/gu, "");
+  return GENRE_ALIASES[withoutParens] ?? GENRE_ALIASES[compact] ?? GENRE_ALIASES[compact.toLowerCase()] ?? null;
+}
+
+function toNonEmptyStringArray(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out = raw.map((item) => (typeof item === "string" ? item.trim() : "")).filter((item) => item.length > 0);
+  return out.length === raw.length ? out : null;
+}
+
+function toKnownDimensionArray(raw: unknown): string[] | null {
+  const dimensions = toNonEmptyStringArray(raw);
+  if (!dimensions) return null;
+  return dimensions.every((dimension) => isKnownScoringDimension(dimension)) ? dimensions : null;
+}
+
+function toNumericThresholds(raw: unknown): Record<string, number> | null {
+  if (!isPlainObject(raw)) return null;
+  const entries = Object.entries(raw).map(([key, value]) => [key.trim(), value] as const);
+  if (
+    entries.length === 0
+    || entries.length !== Object.keys(raw).length
+    || entries.some(([key, value]) => key.length === 0 || !isKnownScoringDimension(key) || typeof value !== "number" || !Number.isFinite(value))
+  ) {
+    return null;
+  }
+  return Object.fromEntries(entries) as Record<string, number>;
+}
+
+async function loadProjectGenre(rootDir: string): Promise<CanonicalGenre | null> {
+  const briefAbs = join(rootDir, "brief.md");
+  if (!(await pathExists(briefAbs))) return null;
+
+  try {
+    const lines = (await readTextFile(briefAbs)).split(/\r?\n/u);
+    for (const line of lines) {
+      const match = /^\s*-\s*\*\*(?:题材|Genre)\*\*[:：]\s*(.+?)\s*$/u.exec(line);
+      if (!match) continue;
+      const normalized = normalizeProjectGenre(match[1] ?? "");
+      if (normalized) return normalized;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function loadSelectedGenreExcitementMap(rootDir: string): Promise<GenreExcitementMapSelection | null> {
+  const genre = await loadProjectGenre(rootDir);
+  if (!genre) return null;
+
+  const relPath = "genre-excitement-map.json";
+  const absPath = join(rootDir, relPath);
+  if (!(await pathExists(absPath))) return null;
+
+  try {
+    const raw = await readJsonFile(absPath);
+    if (!isPlainObject(raw) || raw.schema_version !== 1 || !isPlainObject(raw.genres)) return null;
+    const entry = raw.genres[genre];
+    if (!isPlainObject(entry) || !isPlainObject(entry.chapters)) return null;
+
+    const chapter1 = normalizeExcitementType(entry.chapters["1"]);
+    const chapter2 = normalizeExcitementType(entry.chapters["2"]);
+    const chapter3 = normalizeExcitementType(entry.chapters["3"]);
+    if (!chapter1 || !chapter2 || !chapter3) return null;
+
+    return {
+      genre,
+      chapters: { "1": chapter1, "2": chapter2, "3": chapter3 },
+      source: relPath
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadSelectedGenreGoldenStandards(rootDir: string): Promise<GenreGoldenStandardsSelection | null> {
+  const genre = await loadProjectGenre(rootDir);
+  if (!genre) return null;
+
+  const relPath = "genre-golden-standards.json";
+  const absPath = join(rootDir, relPath);
+  if (!(await pathExists(absPath))) return null;
+
+  try {
+    const raw = await readJsonFile(absPath);
+    if (!isPlainObject(raw) || raw.schema_version !== 1 || !isPlainObject(raw.genres)) return null;
+    const entry = raw.genres[genre];
+    if (!isPlainObject(entry)) return null;
+
+    const focusDimensions = toKnownDimensionArray(entry.focus_dimensions);
+    const criteria = toNonEmptyStringArray(entry.criteria);
+    const minimumThresholds = toNumericThresholds(entry.minimum_thresholds);
+    if (!focusDimensions || !criteria || !minimumThresholds) return null;
+
+    return {
+      genre,
+      focus_dimensions: focusDimensions,
+      criteria,
+      minimum_thresholds: minimumThresholds,
+      source: relPath
+    };
+  } catch {
+    return null;
+  }
 }
 
 
@@ -681,6 +831,10 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
         }
       }
     }
+    if (trialChapter <= 3) {
+      const selectedGenreGoldenStandards = await loadSelectedGenreGoldenStandards(args.rootDir);
+      if (selectedGenreGoldenStandards) inline.genre_golden_standards = selectedGenreGoldenStandards;
+    }
     expected_outputs.push({
       path: QUICKSTART_STAGING_RELS.evaluationJson,
       required: true,
@@ -814,6 +968,10 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
     if (step.phase === "outline") {
       agent = { kind: "subagent", name: "plot-architect" };
+      if (range.start <= 3) {
+        const selectedGenreExcitementMap = await loadSelectedGenreExcitementMap(args.rootDir);
+        if (selectedGenreExcitementMap) inline.genre_excitement_map = selectedGenreExcitementMap;
+      }
       inline.expected_outputs_base_dir = staging.dir;
       addPlanningOutputs(staging);
       next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
@@ -1147,6 +1305,10 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
           };
         }
       }
+    }
+    if (step.chapter <= 3) {
+      const selectedGenreGoldenStandards = await loadSelectedGenreGoldenStandards(args.rootDir);
+      if (selectedGenreGoldenStandards) inline.genre_golden_standards = selectedGenreGoldenStandards;
     }
 
     // Optional: inject compact continuity summary for LS-001 evidence (non-blocking).

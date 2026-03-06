@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "description": "题材差异化的黄金三章爽点分配建议：按 brief.md 的题材字段匹配 genre key，仅作为 PlotArchitect 的默认参考。",
+  "genres": {
+    "xuanhuan": {
+      "chapters": {
+        "1": "setup",
+        "2": "power_up",
+        "3": "face_slap"
+      }
+    },
+    "dushi": {
+      "chapters": {
+        "1": "setup",
+        "2": "reversal",
+        "3": "face_slap"
+      }
+    },
+    "scifi": {
+      "chapters": {
+        "1": "reveal",
+        "2": "setup",
+        "3": "cliffhanger"
+      }
+    },
+    "history": {
+      "chapters": {
+        "1": "setup",
+        "2": "reveal",
+        "3": "reversal"
+      }
+    },
+    "suspense": {
+      "chapters": {
+        "1": "reveal",
+        "2": "setup",
+        "3": "cliffhanger"
+      }
+    },
+    "romance": {
+      "chapters": {
+        "1": "setup",
+        "2": "reveal",
+        "3": "reversal"
+      }
+    }
+  }
+}

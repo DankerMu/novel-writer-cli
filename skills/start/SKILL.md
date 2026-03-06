@@ -26,7 +26,19 @@
 
 > 兼容说明：若用户在 free-form 输入里手动填 `tomato`，仍应接受；但不要把它作为可见选项展示。
 
-2) 执行初始化：
+2) 再询问用户的**预期题材**（仅用于兼容性提醒与后续 `brief.md` 对齐，不阻断 init）：
+- `玄幻 (xuanhuan)`
+- `都市 (dushi)`
+- `科幻 (scifi)`
+- `历史 (history)`
+- `悬疑 (suspense)`
+- `言情 (romance)`
+
+> 选择后提醒用户：后续填写 `brief.md` 时，`- **题材**：` 字段应与这里保持一致，否则 CLI 无法稳定匹配 `genre_excitement_map` / `genre_golden_standards`。
+
+3) 若可读取到当前项目根目录中的 `genre-golden-standards.json`，或可读取到 CLI 自带的同名模板，且用户选择的 genre + platform 命中 `invalid_combinations`，显示 WARNING，但继续初始化（不阻断）；若两处都不可读（例如全新空目录尚未 init），则跳过检查且不提示。
+
+4) 执行初始化：
 - `${NOVEL} init --platform <qidian|fanqie|jinjiang>` 或
 - `${NOVEL} init`
 
@@ -41,4 +53,5 @@
 ## 常见断点策略（建议）
 
 - 遇到 `${NOVEL} commit ...`：执行前用 AskUserQuestion 让用户确认（commit 会移动 staging → final）；commit 后运行 `${NOVEL} next --json` 继续
+- 遇到 `volume:outline` / PlotArchitect packet 时，若 `packet.manifest.inline.genre_excitement_map` 存在，原样透传给 `plot-architect`；这是 CLI 按 `brief.md` 题材匹配后的 Ch1-3 默认爽点映射，skill 层不要重算或改写
 - 遇到 `review:*`（卷末回顾）：按 packet.next_actions 执行；必要时暂停让用户阅读 `volumes/vol-XX/review.md`
