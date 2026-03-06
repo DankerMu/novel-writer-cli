@@ -63,7 +63,7 @@ Style guide（`skills/novel-writing/references/style-guide.md`）是整个反 AI
 
 ## Risks / Trade-offs
 
-- [Medium] 去配额化可能导致某些章节完全没有人性化技法 → **Mitigation**: QualityJudge 的 `humanize_technique_variety` 指标检测到 0 时给出 yellow 提示（不阻断生成，但提醒 StyleRefiner 注意）。这在 CS-A4 中实现，本 changeset 仅在方法论层面定义指标含义。
+- [Medium] 去配额化可能导致某些章节完全没有人性化技法 → **Mitigation**: QualityJudge 的 `humanize_technique_variety` 指标检测到 0 时给出 yellow 提示（不阻断生成，但提醒 StyleRefiner 注意）；只有与其他红区指标叠加时才升级为 red。这在 CS-A4 中实现，本 changeset 仅在方法论层面定义指标含义。
 - [Low] 12 种技法可能不够用 → **Mitigation**: 工具箱设计为可扩展列表，未来可追加新技法。当前 12 种已覆盖文学理论中的主流人性化手段。
 - [Low] 三区判定的阈值设定可能需要校准 → **Mitigation**: 初始阈值基于人类写作语料统计（参考文献中的均值 ± 1σ / ± 2σ），后续可通过 `calibrate-quality-judge.sh` 回归运行微调。
 

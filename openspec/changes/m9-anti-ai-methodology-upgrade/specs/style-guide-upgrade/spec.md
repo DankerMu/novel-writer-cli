@@ -61,7 +61,7 @@ A new section §2.8 SHALL define statistical distribution targets across 6 dimen
 - **GIVEN** any dimension in §2.8
 - **WHEN** reading its range specification
 - **THEN** the text describes what constitutes a human-like range vs an AI-characteristic range
-- **AND** the distinction is expressed as a comparison (e.g., "AI 文本 std_dev 通常 < 5，人类文本 8–18")
+- **AND** the distinction is expressed as a comparison (e.g., "AI 文本 std_dev 通常 < 6，人类文本 8–18")
 
 ---
 

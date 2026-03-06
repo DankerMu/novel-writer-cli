@@ -9,7 +9,7 @@
 ## 2. Statistical Distribution Targets (§2.8)
 
 - [x] 2.1 Add new §2.8 section header "统计分布目标" after existing §2.7
-- [x] 2.2 Define dimension 1: `sentence_length_variance` — reference `statistical.sentence_length_std_dev` from style-profile, fallback range 8–18, AI characteristic: std_dev < 5
+- [x] 2.2 Define dimension 1: `sentence_length_variance` — reference `statistical.sentence_length_std_dev` from style-profile, fallback range 8–18, AI characteristic: std_dev < 6
 - [x] 2.3 Define dimension 2: `paragraph_length_cv` — reference `statistical.paragraph_length_cv` from style-profile, fallback range 0.4–1.2, AI characteristic: CV < 0.3
 - [x] 2.4 Define dimension 3: `vocabulary_diversity` — reference `statistical.vocabulary_diversity` from style-profile, describe human vs AI lexical diversity patterns
 - [x] 2.5 Define dimension 4: `narration_connectors` — zero tolerance in narration ("与此同时"、"值得一提的是" etc.), reference existing blacklist overlap
