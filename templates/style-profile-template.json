@@ -14,10 +14,10 @@
   "_sentence_length_range_comment": "[最短句, 最长句]，如 [8, 35]",
 
   "sentence_length_std_dev": null,
-  "_sentence_length_std_dev_comment": "句长标准差（字）。人类范围 8-18；AI 特征：< 6（过于均匀）",
+  "_sentence_length_std_dev_comment": "句长标准差（字）。经验阈值：人类范围 8-18；AI 特征：< 6（过于均匀，待后续语料校准）",
 
   "paragraph_length_cv": null,
-  "_paragraph_length_cv_comment": "段落长度变异系数（Coefficient of Variation）。人类范围 0.4-1.2；AI 特征：< 0.3（过于均匀）",
+  "_paragraph_length_cv_comment": "段落长度变异系数（Coefficient of Variation）。经验阈值：人类范围 0.4-1.2；AI 特征：< 0.3（过于均匀，待后续语料校准）",
 
   "emotional_volatility": null,
   "_emotional_volatility_comment": "情感波动性（high|medium|low）。表示段落之间情绪起伏与反差程度；AI 生成文本通常偏 low",

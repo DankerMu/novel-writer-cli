@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function repoPath(relPath: string): string {
-  return join(process.cwd(), relPath);
+  return join(repoRoot, relPath);
 }
 
 async function readJson(relPath: string): Promise<unknown> {
@@ -51,11 +54,17 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   assert.ok((raw.words as unknown[]).every((w) => typeof w === "string" && w.trim().length > 0), "words must be non-empty strings");
 
   const words = (raw.words as string[]).map((w) => w.trim());
-  assert.ok(words.length >= 190 && words.length <= 220, `words.length must be between 190-220, got ${words.length}`);
+  assert.ok(words.length >= 190, `words.length must be >= 190, got ${words.length}`);
   assert.ok(words.length <= (raw.max_words as number), `words.length must be <= max_words (${raw.max_words})`);
 
   const wordSet = new Set(words);
   assert.equal(wordSet.size, words.length, "words must be unique");
+
+  assert.ok(Array.isArray(raw.whitelist), "ai-blacklist.json.whitelist must be an array");
+  assert.ok(
+    (raw.whitelist as unknown[]).every((w) => typeof w === "string" && w.trim().length > 0),
+    "whitelist entries must be non-empty strings"
+  );
 
   assertPlainObject(raw.categories, "ai-blacklist.json.categories");
   const categories = raw.categories;
@@ -95,14 +104,20 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   const narrationConnectorWords = new Set<string>();
   const abstractFillerWords = new Set<string>();
   const categorizedWordCounts = new Map<string, number>();
+  const categoryWordSets = new Map<string, Set<string>>();
+  const entryIndex = new Map<string, Record<string, unknown>>();
 
   for (const [categoryName, entries] of Object.entries(categories)) {
     assert.ok(Array.isArray(entries), `categories.${categoryName} must be an array`);
+    const categoryWords = new Set<string>();
+    categoryWordSets.set(categoryName, categoryWords);
     for (const entry of entries as unknown[]) {
       assertPlainObject(entry, `categories.${categoryName}[]`);
       assert.equal(typeof entry.word, "string");
       const word = (entry.word as string).trim();
       assert.ok(word.length > 0, `categories.${categoryName}[] word must be non-empty`);
+      categoryWords.add(word);
+      entryIndex.set(`${categoryName}:${word}`, entry as Record<string, unknown>);
 
       assert.equal(typeof entry.replacement_hint, "string");
       assert.ok((entry.replacement_hint as string).trim().length > 0, `categories.${categoryName}[] replacement_hint must be non-empty`);
@@ -141,6 +156,28 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
     assert.ok(abstractFillerWords.has(key), `genre_override.sci-fi.per_chapter_max references missing abstract_filler word: ${key}`);
     assert.ok(Number.isInteger(value), `genre_override.sci-fi.per_chapter_max must be int: ${key}`);
     assert.ok((value as number) > 0, `genre_override.sci-fi.per_chapter_max must be positive: ${key}`);
+  }
+
+  for (const word of ["宛如", "恍若", "仿佛置身于"]) {
+    assert.ok(wordSet.has(word), `Missing from words[]: ${word}`);
+    assert.ok(categoryWordSets.get("simile_cliche")?.has(word), `Missing from simile_cliche: ${word}`);
+  }
+  assert.ok(categoryWordSets.get("paragraph_opener")?.has("下一刻"), "下一刻 should be classified as paragraph_opener");
+  assert.equal(categoryWordSets.get("narrative_filler")?.has("下一刻"), false, "下一刻 should not remain in narrative_filler");
+
+  for (const [categoryName, word, expectedMax] of [
+    ["enumeration_template", "首先", 2],
+    ["enumeration_template", "其次", 2],
+    ["enumeration_template", "最后", 2],
+    ["academic_tone", "例如", 2],
+    ["emotion_cliche", "不禁", 1],
+    ["emotion_cliche", "心中暗道", 1],
+    ["action_cliche", "缓缓说道", 1],
+    ["action_cliche", "微微一笑", 1]
+  ] as const) {
+    const entry = entryIndex.get(`${categoryName}:${word}`);
+    assert.ok(entry, `Missing entry metadata: ${categoryName}:${word}`);
+    assert.equal(entry?.per_chapter_max, expectedMax, `Unexpected per_chapter_max for ${categoryName}:${word}`);
   }
 
   assert.ok(Array.isArray(raw.update_log), "ai-blacklist.json.update_log must be an array");

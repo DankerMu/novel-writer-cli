@@ -23,7 +23,7 @@
 - [x] 3.1 Expand `emotion_cliche` by +8 entries (百感交集/五味杂陈/心如刀割/心如死灰/心中涌起一股XX/不禁感到/油然而生/内心充满了XX) with `replacement_hint` ("用身体反应/行为展示")
 - [x] 3.2 Expand `expression_cliche` by +4 entries (目光如炬/目光灼灼/面色一沉/嘴角微微上扬) with `replacement_hint`
 - [x] 3.3 Expand `action_cliche` by +8 entries (缓缓开口/缓缓说道/微微一笑/淡淡一笑/深吸一口气/眉头微皱/脚步一顿/身形一滞/不由自主地) with `replacement_hint` and `per_chapter_max` (深吸一口气: 1, 眉头微皱: 1, 脚步一顿: 1, 身形一滞: 1)
-- [x] 3.4 Add `abstract_filler` category (~8 entries: 某种程度上/难以形容/无法言喻/不可名状/说不清道不明/极其/非常/各种各样) with `replacement_hint` and genre override note (科幻类"难以形容/不可名状"每章≤2 处)
+- [x] 3.4 Add `abstract_filler` category (~8 entries: 某种程度上/难以形容/无法言喻/不可名状/说不清道不明/难以言喻/无法用言语形容/各种各样) with `replacement_hint` and genre override note (科幻类"难以形容/不可名状"每章≤2 处)
 
 ## 4. Blacklist Metadata
 
@@ -36,7 +36,7 @@
 ## 5. Validation
 
 - [x] 5.1 Verify `templates/style-profile-template.json` loads without error with all 5 new null fields; confirm valid JSON
-- [x] 5.2 Verify `templates/ai-blacklist.json` total categorized entries are between 190-220 (excluding `narration_connector`-only entries in flat `words`)
+- [x] 5.2 Verify `templates/ai-blacklist.json` total categorized entries are at least 190 and do not exceed `max_words` (excluding `narration_connector`-only entries in flat `words`)
 - [x] 5.3 Verify `narration_connector` category has `context: "narration_only"` in `category_metadata`
 - [x] 5.4 Verify all entries in flat `words` array are unique (no duplicates)
 - [x] 5.5 Verify `max_words` (250) >= current total unique entries

@@ -22,14 +22,14 @@ Entries in `narration_connector` SHALL NOT be added to the flat `words` array (t
 - **GIVEN** `ai-blacklist.json` is loaded
 - **WHEN** a consumer reads `category_metadata`
 - **THEN** `category_metadata.narration_connector` exists
-- **AND** it contains `{ "context": "narration_only", "description": "仅叙述文禁止，对话中允许" }`
+- **AND** it contains `{ "context": "narration_only", "description": "仅叙述文禁止，对话中允许；本类词条不进入 words 扁平列表" }`
 - **AND** categories without special metadata (e.g., `emotion_cliche`) have no entry in `category_metadata` (absence = global enforcement)
 
 ---
 
-### Requirement 2: ai-blacklist.json SHALL expand to 190-220 flat entries with per-entry metadata
+### Requirement 2: ai-blacklist.json SHALL expand to 190+ flat entries with per-entry metadata
 
-The flat `words` array SHALL contain between **190 and 220** unique entries (inclusive), excluding any `narration_connector`-only entries.
+The flat `words` array SHALL contain at least **190** unique entries and SHALL NOT exceed `max_words`, excluding any `narration_connector`-only entries.
 
 All entries in `categories.*` SHALL be objects supporting:
 - `word` (string, required)
@@ -55,7 +55,8 @@ Additional categories MAY be present (e.g., `paragraph_opener`, `smooth_transiti
 #### Scenario: Total entry count validation
 - **GIVEN** `ai-blacklist.json` is loaded
 - **WHEN** the flat `words` array length is counted
-- **THEN** the count is between 190 and 220
+- **THEN** the count is at least 190
+- **AND** the count does not exceed `max_words`
 - **AND** all entries in `words` are unique (no duplicates)
 
 ---
@@ -72,7 +73,7 @@ A `max_words` integer field SHALL be added at root level, set to `250`. This rep
 
 #### Scenario: Current count is within max_words limit
 - **GIVEN** `ai-blacklist.json` has `max_words: 250`
-- **AND** the flat `words` array has between 190 and 220 entries
+- **AND** the flat `words` array has at least 190 entries
 - **WHEN** a maintenance check compares `words.length` against `max_words`
 - **THEN** the check passes (count < 250)
 

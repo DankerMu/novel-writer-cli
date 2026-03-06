@@ -60,7 +60,7 @@
 ```json
 {
   "version": "2.0.0",
-  "description": "AI 高频中文用语黑名单 — 生成时禁止使用（支持 replacement_hint / per_chapter_max / narration_only）",
+  "description": "AI 高频中文用语黑名单 — 生成时禁止使用（支持 replacement_hint / per_chapter_max / category_metadata: narration_only + genre_override）",
   "last_updated": "2026-03-05",
   "max_words": 250,
   "words": [
@@ -245,6 +245,9 @@
     "眼底闪过一抹",
     "目光复杂",
     "眼神复杂",
+    "宛如",
+    "恍若",
+    "仿佛置身于",
     "深吸一口气",
     "紧握双拳",
     "瞳孔骤缩",
@@ -307,12 +310,12 @@
       { "word": "归结起来", "replacement_hint": "删除总结语，直接给结论或用事件收束" }
     ],
     "enumeration_template": [
-      { "word": "首先", "replacement_hint": "用场景转换或动作串联，不要用编号推进" },
-      { "word": "其次", "replacement_hint": "用场景转换或动作串联，不要用编号推进" },
-      { "word": "最后", "replacement_hint": "用场景转换或动作串联，不要用编号推进" },
-      { "word": "首先是", "replacement_hint": "用场景转换或动作串联，不要用编号推进" },
-      { "word": "其次是", "replacement_hint": "用场景转换或动作串联，不要用编号推进" },
-      { "word": "最后是", "replacement_hint": "用场景转换或动作串联，不要用编号推进" },
+      { "word": "首先", "replacement_hint": "用场景转换或动作串联，不要用编号推进", "per_chapter_max": 2 },
+      { "word": "其次", "replacement_hint": "用场景转换或动作串联，不要用编号推进", "per_chapter_max": 2 },
+      { "word": "最后", "replacement_hint": "用场景转换或动作串联，不要用编号推进", "per_chapter_max": 2 },
+      { "word": "首先是", "replacement_hint": "用场景转换或动作串联，不要用编号推进", "per_chapter_max": 2 },
+      { "word": "其次是", "replacement_hint": "用场景转换或动作串联，不要用编号推进", "per_chapter_max": 2 },
+      { "word": "最后是", "replacement_hint": "用场景转换或动作串联，不要用编号推进", "per_chapter_max": 2 },
       { "word": "一方面", "replacement_hint": "用对比场景代替，不要写成讲义式对照" },
       { "word": "另一方面", "replacement_hint": "用对比场景代替，不要写成讲义式对照" },
       { "word": "其一", "replacement_hint": "删除编号，融入叙事" },
@@ -330,8 +333,8 @@
       { "word": "基于", "replacement_hint": "改成口语化因果（因为/所以）或直接省略" },
       { "word": "鉴于", "replacement_hint": "改成口语化因果（因为/所以）或直接省略" },
       { "word": "考虑到", "replacement_hint": "改成口语化因果（因为/所以）或直接省略" },
-      { "word": "诸如", "replacement_hint": "直接给出例子" },
-      { "word": "例如", "replacement_hint": "直接给出例子（避免解释腔）" },
+      { "word": "诸如", "replacement_hint": "直接给出例子", "per_chapter_max": 2 },
+      { "word": "例如", "replacement_hint": "直接给出例子（避免解释腔）", "per_chapter_max": 2 },
       { "word": "旨在", "replacement_hint": "改成更口语的动词（想要/打算/为了）" },
       { "word": "致力于", "replacement_hint": "改成更口语的动词（想要/打算/为了）" },
       { "word": "着力", "replacement_hint": "改成更口语的动词（盯着/专门/干脆）" },
@@ -405,7 +408,6 @@
       { "word": "眨眼间", "replacement_hint": "用具体时间/动作描述代替" },
       { "word": "顷刻间", "replacement_hint": "用具体时间/动作描述代替" },
       { "word": "霎那间", "replacement_hint": "用具体时间/动作描述代替" },
-      { "word": "下一刻", "replacement_hint": "用具体动作/信息衔接代替" },
       { "word": "一时间", "replacement_hint": "用具体动作/信息衔接代替" },
       { "word": "随之而来", "replacement_hint": "用具体动作/信息衔接代替" },
       { "word": "旋即", "replacement_hint": "用具体动作/信息衔接代替" },
@@ -432,6 +434,7 @@
       { "word": "就在这时", "replacement_hint": "避免套路段首，改为具体动作/信息" },
       { "word": "就在此时", "replacement_hint": "避免套路段首，改为具体动作/信息" },
       { "word": "话音刚落", "replacement_hint": "避免套路段首，改为具体动作/信息" },
+      { "word": "下一刻", "replacement_hint": "避免套路段首，改为具体动作/信息" },
       { "word": "下一秒", "replacement_hint": "避免套路段首，改为具体动作/信息" },
       { "word": "下一瞬", "replacement_hint": "避免套路段首，改为具体动作/信息" },
       { "word": "下一息", "replacement_hint": "避免套路段首，改为具体动作/信息" },
@@ -455,11 +458,11 @@
       { "word": "日复一日", "replacement_hint": "用具体时间/动作转场，不要用套话" }
     ],
     "emotion_cliche": [
-      { "word": "不禁", "replacement_hint": "删除“不可控”提示，直接写反应/动作" },
+      { "word": "不禁", "replacement_hint": "删除“不可控”提示，直接写反应/动作", "per_chapter_max": 1 },
       { "word": "不由得", "replacement_hint": "删除，直接写动作/反应" },
       { "word": "莫名", "replacement_hint": "删掉模糊词，写清楚原因与感受" },
       { "word": "油然而生", "replacement_hint": "删掉抽象触发词，写清楚触发点" },
-      { "word": "心中暗道", "replacement_hint": "用更具体的内心独白/动作替代" },
+      { "word": "心中暗道", "replacement_hint": "用更具体的内心独白/动作替代", "per_chapter_max": 1 },
       { "word": "一股暖流", "replacement_hint": "用身体反应/具体记忆代替抽象比喻" },
       { "word": "心头一震", "replacement_hint": "用身体反应代替（手心发紧/呼吸一滞）" },
       { "word": "心中一凛", "replacement_hint": "用身体反应代替（后背发凉/脚步一顿）" },
@@ -499,6 +502,11 @@
       { "word": "目光复杂", "replacement_hint": "写出复杂由哪些情绪组成，用动作/停顿展示" },
       { "word": "眼神复杂", "replacement_hint": "写出复杂由哪些情绪组成，用动作/停顿展示" }
     ],
+    "simile_cliche": [
+      { "word": "宛如", "replacement_hint": "每段至多保留一个比喻，优先直写本体与触感" },
+      { "word": "恍若", "replacement_hint": "每段至多保留一个比喻，优先直写本体与触感" },
+      { "word": "仿佛置身于", "replacement_hint": "直接写环境变化与感官细节，不要借套话跳场" }
+    ],
     "action_cliche": [
       { "word": "深吸一口气", "replacement_hint": "每章限频，或改为具体呼吸/动作描写", "per_chapter_max": 1 },
       { "word": "紧握双拳", "replacement_hint": "用更具体动作替代（指节发白/手心出汗）" },
@@ -506,8 +514,8 @@
       { "word": "浑身一震", "replacement_hint": "用更具体反应替代（脚下一软/肩膀一僵）" },
       { "word": "仿佛被什么击中", "replacement_hint": "写清楚被什么触发（某句话/某个细节）" },
       { "word": "缓缓开口", "replacement_hint": "用“说/问”+具体动作替代" },
-      { "word": "缓缓说道", "replacement_hint": "用“说/问”+具体动作替代" },
-      { "word": "微微一笑", "replacement_hint": "写清楚笑的方式和原因" },
+      { "word": "缓缓说道", "replacement_hint": "用“说/问”+具体动作替代", "per_chapter_max": 1 },
+      { "word": "微微一笑", "replacement_hint": "写清楚笑的方式和原因", "per_chapter_max": 1 },
       { "word": "淡淡一笑", "replacement_hint": "写清楚笑的方式和原因" },
       { "word": "轻轻一笑", "replacement_hint": "写清楚笑的方式和原因" },
       { "word": "轻轻叹了口气", "replacement_hint": "减少模板动作，写叹气的原因与后续动作" },
@@ -542,6 +550,12 @@
     ]
   },
   "category_metadata": {
+    "enumeration_template": {
+      "description": "编号式推进词易形成解释腔；其中“首先/其次/最后”类词条以限频为主"
+    },
+    "academic_tone": {
+      "description": "学术腔词条整体应少用；“诸如/例如”属于频率敏感项，避免高密度解释腔"
+    },
     "narration_connector": {
       "context": "narration_only",
       "description": "仅叙述文禁止，对话中允许；本类词条不进入 words 扁平列表"
@@ -562,7 +576,7 @@
       "date": "2026-03-05",
       "version": "2.0.0",
       "description": "扩展黑名单至 200+ 词（对齐 anti-ai-polish 10 类），新增 max_words/replacement_hint/per_chapter_max/category_metadata（narration_only/genre_override）。",
-      "words_count": 218
+      "words_count": 221
     }
   ]
 }
@@ -593,10 +607,10 @@
   "_sentence_length_range_comment": "[最短句, 最长句]，如 [8, 35]",
 
   "sentence_length_std_dev": null,
-  "_sentence_length_std_dev_comment": "句长标准差（字）。人类范围 8-18；AI 特征：< 6（过于均匀）",
+  "_sentence_length_std_dev_comment": "句长标准差（字）。经验阈值：人类范围 8-18；AI 特征：< 6（过于均匀，待后续语料校准）",
 
   "paragraph_length_cv": null,
-  "_paragraph_length_cv_comment": "段落长度变异系数（Coefficient of Variation）。人类范围 0.4-1.2；AI 特征：< 0.3（过于均匀）",
+  "_paragraph_length_cv_comment": "段落长度变异系数（Coefficient of Variation）。经验阈值：人类范围 0.4-1.2；AI 特征：< 0.3（过于均匀，待后续语料校准）",
 
   "emotional_volatility": null,
   "_emotional_volatility_comment": "情感波动性（high|medium|low）。表示段落之间情绪起伏与反差程度；AI 生成文本通常偏 low",
