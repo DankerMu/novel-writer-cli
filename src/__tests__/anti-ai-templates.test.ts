@@ -82,7 +82,8 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
     "environment_cliche",
     "narrative_filler",
     "abstract_filler",
-    "mechanical_opening"
+    "mechanical_opening",
+    "simile_cliche"
   ];
   for (const key of requiredCategories) {
     assert.ok(key in categories, `Missing category: ${key}`);
