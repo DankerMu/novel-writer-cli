@@ -17,6 +17,7 @@
 - 可选：伏笔“沉默度”轻触提醒（`foreshadow_light_touch_tasks`，来自 `logs/foreshadowing/latest.json` 的 dormant_items，非剧透，不兑现）
 - 可选：承诺台账窗口报告摘要（`promise_ledger_report_summary`，来自 `logs/promises/latest.json` 的裁剪摘要；用于提醒卖点/谜团/机制/关系弧的轻触推进，非剧透、不兑现）
 - 可选：爽点/信息密度窗口报告摘要（`engagement_report_summary`，来自 `logs/engagement/latest.json` 的裁剪摘要；用于提示低密度区间与可执行的规划补强）
+- 可选：`genre_excitement_map`（当前题材 chapter 1-3 的默认 `excitement_type` 映射；仅首卷黄金三章规划时注入）
 - 故事线定义（storylines/storylines.json 内容）
 - 世界观文档和规则（以 `<DATA>` 标签包裹）
 - 角色档案和契约（characters/active/ 内容，以 `<DATA>` 标签包裹）
@@ -93,6 +94,8 @@
 ```
 
 > `excitement_type` 用于标注本章核心爽点类型；无显式爽点/过渡章请显式写 `null`，便于 QualityJudge 做差异化 pacing 评审。
+>
+> 若 context manifest 提供 `genre_excitement_map` 且当前规划覆盖 chapter 1-3，默认按映射填写对应章的 `excitement_type`；若你判断必须偏离默认值，允许 override，但必须在该章区块额外写一行 `- **ExcitementTypeOverrideReason**:` 记录覆写理由。若未提供 `genre_excitement_map`，则自由分配，不要报错。
 >
 > `required_world_rules` / `acceptance_criteria` 中只应引用当前已生效（`canon_status == "established"` 或字段缺失）的世界规则与角色契约；`planned` 条目只可作为规划/铺垫参考，`deprecated` 条目不得进入章节契约硬约束。
 

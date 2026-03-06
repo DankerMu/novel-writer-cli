@@ -82,10 +82,10 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     const result = await initProject({ rootDir });
     assert.equal(result.rootDir, rootDir);
 
-    // Exact created set (non-minimal = checkpoint + 4 base templates)
+    // Exact created set (non-minimal = checkpoint + 6 base templates)
     assert.deepEqual(
       result.created.sort(),
-      [".checkpoint.json", "ai-blacklist.json", "brief.md", "style-profile.json", "web-novel-cliche-lint.json"].sort()
+      [".checkpoint.json", "ai-blacklist.json", "brief.md", "genre-excitement-map.json", "genre-golden-standards.json", "style-profile.json", "web-novel-cliche-lint.json"].sort()
     );
 
     // All staging dirs ensured
@@ -130,7 +130,7 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     }
 
     // All template files exist
-    for (const relFile of ["brief.md", "style-profile.json", "ai-blacklist.json", "web-novel-cliche-lint.json"]) {
+    for (const relFile of ["brief.md", "style-profile.json", "genre-excitement-map.json", "genre-golden-standards.json", "ai-blacklist.json", "web-novel-cliche-lint.json"]) {
       await assertFile(join(rootDir, relFile));
     }
     assert.equal(await statExists(join(rootDir, "golden-chapter-gates.json")), false);
@@ -330,6 +330,8 @@ test("initProject minimal mode skips templates", async () => {
     assert.equal(await statExists(join(rootDir, "brief.md")), false);
     assert.equal(await statExists(join(rootDir, "style-profile.json")), false);
     assert.equal(await statExists(join(rootDir, "ai-blacklist.json")), false);
+    assert.equal(await statExists(join(rootDir, "genre-excitement-map.json")), false);
+    assert.equal(await statExists(join(rootDir, "genre-golden-standards.json")), false);
     assert.equal(await statExists(join(rootDir, "golden-chapter-gates.json")), false);
     assert.equal(await statExists(join(rootDir, "web-novel-cliche-lint.json")), false);
   } finally {

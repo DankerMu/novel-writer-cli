@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "description": "题材特定的黄金三章评审标准：仅在 chapter 1-3 且 brief.md 的题材字段匹配时注入 QualityJudge。",
+  "genres": {
+    "xuanhuan": {
+      "focus_dimensions": ["immersion", "foreshadowing"],
+      "criteria": [
+        "前三章要让世界观/力量体系有明显存在感，不能只有空泛名词堆叠。",
+        "升级、资源、境界或代价机制至少要出现一次可感知展示。"
+      ],
+      "minimum_thresholds": {
+        "immersion": 3.5
+      }
+    },
+    "dushi": {
+      "focus_dimensions": ["pacing", "hook_strength"],
+      "criteria": [
+        "都市开篇要尽快建立身份反差、社会张力或现实压迫。",
+        "前三章应给出足够快的逆转/立威预期，避免纯背景介绍。"
+      ],
+      "minimum_thresholds": {
+        "pacing": 3.5
+      }
+    },
+    "scifi": {
+      "focus_dimensions": ["plot_logic", "immersion"],
+      "criteria": [
+        "设定揭示必须兼顾可信度与可理解性，避免只抛概念不落地。",
+        "科技/规则说明要与情节推进绑定，不能牺牲逻辑一致性。"
+      ],
+      "minimum_thresholds": {
+        "plot_logic": 3.5,
+        "immersion": 3.5
+      }
+    },
+    "history": {
+      "focus_dimensions": ["plot_logic", "immersion"],
+      "criteria": [
+        "时代氛围、礼制或历史 plausibility 要稳定成立。",
+        "人物处境与时代约束之间需要有可验证的因果关系。"
+      ],
+      "minimum_thresholds": {
+        "plot_logic": 3.5
+      }
+    },
+    "suspense": {
+      "focus_dimensions": ["plot_logic", "hook_strength"],
+      "criteria": [
+        "线索铺设、误导和悬念升级必须逻辑自洽，不能靠强行藏信息。",
+        "前三章至少建立一个会驱动读者追更的核心疑问。"
+      ],
+      "minimum_thresholds": {
+        "plot_logic": 4.0
+      }
+    },
+    "romance": {
+      "focus_dimensions": ["character", "style_naturalness", "emotional_impact"],
+      "criteria": [
+        "人物性格与关系张力要通过动作、对白和情绪反应落地，不能只靠旁白概括。",
+        "CP 化学反应、情绪钩子或关系预期必须在前三章站住。"
+      ],
+      "minimum_thresholds": {
+        "character": 4.0,
+        "style_naturalness": 3.5
+      }
+    }
+  },
+  "invalid_combinations": [
+    {
+      "genre": "romance",
+      "platform": "qidian",
+      "warning": "起点以男频为主，言情题材建议优先考虑晋江或番茄；若坚持选择起点，请尽早补强主线承诺与差异点。"
+    },
+    {
+      "genre": "xuanhuan",
+      "platform": "jinjiang",
+      "warning": "晋江以女频为主，玄幻题材建议优先考虑起点或番茄；若坚持选择晋江，请提前明确关系张力与情绪卖点。"
+    }
+  ]
+}
