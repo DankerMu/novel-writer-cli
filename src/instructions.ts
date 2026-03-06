@@ -115,9 +115,18 @@ async function loadChapterExcitementType(args: { rootDir: string; volume: number
 
 type CanonStatus = "established" | "planned" | "deprecated";
 
+type PlannedRuleInfo = {
+  id?: string;
+  category?: string;
+  constraint_type?: string;
+  canon_status: "planned";
+  rule: string;
+};
+
 type RuleLifecycleContext = {
   hardRulesList: string[];
-  plannedRulesInfo: Array<Record<string, unknown>>;
+  plannedRulesInfo: PlannedRuleInfo[];
+  degraded: boolean;
 };
 
 type CharacterContext = {
@@ -138,18 +147,18 @@ function asNonEmptyString(raw: unknown): string | null {
 }
 
 async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleContext> {
-  const empty: RuleLifecycleContext = { hardRulesList: [], plannedRulesInfo: [] };
+  const empty: RuleLifecycleContext = { hardRulesList: [], plannedRulesInfo: [], degraded: false };
   const rulesAbs = join(rootDir, "world/rules.json");
   if (!(await pathExists(rulesAbs))) return empty;
 
   try {
     const raw = await readJsonFile(rulesAbs);
-    if (!isPlainObject(raw)) return empty;
+    if (!isPlainObject(raw)) return { ...empty, degraded: true };
     const rules = (raw as Record<string, unknown>).rules;
-    if (!Array.isArray(rules)) return empty;
+    if (!Array.isArray(rules)) return { ...empty, degraded: true };
 
     const hardRulesList: string[] = [];
-    const plannedRulesInfo: Array<Record<string, unknown>> = [];
+    const plannedRulesInfo: PlannedRuleInfo[] = [];
 
     for (const item of rules) {
       if (!isPlainObject(item)) continue;
@@ -178,9 +187,9 @@ async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleC
       hardRulesList.push(id ? `${id}: ${rule}` : rule);
     }
 
-    return { hardRulesList, plannedRulesInfo };
+    return { hardRulesList, plannedRulesInfo, degraded: false };
   } catch {
-    return empty;
+    return { ...empty, degraded: true };
   }
 }
 
@@ -906,6 +915,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
     const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
     inline.hard_rules_list = ruleLifecycle.hardRulesList;
+    if (ruleLifecycle.degraded) inline.world_rules_context_degraded = true;
     if (ruleLifecycle.plannedRulesInfo.length > 0) inline.planned_rules_info = ruleLifecycle.plannedRulesInfo;
 
     const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
@@ -983,6 +993,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
     const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
     inline.hard_rules_list = ruleLifecycle.hardRulesList;
+    if (ruleLifecycle.degraded) inline.world_rules_context_degraded = true;
 
     const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
     if (characterContext.characterContracts.length > 0) paths.character_contracts = characterContext.characterContracts;

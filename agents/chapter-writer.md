@@ -18,7 +18,8 @@
 - 章节号、卷号、storyline_id
 - chapter_outline_block（已从 outline.md 提取的本章大纲区块）
 - storyline_context（last_chapter_summary / chapters_since_last / line_arc_progress）
-- hard_rules_list（L1 禁止项列表；仅包含 `canon_status == "established"` 或缺失字段的已生效 hard 规则）
+- hard_rules_list（L1 禁止项列表；仅包含 `canon_status == "established"` 或缺失字段的已生效 hard 规则；即使为空也会显式提供）
+- world_rules_context_degraded（可选；若为 `true`，表示 `world/rules.json` 存在但 CLI 在提取 L1 规则时发生降级，需直接读取 `paths.world_rules` 复核）
 - planned_rules_info（可选；已规划但未生效的 L1 规则，仅供伏笔/铺垫参考）
 - foreshadowing_tasks（本章伏笔任务）
 - foreshadow_light_touch_tasks（可选；伏笔沉默超阈值时注入的“轻触提醒”任务：非剧透、不兑现）
@@ -44,7 +45,7 @@
 - `paths.storyline_memory` → 当前线记忆
 - `paths.adjacent_memories[]` → 相邻线/交汇线记忆
 - `paths.character_profiles[]` → 裁剪后的角色叙述档案（可选）
-- `paths.character_contracts[]` → 裁剪后的角色契约 JSON（`deprecated` 已剔除；`planned` 角色可见但不作为强制约束）
+- `paths.character_contracts[]` → 裁剪后的角色契约 JSON（`deprecated` 已剔除；`planned` 角色可见但不作为强制约束；你需要读取各 JSON 的 `canon_status` 自行区分）
 - `paths.project_brief` → 项目 brief
 - `paths.style_guide` → 去 AI 化方法论参考
 - `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取以获得更完整上下文）
@@ -52,7 +53,9 @@
 
 > **读取优先级**：先读 `style_profile`（获取 style_exemplars 作为写作基调），若存在再读 `platform_profile` + `platform_writing_guide`（明确平台字数/钩子策略/节奏与关系预期），再读 `chapter_contract` + `recent_summaries`（明确要写什么），最后读其余文件。
 
-当 L1 hard 规则存在时，manifest 中会以 `hard_rules_list` 禁止项列表形式提供，这些规则**不可违反**；它只包含已生效（`canon_status == "established"` 或字段缺失）的 hard 规则。
+manifest 中会以 `hard_rules_list` 禁止项列表形式提供当前已生效（`canon_status == "established"` 或字段缺失）的 hard 规则；这些规则**不可违反**。
+
+若 `world_rules_context_degraded == true`，说明 CLI 未能可靠提取完整的 L1 规则摘要；此时你必须直接读取 `paths.world_rules`，按同一 `canon_status` 语义自行保守复核，不能把空 `hard_rules_list` 误解成“没有世界规则”。
 
 当存在 `planned_rules_info` 时，你可以把这些规则当作“未来会生效的设定提示”来做轻度伏笔或预告，但**不得**把它们当成当前章必须兑现的硬约束。
 

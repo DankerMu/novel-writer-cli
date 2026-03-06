@@ -18,7 +18,8 @@
 **Non-Goals:**
 - 不提供 UI/CLI 命令来管理状态转换（手动编辑 JSON 或由 WorldBuilder/CharacterWeaver 在增量模式下设置）
 - 不实现自动状态转换（如"到了第 3 卷自动从 planned 升级为 established"）
-- 不影响 LS 故事线规范和 L3 章节契约（这些工件没有 canon_status 需求）
+- 不改变 ConsistencyAuditor / continuity checks 的现有判定语义（本 change 仅影响 L1/L2 生命周期过滤与提示）
+- 不影响 LS 故事线规范和 L3 章节契约的存储 schema（这些工件本身不新增 canon_status 字段）
 
 ## Decisions
 
@@ -53,5 +54,7 @@
 - `agents/character-weaver.md`（L2 角色契约 schema）
 - `agents/chapter-writer.md`（约束消费）
 - `agents/quality-judge.md`（Track 1 合规检查）
+- `agents/plot-architect.md`（卷规划时的 chapter-contract hard gate 生成）
 - `src/instructions.ts`（`chapter:*:draft/judge` instruction packet 组装）
 - `skills/continue/SKILL.md`（thin adapter；透传 CLI 生成的 packet）
+- `skills/continue/references/context-contracts.md`（manifest 契约说明）

@@ -49,6 +49,7 @@
 4. **卷末钩子**：最后 1-2 章必须预留悬念钩子（吸引读者追更）
 5. **角色弧线**：主要角色在本卷内应有可见的成长或变化
 6. **故事线调度**：从 storylines.json 选取本卷活跃线（≤4 条），规划交织节奏和交汇事件
+7. **`canon_status` 生命周期**：读取 `world/rules.json` 与 `characters/active/*.json` 时，缺失 `canon_status` 按 `established` 处理；仅 `established` 规则可写入 `preconditions.required_world_rules` 和硬性 `acceptance_criteria`，`planned` 规则/角色可用于铺垫、预告和登场规划，但不得写成当前章必须满足的硬验收条件，`deprecated` 条目必须跳过
 
 # Spec-Driven Writing — L3 章节契约
 
@@ -92,6 +93,8 @@
 ```
 
 > `excitement_type` 用于标注本章核心爽点类型；无显式爽点/过渡章请显式写 `null`，便于 QualityJudge 做差异化 pacing 评审。
+>
+> `required_world_rules` / `acceptance_criteria` 中只应引用当前已生效（`canon_status == "established"` 或字段缺失）的世界规则与角色契约；`planned` 条目只可作为规划/铺垫参考，`deprecated` 条目不得进入章节契约硬约束。
 
 **链式传递**：前章的 postconditions 自动成为下一章的 preconditions。
 
