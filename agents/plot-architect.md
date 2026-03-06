@@ -18,6 +18,7 @@
 - 可选：承诺台账窗口报告摘要（`promise_ledger_report_summary`，来自 `logs/promises/latest.json` 的裁剪摘要；用于提醒卖点/谜团/机制/关系弧的轻触推进，非剧透、不兑现）
 - 可选：爽点/信息密度窗口报告摘要（`engagement_report_summary`，来自 `logs/engagement/latest.json` 的裁剪摘要；用于提示低密度区间与可执行的规划补强）
 - 可选：`genre_excitement_map`（当前题材 chapter 1-3 的默认 `excitement_type` 映射；仅首卷黄金三章规划时注入）
+- 可选：`existing_volume_outline` / `existing_storyline_schedule` / `existing_foreshadowing` / `existing_chapter_contracts_dir`（当卷一已存在 F0 种子且本次只续规 chapter 4+ 时注入；这些路径一律只读）
 - 故事线定义（storylines/storylines.json 内容）
 - 世界观文档和规则（以 `<DATA>` 标签包裹）
 - 角色档案和契约（characters/active/ 内容，以 `<DATA>` 标签包裹）

@@ -5,12 +5,13 @@ import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import type { NextStepResult } from "./next-step.js";
+import { QUICKSTART_MINI_PLANNING_RANGE as SHARED_QUICKSTART_MINI_PLANNING_RANGE, extractOutlineChapterNumbers, matchesQuickstartMiniPlanningSeedSequence, quickstartMiniPlanningChapters, startsWithQuickstartMiniPlanningSeedSequence } from "./quickstart-mini-planning.js";
 import { formatStepId, pad2, pad3 } from "./steps.js";
 
 export type VolumeChapterRange = { start: number; end: number };
 
 export const CHAPTERS_PER_VOLUME = 30;
-export const QUICKSTART_MINI_PLANNING_RANGE = { start: 1, end: 3 } as const;
+export const QUICKSTART_MINI_PLANNING_RANGE = SHARED_QUICKSTART_MINI_PLANNING_RANGE;
 
 export function volumeForChapter(chapter: number): number {
   if (!Number.isInteger(chapter) || chapter < 1) {
@@ -76,39 +77,16 @@ export function volumeFinalRelPaths(volume: number): {
   };
 }
 
-function extractOutlineChapterNumbers(text: string): number[] {
-  const chapterHeadingRe = /^###\s*第\s*(\d+)\s*章/u;
-  const chapters: number[] = [];
-  for (const line of text.split(/\r?\n/u)) {
-    const match = chapterHeadingRe.exec(line);
-    if (!match) continue;
-    const chapter = Number.parseInt(match[1] ?? "", 10);
-    if (!Number.isInteger(chapter) || chapter < 1) continue;
-    chapters.push(chapter);
-  }
-  return chapters;
-}
-
-function matchesQuickstartSeedChapterSequence(chapters: number[]): boolean {
-  const expectedChapters = [
-    QUICKSTART_MINI_PLANNING_RANGE.start,
-    QUICKSTART_MINI_PLANNING_RANGE.start + 1,
-    QUICKSTART_MINI_PLANNING_RANGE.end
-  ];
-  return chapters.length === expectedChapters.length && chapters.every((chapter, index) => chapter === expectedChapters[index]);
-}
-
 export async function hasQuickstartMiniPlanningSeedBase(rootDir: string): Promise<boolean> {
   const final = volumeFinalRelPaths(1);
+  const seedChapters = quickstartMiniPlanningChapters();
   const requiredPaths = [
     final.outlineMd,
     final.storylineScheduleJson,
     final.foreshadowingJson,
     final.newCharactersJson,
     final.chapterContractsDir,
-    final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.start),
-    final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.start + 1),
-    final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.end)
+    ...seedChapters.map((chapter) => final.chapterContractJson(chapter))
   ];
 
   try {
@@ -117,25 +95,13 @@ export async function hasQuickstartMiniPlanningSeedBase(rootDir: string): Promis
     }
 
     const outline = await readTextFile(join(rootDir, final.outlineMd));
-    const outlineChapters = extractOutlineChapterNumbers(outline);
-    if (
-      outlineChapters.length < QUICKSTART_MINI_PLANNING_RANGE.end
-      || outlineChapters[0] !== QUICKSTART_MINI_PLANNING_RANGE.start
-      || outlineChapters[1] !== QUICKSTART_MINI_PLANNING_RANGE.start + 1
-      || outlineChapters[2] !== QUICKSTART_MINI_PLANNING_RANGE.end
-    ) {
-      return false;
-    }
+    if (!startsWithQuickstartMiniPlanningSeedSequence(extractOutlineChapterNumbers(outline))) return false;
 
     await readJsonFile(join(rootDir, final.storylineScheduleJson));
     await readJsonFile(join(rootDir, final.foreshadowingJson));
     await readJsonFile(join(rootDir, final.newCharactersJson));
 
-    for (const chapter of [
-      QUICKSTART_MINI_PLANNING_RANGE.start,
-      QUICKSTART_MINI_PLANNING_RANGE.start + 1,
-      QUICKSTART_MINI_PLANNING_RANGE.end
-    ]) {
+    for (const chapter of seedChapters) {
       const raw = await readJsonFile(join(rootDir, final.chapterContractJson(chapter)));
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
       if ((raw as Record<string, unknown>).chapter !== chapter) return false;
@@ -153,18 +119,14 @@ export async function hasQuickstartMiniPlanningArtifacts(rootDir: string): Promi
   const final = volumeFinalRelPaths(1);
   try {
     const outline = await readTextFile(join(rootDir, final.outlineMd));
-    if (!matchesQuickstartSeedChapterSequence(extractOutlineChapterNumbers(outline))) return false;
+    if (!matchesQuickstartMiniPlanningSeedSequence(extractOutlineChapterNumbers(outline))) return false;
 
     const visibleContractEntries = (await readdir(join(rootDir, final.chapterContractsDir), { withFileTypes: true }))
       .filter((entry) => !entry.name.startsWith("."));
     if (visibleContractEntries.some((entry) => !entry.isFile())) return false;
 
     const contractFiles = visibleContractEntries.map((entry) => entry.name).sort();
-    const expectedContractFiles = [
-      QUICKSTART_MINI_PLANNING_RANGE.start,
-      QUICKSTART_MINI_PLANNING_RANGE.start + 1,
-      QUICKSTART_MINI_PLANNING_RANGE.end
-    ].map((chapter) => `chapter-${pad3(chapter)}.json`);
+    const expectedContractFiles = quickstartMiniPlanningChapters().map((chapter) => `chapter-${pad3(chapter)}.json`);
     return (
       contractFiles.length === expectedContractFiles.length
       && !contractFiles.some((fileName, index) => fileName !== expectedContractFiles[index])

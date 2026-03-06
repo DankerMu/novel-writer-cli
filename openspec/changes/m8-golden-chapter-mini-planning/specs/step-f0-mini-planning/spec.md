@@ -128,6 +128,18 @@ When PlotArchitect performs formal volume planning on vol-01 and Ch1-3 contracts
 - **THEN** those contracts are treated as read-only
 - **AND** no modifications are made to Ch1-3 contracts
 
+#### Scenario: Formal planning incrementally merges schedule, foreshadowing, and new characters
+- **WHEN** formal volume planning for vol-01 commits after F0 seed exists
+- **THEN** `storyline-schedule.json` preserves existing seed entries and appends new active lines / events without duplicating identical entries
+- **AND** `foreshadowing.json` merges by `id`, preserving existing seed items and extending `history` when the same id reappears
+- **AND** `new-characters.json` merges by `name + first_chapter`, preserving seed-side declarations while appending genuinely new characters
+
+#### Scenario: Partial merge can be resumed safely
+- **WHEN** formal volume planning commit is interrupted after some non-seed artifacts already landed in `volumes/vol-01/`
+- **AND** staging artifacts are still present
+- **THEN** rerunning commit resumes the merge instead of overwriting F0 seed artifacts
+- **AND** conflicting outline blocks or chapter contracts still fail closed with an explicit error
+
 ---
 
 ## References

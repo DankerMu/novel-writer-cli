@@ -32,6 +32,8 @@
 - `paths.platform_profile` → 平台配置 JSON（可选；含 hook_policy 等平台侧规则）
 - `paths.ai_blacklist` → AI 黑名单 JSON
 - `paths.chapter_contract` → L3 章节契约 JSON
+- `paths.volume_outline` → 本卷大纲全文（可选；黄金三章 / 正式卷规划存在时注入）
+- `paths.volume_foreshadowing` → 本卷伏笔计划（可选；黄金三章 / 正式卷规划存在时注入）
 - `paths.world_rules` → L1 世界规则（可选）
 - `paths.prev_summary` → 前一章摘要（可选，首章无）
 - `paths.character_profiles[]` → 相关已生效角色叙述档案（.md，用于角色一致性评估）

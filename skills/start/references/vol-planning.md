@@ -35,6 +35,7 @@
    - `staging/volumes/vol-{V:02d}/new-characters.json`（可为空数组）
    - `staging/volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json`（`C ∈ [plan_start, plan_end]`）
    - 若已有 `seed_range=[1,3]`：只生成新章节（从 4 开始），不得重写 `chapter-001/002/003.json`
+   - commit 合并策略：`storyline-schedule.json` 的 `active_storylines` 去重合并；`foreshadowing.json` 按 `id` 合并并保留既有 `history`；`new-characters.json` 按 `name|first_chapter` 去重
    - （注意：`foreshadowing/global.json` 为事实索引，由 `/novel:continue` 在每章 commit 阶段从 `foreshadow` ops 更新；卷规划阶段不生成/覆盖 global.json）
 4. 规划产物校验（对 `staging/` 下的产物执行；失败则停止并给出修复建议，禁止“缺文件继续写”导致断链）：
    - `outline.md` 可解析：可用 `/^### 第 (\\d+) 章/` 找到章节区块，且连续覆盖 `plan_start..plan_end`（不允许跳章，否则下游契约缺失会导致流水线崩溃）

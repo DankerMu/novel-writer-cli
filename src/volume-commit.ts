@@ -6,9 +6,10 @@ import { readCheckpoint, writeCheckpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, removePath, writeJsonFile, writeTextFile } from "./fs-utils.js";
 import { withWriteLock } from "./lock.js";
+import { QUICKSTART_MINI_PLANNING_RANGE, extractOutlineChapterNumbers, quickstartMiniPlanningChapters, startsWithQuickstartMiniPlanningSeedSequence } from "./quickstart-mini-planning.js";
 import { isPlainObject } from "./type-guards.js";
 import { validateStep } from "./validate.js";
-import { hasQuickstartMiniPlanningSeedBase, QUICKSTART_MINI_PLANNING_RANGE, volumeFinalRelPaths, volumeStagingRelPaths } from "./volume-planning.js";
+import { hasQuickstartMiniPlanningSeedBase, volumeFinalRelPaths, volumeStagingRelPaths } from "./volume-planning.js";
 
 export type VolumeCommitResult = {
   plan: string[];
@@ -102,19 +103,6 @@ function uniqueValues(values: unknown[]): unknown[] {
     out.push(value);
   }
   return out;
-}
-
-function extractOutlineChapterNumbers(text: string): number[] {
-  const chapterHeadingRe = /^###\s*第\s*(\d+)\s*章/u;
-  const chapters: number[] = [];
-  for (const line of text.split(/\r?\n/u)) {
-    const match = chapterHeadingRe.exec(line);
-    if (!match) continue;
-    const chapter = Number.parseInt(match[1] ?? "", 10);
-    if (!Number.isInteger(chapter) || chapter < 1) continue;
-    chapters.push(chapter);
-  }
-  return chapters;
 }
 
 function parseOutline(text: string): { header: string; blocks: Map<number, string> } {
@@ -258,17 +246,8 @@ async function mergeVolumePlanIntoExistingFinal(rootDir: string, volume: number)
   const incomingParsed = parseOutline(incomingOutline);
 
   const existingOutlineChapters = [...existingParsed.blocks.keys()].sort((left, right) => left - right);
-  const expectedSeedChapters = [
-    QUICKSTART_MINI_PLANNING_RANGE.start,
-    QUICKSTART_MINI_PLANNING_RANGE.start + 1,
-    QUICKSTART_MINI_PLANNING_RANGE.end
-  ];
-  if (
-    existingOutlineChapters.length < expectedSeedChapters.length
-    || existingOutlineChapters[0] !== expectedSeedChapters[0]
-    || existingOutlineChapters[1] !== expectedSeedChapters[1]
-    || existingOutlineChapters[2] !== expectedSeedChapters[2]
-  ) {
+  const expectedSeedChapters = quickstartMiniPlanningChapters();
+  if (!startsWithQuickstartMiniPlanningSeedSequence(existingOutlineChapters)) {
     throw new NovelCliError(
       `Refusing to merge into existing volume seed: expected outline to start with chapters ${expectedSeedChapters.join(", ")}, got ${existingOutlineChapters.join(", ") || "(none)"}.`,
       2
