@@ -92,6 +92,12 @@ Each indicator uses green/yellow/red zone thresholds as defined in style-guide L
 - **THEN** all 7 indicators are evaluated and reported
 - **AND** each indicator has a zone assignment (green, yellow, or red)
 
+#### Scenario: Indicator breakdown is output in structured form
+- **GIVEN** QualityJudge produces a 7-indicator style-naturalness assessment
+- **WHEN** the `anti_ai` output is generated
+- **THEN** it includes an `indicator_breakdown` object keyed by the 7 indicator names
+- **AND** each indicator entry includes its value, zone, and a short explanatory note
+
 #### Scenario: Each indicator uses green/yellow/red zone from style-guide Layer 4
 - **GIVEN** QualityJudge is determining the zone for an indicator
 - **WHEN** the indicator value is computed

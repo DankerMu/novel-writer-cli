@@ -138,6 +138,7 @@
 
 执行要求：
 - 逐项给出 `green | yellow | red` 归类，并在 `style_naturalness.reason` 中解释主要拉分项
+- 同时在 `anti_ai.indicator_breakdown` 中结构化输出 7 个指标的 `value` / `zone` / `note`，不要只把它们埋在自由文本里
 - `narration_connector_count` 的判定：0 = green；1 个孤立命中 = yellow（仍建议修）；≥2 个或连续多段靠连接词推进 = red
 - `humanize_technique_variety` 只做事后观察，不是配额：若整章 0 种技法且其他指标也健康，可记 yellow；若 0 种且伴随其他 red，则记 red
 - 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）
@@ -198,6 +199,15 @@ else:
   },
   "anti_ai": {
     "indicator_mode": "7-indicator | 4-indicator-compat",
+    "indicator_breakdown": {
+      "blacklist_hit_rate": {"value": 2.4, "zone": "yellow", "note": "2.4 次/千字，仍有收缩空间"},
+      "sentence_repetition_rate": {"value": "1/5", "zone": "green", "note": "相邻 5 句中只有 1 处重复句式"},
+      "sentence_length_std_dev": {"value": 11.8, "zone": "green", "note": "句长波动落在目标范围"},
+      "paragraph_length_cv": {"value": 0.72, "zone": "green", "note": "段长起伏自然"},
+      "vocabulary_diversity_score": {"value": "medium", "zone": "yellow", "note": "仍有少量高频表达回流"},
+      "narration_connector_count": {"value": 1, "zone": "yellow", "note": "有 1 个孤立叙述连接词命中"},
+      "humanize_technique_variety": {"value": ["thought_interrupt", "mundane_detail"], "zone": "green", "note": "至少有 2 种自然技法"}
+    },
     "blacklist_hits": {
       "total_hits": 12,
       "hits_per_kchars": 2.4,
@@ -217,8 +227,8 @@ else:
     "detected_humanize_techniques": ["thought_interrupt", "mundane_detail"],
     "structural_rule_violations": [
       {
-        "rule": "dialogue_intent | adjective_density | idiom_density | template_sentence | paragraph_structure | punctuation_rhythm",
-        "severity": "yellow | red",
+        "rule": "dialogue_intent",
+        "severity": "yellow",
         "evidence": "原文片段",
         "detail": "为什么它构成结构性 AI 痕迹"
       }

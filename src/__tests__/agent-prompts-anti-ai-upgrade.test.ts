@@ -21,6 +21,18 @@ test("chapter-writer prompt removes quota language and includes C16-C20 + Phase 
     assert.equal(prompt.includes(legacy), false, `chapter-writer must remove legacy quota phrase: ${legacy}`);
   }
 
+  const c11 = prompt.match(/11\.\s\*\*角色语癖（C11）\*\*：([^\n]+)/)?.[1] ?? "";
+  const c12 = prompt.match(/12\.\s\*\*反直觉细节（C12）\*\*：([^\n]+)/)?.[1] ?? "";
+  const c18 = prompt.match(/18\.\s\*\*人性化技法抽样（C18）\*\*：([^\n]+)/)?.[1] ?? "";
+  for (const [label, text] of [
+    ["C11", c11],
+    ["C12", c12],
+    ["C18", c18]
+  ] as const) {
+    assert.ok(text.length > 0, `${label} text must be present`);
+    assert.doesNotMatch(text, /每章.*\d|至少.*\d|≥\d|\d-\d 次/, `${label} must not reintroduce fixed quotas`);
+  }
+
   for (const required of [
     "角色语癖（C11）",
     "反直觉细节（C12）",
@@ -71,6 +83,7 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
 
   for (const required of [
     "\"indicator_mode\": \"7-indicator | 4-indicator-compat\"",
+    "\"indicator_breakdown\"",
     "\"statistical_profile\"",
     "\"detected_humanize_techniques\"",
     "\"structural_rule_violations\"",
