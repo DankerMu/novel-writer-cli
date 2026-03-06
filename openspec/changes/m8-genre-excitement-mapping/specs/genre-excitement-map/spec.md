@@ -59,7 +59,7 @@ The system SHALL provide a `templates/genre-excitement-map.json` configuration f
 - **GIVEN** the genre mapping suggests `power_up` for xuanhuan Ch2
 - **WHEN** PlotArchitect determines a different excitement_type is more appropriate
 - **THEN** PlotArchitect MAY override the default
-- **AND** SHALL record the override justification in the outline
+- **AND** SHALL record the override justification inside the existing chapter block text without adding a 10th `Key` line
 
 #### Scenario: genre_excitement_map template missing, PlotArchitect assigns freely
 - **GIVEN** `templates/genre-excitement-map.json` does not exist
@@ -67,8 +67,29 @@ The system SHALL provide a `templates/genre-excitement-map.json` configuration f
 - **THEN** PlotArchitect assigns excitement_type freely without genre constraints
 - **AND** no warning or error is produced
 
+### Requirement: Instruction runtime SHALL inject genre_excitement_map into opening PlotArchitect packets
+`src/instructions.ts` SHALL inject `genre_excitement_map` (matched by `brief.md` genre) into the `volume:outline` PlotArchitect instruction manifest when the selected planning range includes chapters 1-3 and `genre-excitement-map.json` exists.
+
+#### Scenario: Genre excitement map injected for opening outline planning
+- **GIVEN** genre-excitement-map.json exists
+- **AND** project genre is xuanhuan
+- **WHEN** the instruction runtime builds the `volume:outline` PlotArchitect manifest for chapter range 1-3
+- **THEN** the manifest includes the xuanhuan Ch1-3 excitement_type mappings
+
+#### Scenario: Later volume outline skips opening-only injection
+- **GIVEN** last_completed_chapter is 3
+- **WHEN** the instruction runtime builds the next `volume:outline` PlotArchitect manifest
+- **THEN** no genre_excitement_map is injected
+
+#### Scenario: Genre excitement map missing, no injection
+- **GIVEN** genre-excitement-map.json does not exist
+- **WHEN** the instruction runtime builds the `volume:outline` PlotArchitect manifest
+- **THEN** no genre_excitement_map is injected
+- **AND** no warning or error is produced
+
 ## References
 
 - `agents/plot-architect.md`
+- `src/instructions.ts`
 - `templates/genre-excitement-map.json`
 - CS2 `excitement_type` enum: reversal | face_slap | power_up | reveal | cliffhanger | setup | null

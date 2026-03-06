@@ -114,19 +114,26 @@ The genre-golden-standards configuration SHALL contain an `invalid_combinations`
 - **THEN** no compatibility check is performed
 - **AND** no warning is displayed
 
-### Requirement: Continue skill SHALL inject genre_golden_standards for chapters 1-3
-`skills/continue/SKILL.md` Step 2.6 SHALL inject `inline.genre_golden_standards` into the QualityJudge instruction packet when the current chapter number is <= 3, the genre_golden_standards configuration file exists, and the project genre matches a key in the configuration.
+### Requirement: Instruction runtime SHALL inject genre_golden_standards for opening QualityJudge packets
+`src/instructions.ts` SHALL inject `inline.genre_golden_standards` into QualityJudge instruction packets when the current chapter number is <= 3, `genre-golden-standards.json` exists, and the project genre matches a key in the configuration.
 
-#### Scenario: Genre standards injected for chapter 2
+#### Scenario: Genre standards injected for chapter 2 judge
 - **GIVEN** chapter number is 2
 - **AND** `genre-golden-standards.json` exists
 - **AND** project genre is `suspense`
-- **WHEN** the continue skill builds the QualityJudge instruction packet
+- **WHEN** the instruction runtime builds the `chapter:2:judge` QualityJudge packet
 - **THEN** `inline.genre_golden_standards` contains the suspense-specific standards (focus_dimensions, criteria, minimum_thresholds)
 
-#### Scenario: Genre standards not injected for chapter 5
-- **GIVEN** chapter number is 5
-- **WHEN** the continue skill builds the QualityJudge instruction packet
+#### Scenario: Genre standards injected for quickstart results in chapter 3
+- **GIVEN** quickstart is evaluating chapter 3
+- **AND** `genre-golden-standards.json` exists
+- **AND** project genre is `romance`
+- **WHEN** the instruction runtime builds the `quickstart:results` QualityJudge packet
+- **THEN** `inline.genre_golden_standards` contains the romance-specific standards
+
+#### Scenario: Genre standards not injected after chapter 3
+- **GIVEN** current chapter number is 5
+- **WHEN** the instruction runtime builds a QualityJudge packet
 - **THEN** `inline.genre_golden_standards` is NOT present
 
 ### Requirement: Init SHALL register genre-excitement-map.json and genre-golden-standards.json as default templates
@@ -138,18 +145,18 @@ The genre-golden-standards configuration SHALL contain an `invalid_combinations`
 - **THEN** `genre-excitement-map.json` exists in the project root
 - **AND** `genre-golden-standards.json` exists in the project root
 
-### Requirement: Start skill Step F SHALL inject genre_excitement_map into manifest
-`skills/start/SKILL.md` Step F SHALL inject `genre_excitement_map` (matched by brief.genre) into the PlotArchitect instruction manifest when the genre-excitement-map.json template exists.
+### Requirement: Instruction runtime SHALL inject genre_excitement_map into opening PlotArchitect packets
+`src/instructions.ts` SHALL inject `genre_excitement_map` (matched by `brief.md` genre) into the `volume:outline` PlotArchitect instruction manifest when the selected planning range includes chapters 1-3 and `genre-excitement-map.json` exists.
 
-#### Scenario: Genre excitement map injected during start
+#### Scenario: Genre excitement map injected during opening outline planning
 - **GIVEN** genre-excitement-map.json exists
-- **AND** user selected genre xuanhuan
-- **WHEN** Step F builds the PlotArchitect manifest
+- **AND** project genre is xuanhuan
+- **WHEN** the instruction runtime builds the `volume:outline` PlotArchitect manifest for chapter range 1-3
 - **THEN** the manifest includes the xuanhuan Ch1-3 excitement_type mappings
 
 #### Scenario: Genre excitement map missing, no injection
 - **GIVEN** genre-excitement-map.json does not exist
-- **WHEN** Step F builds the PlotArchitect manifest
+- **WHEN** the instruction runtime builds the `volume:outline` PlotArchitect manifest
 - **THEN** no genre_excitement_map is injected
 - **AND** no warning or error is produced
 
@@ -158,6 +165,7 @@ The genre-golden-standards configuration SHALL contain an `invalid_combinations`
 - `agents/quality-judge.md`
 - `agents/plot-architect.md`
 - `skills/continue/SKILL.md`
+- `src/instructions.ts`
 - `skills/start/SKILL.md`
 - `src/init.ts`
 - `templates/genre-golden-standards.json`

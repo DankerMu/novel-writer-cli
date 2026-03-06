@@ -39,11 +39,11 @@
 - [x] 5.1 Update `skills/start/SKILL.md` Step A: add 言情 (romance) as 6th genre option
 - [x] 5.2 Add post-selection genre×platform compatibility check: after genre + platform selection, look up `invalid_combinations` in genre-golden-standards.json; display WARNING if matched
 - [x] 5.3 Add fallback: genre-golden-standards.json missing → skip compatibility check, no warning
-- [x] 5.4 Update Step F: inject `genre_excitement_map` (matched by brief.genre) into PlotArchitect manifest when genre-excitement-map.json exists
+- [x] 5.4 Update `src/instructions.ts`: inject `genre_excitement_map` (matched by brief.genre) into the `volume:outline` PlotArchitect manifest when genre-excitement-map.json exists
 
 ## 6. Continue Skill — Genre Standards Injection
 
-- [x] 6.1 Update `skills/continue/SKILL.md` Step 2.6: when chapter ≤ 3 and genre-golden-standards.json exists, inject `inline.genre_golden_standards` with the matched genre entry into QualityJudge manifest
+- [x] 6.1 Update `src/instructions.ts`: when chapter ≤ 3 and genre-golden-standards.json exists, inject `inline.genre_golden_standards` with the matched genre entry into `chapter:*:judge` and `quickstart:results` QualityJudge manifests
 - [x] 6.2 Add fallback: genre-golden-standards.json missing or genre not found → do not inject, no error
 
 ## 7. Validation

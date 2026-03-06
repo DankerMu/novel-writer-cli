@@ -24,7 +24,13 @@ const CORE_DIMENSIONS = [
 
 const OPTIONAL_DIMENSIONS = ["hook_strength"] as const;
 
-const KNOWN_DIMENSIONS = new Set<string>([...CORE_DIMENSIONS, ...OPTIONAL_DIMENSIONS]);
+export const KNOWN_SCORING_DIMENSIONS = [...CORE_DIMENSIONS, ...OPTIONAL_DIMENSIONS] as const;
+
+const KNOWN_DIMENSIONS = new Set<string>(KNOWN_SCORING_DIMENSIONS);
+
+export function isKnownScoringDimension(value: string): boolean {
+  return KNOWN_DIMENSIONS.has(value);
+}
 
 export type GenreWeightProfilesConfig = {
   schema_version: 1;

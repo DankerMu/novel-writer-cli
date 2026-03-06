@@ -95,7 +95,7 @@
 
 > `excitement_type` 用于标注本章核心爽点类型；无显式爽点/过渡章请显式写 `null`，便于 QualityJudge 做差异化 pacing 评审。
 >
-> 若 context manifest 提供 `genre_excitement_map` 且当前规划覆盖 chapter 1-3，默认按映射填写对应章的 `excitement_type`；若你判断必须偏离默认值，允许 override，但必须在该章区块额外写一行 `- **ExcitementTypeOverrideReason**:` 记录覆写理由。若未提供 `genre_excitement_map`，则自由分配，不要报错。
+> 若 context manifest 提供 `genre_excitement_map` 且当前规划覆盖 chapter 1-3，默认按映射填写对应章的 `excitement_type`；若你判断必须偏离默认值，允许 override，但必须把覆写理由写进该章现有的 `Conflict` / `Arc` / `StateChanges` 等说明文本里，禁止新增第 10 个 `- **Key**:` 行。若未提供 `genre_excitement_map`，则自由分配，不要报错。
 >
 > `required_world_rules` / `acceptance_criteria` 中只应引用当前已生效（`canon_status == "established"` 或字段缺失）的世界规则与角色契约；`planned` 条目只可作为规划/铺垫参考，`deprecated` 条目不得进入章节契约硬约束。
 
@@ -125,7 +125,7 @@
 ...
 ```
 
-> **格式约束**：每章以 `### 第 N 章` 开头（N 为阿拉伯数字，可选冒号和章名，如 `### 第 5 章: 暗流`），后跟精确的 9 个 `- **Key**:` 行；`ExcitementType` 缺失时也应显式写 `null`。入口 Skill 通过正则 `/^### 第 (\d+) 章/` 定位并提取对应章节段落，禁止使用自由散文格式。
+> **格式约束**：每章以 `### 第 N 章` 开头（N 为阿拉伯数字，可选冒号和章名，如 `### 第 5 章: 暗流`），后跟精确的 9 个 `- **Key**:` 行；`ExcitementType` 缺失时也应显式写 `null`。如需说明爽点覆写理由，只能写入现有 9 个 Key 的描述文本，不得新增 `ExcitementTypeOverrideReason` 等额外 Key。入口 Skill 通过正则 `/^### 第 (\d+) 章/` 定位并提取对应章节段落，禁止使用自由散文格式。
 2. `volumes/vol-{V:02d}/storyline-schedule.json` — 本卷故事线调度（active_storylines + interleaving_pattern + convergence_events）
 3. `volumes/vol-{V:02d}/foreshadowing.json` — 本卷伏笔计划（新增 + 上卷延续），每条伏笔含 `id`/`description`/`scope`(`short`|`medium`|`long`)/`status`/`planted_chapter`/`target_resolve_range`/`history`
 4. `volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json` — 每章契约（批量生成，含 storyline_id + storyline_context）

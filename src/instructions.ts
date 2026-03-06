@@ -9,7 +9,7 @@ import { normalizeExcitementType, type ExcitementType } from "./excitement-type.
 import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { loadGoldenChapterGates, selectGoldenChapterGatesForPlatform } from "./golden-chapter-gates.js";
-import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
+import { computeEffectiveScoringWeights, isKnownScoringDimension, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
 import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
@@ -135,6 +135,7 @@ const GENRE_ALIASES: Record<string, CanonicalGenre> = {
   "都市": "dushi",
   scifi: "scifi",
   sci_fi: "scifi",
+  "sci-fi": "scifi",
   "科幻": "scifi",
   history: "history",
   "历史": "history",
@@ -163,12 +164,22 @@ function toNonEmptyStringArray(raw: unknown): string[] | null {
   return out.length === raw.length ? out : null;
 }
 
+function toKnownDimensionArray(raw: unknown): string[] | null {
+  const dimensions = toNonEmptyStringArray(raw);
+  if (!dimensions) return null;
+  return dimensions.every((dimension) => isKnownScoringDimension(dimension)) ? dimensions : null;
+}
+
 function toNumericThresholds(raw: unknown): Record<string, number> | null {
   if (!isPlainObject(raw)) return null;
-  const entries = Object.entries(raw)
-    .filter(([key, value]) => key.trim().length > 0 && typeof value === "number" && Number.isFinite(value))
-    .map(([key, value]) => [key.trim(), value] as const);
-  if (entries.length === 0 || entries.length !== Object.keys(raw).length) return null;
+  const entries = Object.entries(raw).map(([key, value]) => [key.trim(), value] as const);
+  if (
+    entries.length === 0
+    || entries.length !== Object.keys(raw).length
+    || entries.some(([key, value]) => key.length === 0 || !isKnownScoringDimension(key) || typeof value !== "number" || !Number.isFinite(value))
+  ) {
+    return null;
+  }
   return Object.fromEntries(entries) as Record<string, number>;
 }
 
@@ -234,7 +245,7 @@ async function loadSelectedGenreGoldenStandards(rootDir: string): Promise<GenreG
     const entry = raw.genres[genre];
     if (!isPlainObject(entry)) return null;
 
-    const focusDimensions = toNonEmptyStringArray(entry.focus_dimensions);
+    const focusDimensions = toKnownDimensionArray(entry.focus_dimensions);
     const criteria = toNonEmptyStringArray(entry.criteria);
     const minimumThresholds = toNumericThresholds(entry.minimum_thresholds);
     if (!focusDimensions || !criteria || !minimumThresholds) return null;

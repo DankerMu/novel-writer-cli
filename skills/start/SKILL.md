@@ -36,7 +36,7 @@
 
 > 选择后提醒用户：后续填写 `brief.md` 时，`- **题材**：` 字段应与这里保持一致，否则 CLI 无法稳定匹配 `genre_excitement_map` / `genre_golden_standards`。
 
-3) 若 `genre-golden-standards.json` 模板可读，且用户选择的 genre + platform 命中 `invalid_combinations`，显示 WARNING，但继续初始化（不阻断）。
+3) 若可读取到当前项目根目录中的 `genre-golden-standards.json`，或可读取到 CLI 自带的同名模板，且用户选择的 genre + platform 命中 `invalid_combinations`，显示 WARNING，但继续初始化（不阻断）；若两处都不可读（例如全新空目录尚未 init），则跳过检查且不提示。
 
 4) 执行初始化：
 - `${NOVEL} init --platform <qidian|fanqie|jinjiang>` 或

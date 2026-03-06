@@ -36,9 +36,9 @@ async function writeJson(absPath: string, payload: unknown): Promise<void> {
   await writeText(absPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
-function makeVolumeCheckpoint(): Checkpoint {
+function makeVolumeCheckpoint(lastCompletedChapter = 0): Checkpoint {
   return {
-    last_completed_chapter: 0,
+    last_completed_chapter: lastCompletedChapter,
     current_volume: 1,
     orchestrator_state: "VOL_PLANNING",
     pipeline_stage: null,
@@ -63,9 +63,9 @@ function makeJudgeCheckpoint(chapter: number): Checkpoint {
   };
 }
 
-function makeQuickstartCheckpoint(): Checkpoint {
+function makeQuickstartCheckpoint(lastCompletedChapter = 0): Checkpoint {
   return {
-    last_completed_chapter: 0,
+    last_completed_chapter: lastCompletedChapter,
     current_volume: 1,
     orchestrator_state: "QUICK_START",
     pipeline_stage: null,
@@ -77,15 +77,44 @@ function makeQuickstartCheckpoint(): Checkpoint {
   };
 }
 
-test("issue 131 prompts, skills, and templates describe genre-aware opening guidance", async () => {
+async function seedGenreAwareProject(rootDir: string, genreLine = "- **题材**：言情"): Promise<void> {
+  await writeText(
+    join(rootDir, "brief.md"),
+    [
+      "# 创作纲领",
+      "",
+      "## 基本信息",
+      "",
+      genreLine,
+      "- **目标平台**：晋江",
+      ""
+    ].join("\n")
+  );
+  await writeJson(join(rootDir, "genre-excitement-map.json"), await readRepoJson("templates/genre-excitement-map.json"));
+  await writeJson(join(rootDir, "genre-golden-standards.json"), await readRepoJson("templates/genre-golden-standards.json"));
+  await writeJson(join(rootDir, "volumes/vol-01/chapter-contracts/chapter-002.json"), {
+    chapter: 2,
+    storyline_id: "main-arc",
+    objectives: [{ id: "OBJ-2-1", required: true, description: "x" }]
+  });
+  await writeText(join(rootDir, "staging/chapters/chapter-002.md"), "# 第2章\n\n正文\n");
+  await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "# 试写章\n\n正文\n");
+}
+
+test("issue 131 prompts, skills, templates, and openspec docs describe genre-aware opening guidance", async () => {
   const plotArchitect = await readRepoText("agents/plot-architect.md");
   const qualityJudge = await readRepoText("agents/quality-judge.md");
   const continueSkill = await readRepoText("skills/continue/SKILL.md");
   const startSkill = await readRepoText("skills/start/SKILL.md");
   const contextContracts = await readRepoText("skills/continue/references/context-contracts.md");
+  const proposal = await readRepoText("openspec/changes/m8-genre-excitement-mapping/proposal.md");
+  const tasks = await readRepoText("openspec/changes/m8-genre-excitement-mapping/tasks.md");
+  const genreMapSpec = await readRepoText("openspec/changes/m8-genre-excitement-mapping/specs/genre-excitement-map/spec.md");
+  const genreStandardsSpec = await readRepoText("openspec/changes/m8-genre-excitement-mapping/specs/genre-golden-standards/spec.md");
 
   assert.match(plotArchitect, /genre_excitement_map/);
-  assert.match(plotArchitect, /ExcitementTypeOverrideReason/);
+  assert.match(plotArchitect, /禁止新增第 10 个/);
+  assert.match(plotArchitect, /不得新增 `ExcitementTypeOverrideReason`/);
   assert.match(plotArchitect, /自由分配/);
 
   assert.match(qualityJudge, /genre_golden_standards/);
@@ -97,7 +126,15 @@ test("issue 131 prompts, skills, and templates describe genre-aware opening guid
   assert.match(startSkill, /言情 \(romance\)/);
   assert.match(startSkill, /invalid_combinations/);
   assert.match(startSkill, /packet\.manifest\.inline\.genre_excitement_map/);
+  assert.match(startSkill, /若两处都不可读/);
   assert.match(contextContracts, /genre_golden_standards\?:/);
+
+  assert.match(proposal, /src\/instructions\.ts/);
+  assert.match(proposal, /quickstart:results/);
+  assert.match(tasks, /src\/instructions\.ts/);
+  assert.match(tasks, /quickstart:results/);
+  assert.match(genreMapSpec, /src\/instructions\.ts/);
+  assert.match(genreStandardsSpec, /quickstart:results/);
 
   const excitementMap = await readRepoJson("templates/genre-excitement-map.json");
   assert.equal(excitementMap.schema_version, 1);
@@ -129,27 +166,7 @@ test("issue 131 prompts, skills, and templates describe genre-aware opening guid
 test("buildInstructionPacket injects selected genre excitement map and genre standards", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-genre-map-"));
   try {
-    await writeText(
-      join(rootDir, "brief.md"),
-      [
-        "# 创作纲领",
-        "",
-        "## 基本信息",
-        "",
-        "- **题材**：言情",
-        "- **目标平台**：晋江",
-        ""
-      ].join("\n")
-    );
-    await writeJson(join(rootDir, "genre-excitement-map.json"), await readRepoJson("templates/genre-excitement-map.json"));
-    await writeJson(join(rootDir, "genre-golden-standards.json"), await readRepoJson("templates/genre-golden-standards.json"));
-    await writeJson(join(rootDir, "volumes/vol-01/chapter-contracts/chapter-002.json"), {
-      chapter: 2,
-      storyline_id: "main-arc",
-      objectives: [{ id: "OBJ-2-1", required: true, description: "x" }]
-    });
-    await writeText(join(rootDir, "staging/chapters/chapter-002.md"), "# 第2章\n\n正文\n");
-    await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "# 试写章\n\n正文\n");
+    await seedGenreAwareProject(rootDir);
 
     const volumePacket = (await buildInstructionPacket({
       rootDir,
@@ -198,13 +215,69 @@ test("buildInstructionPacket injects selected genre excitement map and genre sta
   }
 });
 
-test("buildInstructionPacket skips genre-specific injections when templates are missing or genre is unknown", async () => {
+test("buildInstructionPacket accepts supported brief genre formats and aliases", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-genre-map-brief-"));
+  try {
+    await seedGenreAwareProject(rootDir);
+
+    const cases = [
+      { genreLine: "- **题材**：言情", expectedGenre: "romance" },
+      { genreLine: "- **题材**: 言情（女频）", expectedGenre: "romance" },
+      { genreLine: "- **Genre**: romance", expectedGenre: "romance" },
+      { genreLine: "- **Genre**:   SUSPENSE  ", expectedGenre: "suspense" },
+      { genreLine: "- **Genre**: Sci-Fi", expectedGenre: "scifi" }
+    ] as const;
+
+    for (const testCase of cases) {
+      await writeText(
+        join(rootDir, "brief.md"),
+        [
+          "# 创作纲领",
+          "",
+          "## 基本信息",
+          "",
+          testCase.genreLine,
+          "- **目标平台**：晋江",
+          ""
+        ].join("\n")
+      );
+
+      const volumePacket = (await buildInstructionPacket({
+        rootDir,
+        checkpoint: makeVolumeCheckpoint(),
+        step: { kind: "volume", phase: "outline" },
+        embedMode: null,
+        writeManifest: false
+      })) as PacketResult;
+      assert.equal((volumePacket.packet.manifest.inline.genre_excitement_map as any).genre, testCase.expectedGenre, testCase.genreLine);
+
+      const judgePacket = (await buildInstructionPacket({
+        rootDir,
+        checkpoint: makeJudgeCheckpoint(2),
+        step: { kind: "chapter", chapter: 2, stage: "judge" },
+        embedMode: null,
+        writeManifest: false
+      })) as PacketResult;
+      assert.equal((judgePacket.packet.manifest.inline.genre_golden_standards as any).genre, testCase.expectedGenre, testCase.genreLine);
+
+      const quickstartPacket = (await buildInstructionPacket({
+        rootDir,
+        checkpoint: makeQuickstartCheckpoint(),
+        step: { kind: "quickstart", phase: "results" },
+        embedMode: null,
+        writeManifest: false
+      })) as PacketResult;
+      assert.equal((quickstartPacket.packet.manifest.inline.genre_golden_standards as any).genre, testCase.expectedGenre, testCase.genreLine);
+    }
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket skips genre-specific injections when templates are missing, malformed, or genre is unknown", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-genre-map-skip-"));
   try {
-    await writeText(join(rootDir, "brief.md"), "# 创作纲领\n\n## 基本信息\n\n- **题材**：仙侠\n");
-    await writeJson(join(rootDir, "genre-excitement-map.json"), await readRepoJson("templates/genre-excitement-map.json"));
-    await writeJson(join(rootDir, "genre-golden-standards.json"), await readRepoJson("templates/genre-golden-standards.json"));
-    await writeText(join(rootDir, "staging/chapters/chapter-004.md"), "# 第4章\n\n正文\n");
+    await seedGenreAwareProject(rootDir, "- **题材**：仙侠");
 
     const unknownGenreVolume = (await buildInstructionPacket({
       rootDir,
@@ -224,7 +297,7 @@ test("buildInstructionPacket skips genre-specific injections when templates are 
     })) as PacketResult;
     assert.equal(Object.prototype.hasOwnProperty.call(unknownGenreJudge.packet.manifest.inline, "genre_golden_standards"), false);
 
-    await writeText(join(rootDir, "brief.md"), "# 创作纲领\n\n## 基本信息\n\n- **题材**：言情\n");
+    await seedGenreAwareProject(rootDir);
     await rm(join(rootDir, "genre-excitement-map.json"), { force: true });
     await rm(join(rootDir, "genre-golden-standards.json"), { force: true });
 
@@ -245,6 +318,102 @@ test("buildInstructionPacket skips genre-specific injections when templates are 
       writeManifest: false
     })) as PacketResult;
     assert.equal(Object.prototype.hasOwnProperty.call(chapterFourJudge.packet.manifest.inline, "genre_golden_standards"), false);
+
+    const lateVolumePacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeVolumeCheckpoint(3),
+      step: { kind: "volume", phase: "outline" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+    assert.equal(Object.prototype.hasOwnProperty.call(lateVolumePacket.packet.manifest.inline, "genre_excitement_map"), false);
+
+    const lateQuickstartPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeQuickstartCheckpoint(3),
+      step: { kind: "quickstart", phase: "results" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+    assert.equal(Object.prototype.hasOwnProperty.call(lateQuickstartPacket.packet.manifest.inline, "genre_golden_standards"), false);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket quietly skips malformed optional genre templates", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-genre-map-malformed-"));
+  try {
+    await seedGenreAwareProject(rootDir);
+
+    const malformedCases = [
+      {
+        name: "invalid JSON files",
+        mutate: async () => {
+          await writeText(join(rootDir, "genre-excitement-map.json"), "{\n");
+          await writeText(join(rootDir, "genre-golden-standards.json"), "{\n");
+        }
+      },
+      {
+        name: "wrong schema_version",
+        mutate: async () => {
+          const excitementMap = await readRepoJson("templates/genre-excitement-map.json");
+          const goldenStandards = await readRepoJson("templates/genre-golden-standards.json");
+          excitementMap.schema_version = 2;
+          goldenStandards.schema_version = 2;
+          await writeJson(join(rootDir, "genre-excitement-map.json"), excitementMap);
+          await writeJson(join(rootDir, "genre-golden-standards.json"), goldenStandards);
+        }
+      },
+      {
+        name: "malformed entry shapes and unknown dimensions",
+        mutate: async () => {
+          const excitementMap = await readRepoJson("templates/genre-excitement-map.json");
+          const goldenStandards = await readRepoJson("templates/genre-golden-standards.json");
+          excitementMap.genres.romance = { chapters: { "1": "setup", "2": "boom", "3": "reversal" } };
+          goldenStandards.genres.romance = {
+            focus_dimensions: ["styleNaturalness"],
+            criteria: ["x"],
+            minimum_thresholds: { styleNaturalness: 3.5 }
+          };
+          await writeJson(join(rootDir, "genre-excitement-map.json"), excitementMap);
+          await writeJson(join(rootDir, "genre-golden-standards.json"), goldenStandards);
+        }
+      }
+    ] as const;
+
+    for (const malformedCase of malformedCases) {
+      await malformedCase.mutate();
+
+      const volumePacket = (await buildInstructionPacket({
+        rootDir,
+        checkpoint: makeVolumeCheckpoint(),
+        step: { kind: "volume", phase: "outline" },
+        embedMode: null,
+        writeManifest: false
+      })) as PacketResult;
+      assert.equal(Object.prototype.hasOwnProperty.call(volumePacket.packet.manifest.inline, "genre_excitement_map"), false, malformedCase.name);
+
+      const judgePacket = (await buildInstructionPacket({
+        rootDir,
+        checkpoint: makeJudgeCheckpoint(2),
+        step: { kind: "chapter", chapter: 2, stage: "judge" },
+        embedMode: null,
+        writeManifest: false
+      })) as PacketResult;
+      assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.inline, "genre_golden_standards"), false, malformedCase.name);
+
+      const quickstartPacket = (await buildInstructionPacket({
+        rootDir,
+        checkpoint: makeQuickstartCheckpoint(),
+        step: { kind: "quickstart", phase: "results" },
+        embedMode: null,
+        writeManifest: false
+      })) as PacketResult;
+      assert.equal(Object.prototype.hasOwnProperty.call(quickstartPacket.packet.manifest.inline, "genre_golden_standards"), false, malformedCase.name);
+
+      await seedGenreAwareProject(rootDir);
+    }
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
