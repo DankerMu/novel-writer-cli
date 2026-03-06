@@ -85,6 +85,8 @@
 
 **2. 修改日志 JSON**
 
+其中 `changes[].reason` 仅使用以下值之一：`blacklist` / `structural_rule` / `abstract_to_concrete` / `rhythm_test` / `style_match`
+
 ```json
 {
   "chapter": N,
@@ -94,7 +96,7 @@
     {
       "original": "原始文本片段",
       "refined": "润色后文本片段",
-      "reason": "blacklist | structural_rule | abstract_to_concrete | rhythm_test | style_match",
+      "reason": "structural_rule",
       "line_approx": 25
     }
   ]

@@ -139,9 +139,10 @@
 执行要求：
 - 逐项给出 `green | yellow | red` 归类，并在 `style_naturalness.reason` 中解释主要拉分项
 - 同时在 `anti_ai.indicator_breakdown` 中结构化输出 7 个指标的 `value` / `zone` / `note`，不要只把它们埋在自由文本里
+- `anti_ai.indicator_breakdown` 用于逐指标审计和回看；`anti_ai.statistical_profile` 保留 3 个稳定字段，供 legacy / 轻量消费者读取。两者数值重叠是设计使然，不是冲突
 - `narration_connector_count` 的判定：0 = green；1 个孤立命中 = yellow（仍建议修）；≥2 个或连续多段靠连接词推进 = red
 - `humanize_technique_variety` 只做事后观察，不是配额：若整章 0 种技法且其他指标也健康，可记 yellow；若 0 种且伴随其他 red，则记 red
-- 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）
+- 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）；典型条件包括：`chapter_draft` 过短/破损导致句长或段长无法稳定估算，或 `style_profile` 缺失且你只能可靠拿到旧 4 指标
 
 # Constraints
 
@@ -206,7 +207,7 @@ else:
       "paragraph_length_cv": {"value": 0.72, "zone": "green", "note": "段长起伏自然"},
       "vocabulary_diversity_score": {"value": "medium", "zone": "yellow", "note": "仍有少量高频表达回流"},
       "narration_connector_count": {"value": 1, "zone": "yellow", "note": "有 1 个孤立叙述连接词命中"},
-      "humanize_technique_variety": {"value": ["thought_interrupt", "mundane_detail"], "zone": "green", "note": "至少有 2 种自然技法"}
+      "humanize_technique_variety": {"value": ["thought_interrupt", "mundane_detail"], "zone": "green", "note": "识别到 2 种自然技法，覆盖正常"}
     },
     "blacklist_hits": {
       "total_hits": 12,

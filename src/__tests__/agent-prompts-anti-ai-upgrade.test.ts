@@ -44,10 +44,17 @@ test("chapter-writer prompt removes quota language and includes C16-C20 + Phase 
     "6.5 **叙述连接词清扫**",
     "6.6 **修饰词去重**",
     "6.7 **四字词组密度检查**",
-    "去掉标签后仍能大致分辨说话人"
+    "去掉标签后仍能大致分辨说话人",
+    "8-18 的人类常见波动控制",
+    "3 句及以上连续句长都落在 ±5 字内",
+    "中文引号内的角色对白可以按人物口吻保留",
+    "我认为",
+    "我觉得我们应该"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+
+  assert.equal(prompt.includes("至少 1 句"), false, "C16 should avoid quota-like phrasing such as '至少 1 句'");
 });
 
 test("style-refiner prompt follows four-step flow and brief-first genre override", async () => {
@@ -72,10 +79,16 @@ test("style-refiner prompt follows four-step flow and brief-first genre override
     "情绪直述",
     "微微系列",
     "缓缓系列",
-    "标点过度"
+    "标点过度",
+    "读取文件并建立锚点",
+    "结构规则优先",
+    "只有在入口 Skill 或 user 明确要求 quick-check / 时间受限时才启用",
+    "再回退到 brief 的题材字段"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+
+  assert.match(prompt, /changes\[\]\.reason.*blacklist.*structural_rule.*abstract_to_concrete.*rhythm_test.*style_match/s);
 });
 
 test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibility mode", async () => {
@@ -87,6 +100,7 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
     "\"statistical_profile\"",
     "\"detected_humanize_techniques\"",
     "\"structural_rule_violations\"",
+    "\"vocabulary_richness_estimate\"",
     "blacklist_hit_rate",
     "sentence_repetition_rate",
     "sentence_length_std_dev",
@@ -95,7 +109,12 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
     "narration_connector_count",
     "humanize_technique_variety",
     "0 = green；1 个孤立命中 = yellow",
-    "indicator_mode: \"4-indicator-compat\""
+    "≥2 个或连续多段靠连接词推进 = red",
+    "indicator_mode: \"4-indicator-compat\"",
+    "\"severity\": \"yellow\"",
+    "\"evidence\": \"原文片段\"",
+    "\"detected_humanize_techniques\": [\"thought_interrupt\", \"mundane_detail\"]",
+    "legacy / 轻量消费者读取"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
