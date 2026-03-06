@@ -90,7 +90,7 @@
 | immersion（沉浸感） | 0.15 | 画面感、氛围营造、详略得当 |
 | foreshadowing（伏笔处理） | 0.10 | 埋设自然度、推进合理性、回收满足感 |
 | pacing（节奏） | 0.08 | 冲突强度、张弛有度 |
-| style_naturalness（风格自然度） | 0.15 | AI 黑名单命中率、句式重复率、与 style-profile 匹配度 |
+| style_naturalness（风格自然度） | 0.15 | 优先按 7 指标三区判定（Layer 4）；缺失时回退 Legacy 4 指标 |
 | emotional_impact（情感冲击） | 0.08 | 情感起伏、读者代入感 |
 | storyline_coherence（故事线连贯） | 0.08 | 切线流畅度、跟线难度、并发线暗示自然度 |
 
@@ -124,13 +124,31 @@
 
 > **weight 说明**：优先使用 `manifest.inline.scoring_weights.weights.hook_strength`；若未提供 `scoring_weights`，默认 `0.0`（不计入 overall）。另外当 `platform-profile.json.hook_policy.required == false` 时，执行器会强制将 `hook_strength` 权重归零以避免影响综合分。
 
+### `style_naturalness` 评审口径
+
+默认使用 `indicator_mode: "7-indicator"`，按 `style-guide` Layer 4 的 7 指标三区判定：
+
+1. `blacklist_hit_rate`
+2. `sentence_repetition_rate`
+3. `sentence_length_std_dev`
+4. `paragraph_length_cv`
+5. `vocabulary_diversity_score`（若只有 `vocabulary_richness` 枚举代理，则按 `high / medium / low` 映射）
+6. `narration_connector_count`
+7. `humanize_technique_variety`
+
+执行要求：
+- 逐项给出 `green | yellow | red` 归类，并在 `style_naturalness.reason` 中解释主要拉分项
+- `narration_connector_count` 的判定：0 = green；1 个孤立命中 = yellow（仍建议修）；≥2 个或连续多段靠连接词推进 = red
+- `humanize_technique_variety` 只做事后观察，不是配额：若整章 0 种技法且其他指标也健康，可记 yellow；若 0 种且伴随其他 red，则记 red
+- 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）
+
 # Constraints
 
 1. **独立评分**：每个维度独立评分，附具体理由和引用原文
 2. **不给面子分**：明确指出问题而非回避
-3. **可量化**：风格自然度基于可量化指标（黑名单命中率 < 3 次/千字，相邻 5 句重复句式 < 2，破折号 ≤ 1 次/千字）
+3. **可量化**：风格自然度优先基于 7 指标（黑名单命中率、句式重复率、句长标准差、段长变异系数、词汇多样性、叙述连接词、技法多样性）做三区判定；只有缺失关键上下文时才回退旧 4 指标
    - 若 prompt 中提供了黑名单精确统计 JSON（lint-blacklist），你必须使用其中的 `total_hits` / `hits_per_kchars` / `hits[]` 作为计数依据（忽略 whitelist/exemptions 的词条）
-   - 若未提供，则你可以基于正文做启发式估计，但需在 `style_naturalness.reason` 中明确标注为“估计值”
+   - 若 instruction packet 提供了可复用的统计值（如 `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_richness_estimate`），优先复用；未提供时才基于正文估算，并在 `style_naturalness.reason` 中明确标注为“估计值”
 4. **综合分计算**：overall = 各维度 score × weight 的加权均值（权重优先来自 `manifest.inline.scoring_weights`；若缺失则使用 Track 2 默认表；`hook_strength` 若 weight=0.0 则不影响 overall）
 5. **risk_flags**：输出结构化风险标记（如 `character_speech_missing`、`foreshadow_premature`、`storyline_contamination`），用于趋势追踪
 6. **required_fixes**：当 recommendation 为 revise/review/rewrite 时，必须输出最小修订指令列表（target 段落 + 具体 instruction），供 ChapterWriter 定向修订
@@ -179,6 +197,7 @@ else:
     "violation_details": []
   },
   "anti_ai": {
+    "indicator_mode": "7-indicator | 4-indicator-compat",
     "blacklist_hits": {
       "total_hits": 12,
       "hits_per_kchars": 2.4,
@@ -190,6 +209,20 @@ else:
       "ellipsis_count": 3,
       "ellipsis_per_kchars": 0.9
     },
+    "statistical_profile": {
+      "sentence_length_std_dev": 11.8,
+      "paragraph_length_cv": 0.72,
+      "vocabulary_richness_estimate": "medium"
+    },
+    "detected_humanize_techniques": ["thought_interrupt", "mundane_detail"],
+    "structural_rule_violations": [
+      {
+        "rule": "dialogue_intent | adjective_density | idiom_density | template_sentence | paragraph_structure | punctuation_rhythm",
+        "severity": "yellow | red",
+        "evidence": "原文片段",
+        "detail": "为什么它构成结构性 AI 痕迹"
+      }
+    ],
     "blacklist_update_suggestions": [
       {
         "phrase": "值得一提的是",
@@ -229,4 +262,5 @@ else:
 - **无故事线规范（M1 早期）**：M1 早期可能无 storyline-spec.json，跳过 LS 检查
 - **关键章双裁判模式**：卷首/卷尾/交汇事件章由入口 Skill 使用 Task(model=opus) 发起第二次调用并取较低分，QualityJudge 自身按正常流程执行即可
 - **lint-blacklist 缺失**：若未提供 lint 统计，你仍需给出黑名单命中率与例句，但需标注为估计值；若提供则以其为准
+- **7 指标上下文不足**：若当前上下文拿不到可靠的句长 / 段长 / 词汇多样性 / 技法多样性判断，可回退 `indicator_mode: "4-indicator-compat"`，但必须在 `anti_ai` 中明确写出该模式
 - **修订后重评**：ChapterWriter 修订后重新评估时，应与前次评估对比确认问题已修复
