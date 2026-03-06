@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
-### Requirement 1: QualityJudge anti_ai output SHALL include statistical_profile
+### Requirement: QualityJudge anti_ai output SHALL include statistical_profile
 
-QualityJudge `anti_ai` output object SHALL contain a `statistical_profile` sub-object with three fields: `sentence_length_std_dev`, `paragraph_length_cv`, and `vocabulary_richness_estimate`. These values are estimated by QualityJudge from the chapter text. If lint-computed values are available (passed via instruction packet), lint values override QJ estimates.
+QualityJudge `anti_ai` output object SHALL contain a `statistical_profile` sub-object with three fields: `sentence_length_std_dev`, `paragraph_length_cv`, and `vocabulary_richness_estimate`. These values are estimated by QualityJudge from the chapter text in the current changeset.
 
 #### Scenario: Output contains sentence_length_std_dev
 - **GIVEN** QualityJudge is evaluating a chapter's anti-AI characteristics
@@ -22,15 +22,7 @@ QualityJudge `anti_ai` output object SHALL contain a `statistical_profile` sub-o
 - **THEN** `statistical_profile.vocabulary_richness_estimate` is present
 - **AND** its value is one of `"high"`, `"medium"`, or `"low"`
 
-#### Scenario: Lint values override QJ estimates
-- **GIVEN** QualityJudge receives lint-computed statistical values via instruction packet
-- **WHEN** the lint data includes `sentence_length_std_dev`, `paragraph_length_cv`, or `vocabulary_richness_estimate`
-- **THEN** the lint-provided values are used in `statistical_profile` instead of QJ's own estimates
-- **AND** QJ does NOT recalculate the overridden fields
-
----
-
-### Requirement 2: QualityJudge anti_ai output SHALL include detected_humanize_techniques
+### Requirement: QualityJudge anti_ai output SHALL include detected_humanize_techniques
 
 QualityJudge `anti_ai` output object SHALL contain a `detected_humanize_techniques` array listing the technique IDs (from style-guide SS2.9 toolbox) that QualityJudge identifies as present in the chapter text.
 
@@ -48,7 +40,31 @@ QualityJudge `anti_ai` output object SHALL contain a `detected_humanize_techniqu
 
 ---
 
-### Requirement 3: QualityJudge style_naturalness SHALL use 7-indicator assessment
+### Requirement: QualityJudge anti_ai output SHALL include structural_rule_violations
+
+QualityJudge `anti_ai` output object SHALL contain a `structural_rule_violations` array that reports yellow/red issues found in the style-guide §2.10 six-layer structural rules.
+
+#### Scenario: Output lists six-layer structural violations
+- **GIVEN** QualityJudge finds structural AI-pattern issues in the chapter
+- **WHEN** the `anti_ai` output is generated
+- **THEN** `structural_rule_violations` is present
+- **AND** each entry identifies one of `template_sentence`, `adjective_density`, `idiom_density`, `dialogue_intent`, `paragraph_structure`, or `punctuation_rhythm`
+
+#### Scenario: Structural violation entries contain evidence and severity
+- **GIVEN** a `structural_rule_violations` entry in the output
+- **WHEN** the entry is rendered
+- **THEN** it includes `severity` (`yellow` or `red`)
+- **AND** it includes a short evidence snippet and explanatory detail
+
+#### Scenario: Empty array if no structural violations are found
+- **GIVEN** QualityJudge finds no structural-rule problems
+- **WHEN** the `anti_ai` output is generated
+- **THEN** `structural_rule_violations` is an empty array `[]`
+- **AND** the field is still present (not omitted)
+
+---
+
+### Requirement: QualityJudge style_naturalness SHALL use 7-indicator assessment
 
 QualityJudge Constraint 3 (`style_naturalness` scoring) SHALL be rewritten from a 4-indicator system to a 7-indicator system. The 7 indicators are:
 
@@ -68,6 +84,12 @@ Each indicator uses green/yellow/red zone thresholds as defined in style-guide L
 - **THEN** all 7 indicators are evaluated and reported
 - **AND** each indicator has a zone assignment (green, yellow, or red)
 
+#### Scenario: Indicator breakdown is output in structured form
+- **GIVEN** QualityJudge produces a 7-indicator style-naturalness assessment
+- **WHEN** the `anti_ai` output is generated
+- **THEN** it includes an `indicator_breakdown` object keyed by the 7 indicator names
+- **AND** each indicator entry includes its value, zone, and a short explanatory note
+
 #### Scenario: Each indicator uses green/yellow/red zone from style-guide Layer 4
 - **GIVEN** QualityJudge is determining the zone for an indicator
 - **WHEN** the indicator value is computed
@@ -80,11 +102,16 @@ Each indicator uses green/yellow/red zone thresholds as defined in style-guide L
 - **THEN** QualityJudge falls back to the old 4-indicator scoring table
 - **AND** the output explicitly notes `"indicator_mode": "4-indicator-compat"`
 
-#### Scenario: narration_connector_count > 0 triggers automatic red zone
+#### Scenario: Single isolated narration connector is yellow, not red
 - **GIVEN** QualityJudge is evaluating the `narration_connector_count` indicator
-- **WHEN** the count is greater than 0 (any narration connector detected in non-dialogue text)
-- **THEN** the `narration_connector_count` indicator is automatically assigned red zone
-- **AND** this overrides any other zone calculation for this indicator
+- **WHEN** exactly 1 isolated narration connector is detected in non-dialogue text
+- **THEN** the `narration_connector_count` indicator is assigned yellow zone
+- **AND** the output still recommends rewriting the connector away
+
+#### Scenario: Multiple narration connectors or connector-dependent paragraphs are red
+- **GIVEN** QualityJudge is evaluating the `narration_connector_count` indicator
+- **WHEN** 2 or more narration connectors are detected, or multiple adjacent paragraphs depend on connectors to advance
+- **THEN** the `narration_connector_count` indicator is assigned red zone
 
 ## References
 
