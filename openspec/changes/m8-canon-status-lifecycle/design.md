@@ -12,13 +12,14 @@
 
 **Goals:**
 - 在 L1 `rules.json` 条目和 L2 角色 `.json` 条目中引入 `canon_status` 三态枚举，支持增量世界构建中的"暂存→生效→废弃"生命周期
-- 在消费端（ChapterWriter、QualityJudge、continue Skill 的 context 组装）按 `canon_status` 过滤，确保只有 `established` 条目被当作硬约束
+- 在 novel CLI 的 instruction packet 组装阶段（生成 `hard_rules_list` / `planned_rules_info` / 角色路径列表）以及 QualityJudge 的消费语义中按 `canon_status` 过滤，确保只有 `established` 条目被当作硬约束
 - 保持完全向后兼容：字段缺失等同于 `established`，现有项目无需任何迁移
 
 **Non-Goals:**
 - 不提供 UI/CLI 命令来管理状态转换（手动编辑 JSON 或由 WorldBuilder/CharacterWeaver 在增量模式下设置）
 - 不实现自动状态转换（如"到了第 3 卷自动从 planned 升级为 established"）
-- 不影响 LS 故事线规范和 L3 章节契约（这些工件没有 canon_status 需求）
+- 不改变 ConsistencyAuditor / continuity checks 的现有判定语义（本 change 仅影响 L1/L2 生命周期过滤与提示）
+- 不影响 LS 故事线规范和 L3 章节契约的存储 schema（这些工件本身不新增 canon_status 字段）
 
 ## Decisions
 
@@ -28,8 +29,8 @@
 2) **字段缺失 = `established`（零迁移）**
    - 现有 `rules.json` 和角色 JSON 均无 `canon_status` 字段。将缺失视为 `established` 意味着所有现存条目的行为完全不变，无需跑迁移脚本或批量更新文件。
 
-3) **过滤在消费端，而非存储端**
-   - `rules.json` 和角色 JSON 始终存储所有条目（包括 `planned` 和 `deprecated`），不做物理隔离。过滤逻辑放在 ChapterWriter（组装 `hard_rules_list` 时）和 QualityJudge（Track 1 逐条检查时）。这保证了审计完整性——任何时候读取 `rules.json` 都能看到全貌。
+3) **过滤在 instruction packet 组装/消费端，而非存储端**
+   - `rules.json` 和角色 JSON 始终存储所有条目（包括 `planned` 和 `deprecated`），不做物理隔离。novel CLI 在组装 `chapter:*:draft` / `chapter:*:judge` instruction packet 时统一生成 `hard_rules_list`、`planned_rules_info` 并裁剪角色路径列表；QualityJudge 再按同一语义消费这些输入。这样既保证审计完整性，也避免把过滤逻辑散落在 thin adapter 中。
 
 4) **`planned` 条目对写作者"可见但不强制"**
    - ChapterWriter 收到 `planned` 规则时，将其放入独立的"信息参考"区块（而非 `hard_rules_list`）。这允许作者在文中做伏笔铺垫（"隐约感觉到某种力量在酝酿"），但不会因为"违反了一条尚未生效的规则"而被 QualityJudge 扣分。
@@ -41,7 +42,7 @@
 
 - [Low] 作者忘记将 `planned` 提升为 `established` → Mitigation: PlotArchitect 在卷规划时可检查长期停留在 `planned` 状态的条目并提醒（本 change 不实现自动提醒，但预留了数据基础）。
 - [Low] `deprecated` 条目长期积累 → Mitigation: 属于运维层面的手动清理，可接受；条目保留不影响运行时性能（JSON 过滤成本可忽略）。
-- [Low] 消费端过滤逻辑分散在多处（continue Skill、ChapterWriter、QualityJudge） → Mitigation: 过滤规则简单统一（`established || missing`），且在 spec 中明确定义，实现时可抽为公共函数。
+- [Low] `canon_status` 过滤/注入语义需要跨 runtime 与 prompts 保持一致 → Mitigation: 由 novel CLI packet 组装层集中生成 `hard_rules_list` / `planned_rules_info` / 角色路径列表，并在 prompts/spec 中明确消费者语义。
 
 ## Migration Plan
 
@@ -53,4 +54,7 @@
 - `agents/character-weaver.md`（L2 角色契约 schema）
 - `agents/chapter-writer.md`（约束消费）
 - `agents/quality-judge.md`（Track 1 合规检查）
-- `skills/continue/SKILL.md`（Step 2.2 hard_rules_list / Step 2.4 角色裁剪）
+- `agents/plot-architect.md`（卷规划时的 chapter-contract hard gate 生成）
+- `src/instructions.ts`（`chapter:*:draft/judge` instruction packet 组装）
+- `skills/continue/SKILL.md`（thin adapter；透传 CLI 生成的 packet）
+- `skills/continue/references/context-contracts.md`（manifest 契约说明）

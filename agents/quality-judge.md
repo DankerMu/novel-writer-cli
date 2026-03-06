@@ -17,7 +17,8 @@
 **A. 内联计算值**（直接可用）：
 - 章节号、卷号
 - chapter_outline_block（本章大纲区块文本）
-- hard_rules_list（L1 禁止项列表）
+- hard_rules_list（L1 禁止项列表；仅包含 `canon_status == "established"` 或缺失字段的已生效 hard 规则；即使为空也会显式提供）
+- world_rules_context_degraded（可选；若为 `true`，表示 `world/rules.json` 存在但 CLI 在提取 L1 规则时发生降级，需直接读取 `paths.world_rules` 复核）
 - blacklist_lint（可选，scripts/lint-blacklist.sh 精确统计 JSON）
 - ner_entities（可选，scripts/run-ner.sh NER 输出 JSON）
 - continuity_report_summary（可选，一致性检查裁剪摘要）
@@ -33,7 +34,7 @@
 - `paths.world_rules` → L1 世界规则（可选）
 - `paths.prev_summary` → 前一章摘要（可选，首章无）
 - `paths.character_profiles[]` → 相关角色叙述档案（.md，用于角色一致性评估）
-- `paths.character_contracts[]` → 相关角色结构化契约（.json，含 L2 能力边界和行为模式）
+- `paths.character_contracts[]` → 相关角色结构化契约（.json，含 L2 能力边界和行为模式；你需要读取各 JSON 的 `canon_status` 自行区分 established / planned）
 - `paths.storyline_spec` → 故事线规范（可选）
 - `paths.storyline_schedule` → 本卷故事线调度（可选）
 - `paths.cross_references` → Summarizer 串线检测输出
@@ -46,20 +47,25 @@
 - 世界规则（L1，hard 规则另见 inline 的 hard_rules_list）
 - 角色契约（L2，从 `paths.character_contracts[]` 的 .json 中读取 contracts 部分）
 
+若 `world_rules_context_degraded == true`，说明 inline 的 `hard_rules_list` 可能不完整；你必须直接读取 `paths.world_rules` 复核，不能把空列表当成“当前无 L1 规则”。
+
 # 双轨验收流程
 
 ## Track 1: Contract Verification（硬门槛）
 
 逐条检查 L1/L2/L3/LS 规范：
 
-1. **L1 世界规则检查**：遍历 prompt 中提供的所有 `constraint_type: "hard"` 的规则，检查正文是否违反
-2. **L2 角色契约检查**：检查角色行为是否超出 contracts 定义的能力边界和行为模式
+1. **L1 世界规则检查**：仅检查 `canon_status == "established"`（或字段缺失）的 `constraint_type: "hard"` 规则；跳过 `planned` / `deprecated`
+2. **L2 角色契约检查**：仅检查 `canon_status == "established"`（或字段缺失）的角色；跳过 `planned` / `deprecated`
 3. **L3 章节契约检查**（如存在）：
    - preconditions 中的角色状态是否在正文中体现
    - 所有 `required: true` 的 objectives 是否达成
    - postconditions 中的状态变更是否有因果支撑
    - acceptance_criteria 逐条验证
-4. **LS 故事线规范检查**：
+4. **L1/L2 生命周期过滤**：
+   - 规则或角色条目若 `canon_status == "planned"` 或 `"deprecated"`，则跳过 hard 合规检查
+   - `canon_status` 字段缺失时按 `"established"` 处理，保持向后兼容
+5. **LS 故事线规范检查**：
    - LS-001（hard）：本章事件时间是否与并发线矛盾
      - 若输入中包含一致性检查摘要（timeline_contradiction / ls_001_signals）且 confidence="high"：将其视为强证据，结合正文核验；若正文未消解矛盾 → 输出 LS-001 violation（confidence=high）并给出可执行修复建议
      - 若 confidence="medium/low"：仅提示，不应直接触发 hard gate（仍可输出为 violation_suspected/violation 且 confidence 降级）
