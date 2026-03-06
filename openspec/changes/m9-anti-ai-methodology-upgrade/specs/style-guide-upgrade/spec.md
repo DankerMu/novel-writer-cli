@@ -32,7 +32,7 @@ All fixed-count mandates ("至少 N 处", "每章 N 次", "每 N 次对话出现
 
 ### Requirement 2: Style guide SHALL define 6-dimension statistical distribution targets in §2.8
 
-A new section §2.8 SHALL define statistical distribution targets across 6 dimensions. Each dimension SHALL reference a style-profile field (from CS-A1) as primary target and provide a fallback range for when the field is null.
+A new section §2.8 SHALL define statistical distribution targets across 6 dimensions. Each dimension SHALL reference a current CS-A1 style-profile field or explicit proxy anchor as primary target and provide a fallback target/range when the field is null or absent.
 
 #### Scenario: All 6 dimensions are defined
 - **GIVEN** §2.8 in the updated style guide
@@ -45,17 +45,18 @@ A new section §2.8 SHALL define statistical distribution targets across 6 dimen
   5. `register_mixing` — 语域混合
   6. `emotional_arc` — 情感弧线
 
-#### Scenario: Each dimension references a style-profile field
+#### Scenario: Each dimension references a current style-profile field or anchor
 - **GIVEN** any dimension in §2.8
 - **WHEN** reading its target specification
-- **THEN** it references a specific field name in `style-profile.json` (e.g., `statistical.sentence_length_std_dev`)
-- **AND** the field name aligns with CS-A1's statistical field definitions
+- **THEN** it references a specific current field name in `style-profile.json` (e.g., `sentence_length_std_dev`)
+- **AND** `narration_connectors` MAY use `writing_directives` + blacklist category as an explicit proxy anchor because CS-A1 does not define a dedicated field for it
+- **AND** the field or anchor aligns with CS-A1's current field definitions
 
-#### Scenario: Each dimension has a fallback range for null style-profile
+#### Scenario: Each dimension has a fallback target for null style-profile
 - **GIVEN** any dimension in §2.8
 - **WHEN** the referenced style-profile field is null or absent
-- **THEN** a fallback range is specified based on human writing corpus statistics
-- **AND** the fallback range is expressed as a numeric interval (e.g., "8–18" for sentence length std_dev)
+- **THEN** a fallback target is specified based on human writing corpus statistics
+- **AND** the fallback target is expressed as a numeric interval or bounded enum target as appropriate to the field type (e.g., "8–18" for sentence length std_dev, `medium` for register_mixing)
 
 #### Scenario: Dimensions distinguish human vs AI zones
 - **GIVEN** any dimension in §2.8
@@ -137,7 +138,7 @@ The Layer 4 detection metrics table in `style-guide.md` SHALL be rewritten from 
   - **green** (人类范围): value range typical of human writing
   - **yellow** (边界): borderline, warrants attention
   - **red** (AI 特征): value range characteristic of AI-generated text
-- **AND** each zone boundary is expressed as a numeric range or threshold
+- **AND** each zone boundary is expressed as a numeric range, threshold, or explicitly defined categorical condition when the underlying field is enum-based
 
 #### Scenario: narration_connector_count green zone is zero
 - **GIVEN** the `narration_connector_count` indicator
@@ -152,11 +153,12 @@ The Layer 4 detection metrics table in `style-guide.md` SHALL be rewritten from 
 - **AND** the style guide explicitly documents this backward-compatible mode
 - **AND** the old table is preserved (marked as legacy) alongside the new 7-indicator table
 
-#### Scenario: New indicators reference CS-A1 statistical fields
+#### Scenario: New indicators reference CS-A1 fields or explicit proxies
 - **GIVEN** the 3 new statistical indicators (`sentence_length_std_dev`, `paragraph_length_cv`, `vocabulary_diversity_score`)
 - **WHEN** reading their zone boundary definitions
-- **THEN** green zone ranges reference the corresponding style-profile statistical fields from CS-A1
-- **AND** fallback ranges are provided for when style-profile fields are absent
+- **THEN** green zone ranges reference the corresponding current style-profile fields from CS-A1
+- **AND** `vocabulary_diversity_score` MAY fall back to `vocabulary_richness` when a numeric field is unavailable
+- **AND** fallback ranges or bounded enum targets are provided for when style-profile fields are absent
 
 ## References
 

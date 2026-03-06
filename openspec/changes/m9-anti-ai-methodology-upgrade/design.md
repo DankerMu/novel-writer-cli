@@ -56,7 +56,9 @@ Style guide（`skills/novel-writing/references/style-guide.md`）是整个反 AI
    - 5 分制表格存在两个问题：(a) 阈值固定，不同风格的合理范围不同；(b) 整数评分粒度太粗。三区判定（green=人类范围 / yellow=边界 / red=AI 特征）更直观，且每个区间可以是范围而非精确阈值，与统计分布自然对齐。
 
 4) **style-profile 优先，通用默认兜底**
-   - 6 维度的目标范围优先从 style-profile.json 的统计字段读取（CS-A1 新增的 `sentence_length_std_dev`、`paragraph_length_cv` 等）。当 style-profile 缺失这些字段时（旧项目未跑过 CS-A1 的 StyleAnalyzer），使用基于人类写作语料统计的通用默认范围。
+   - 6 维度的目标范围优先从 style-profile.json 已落地的顶层字段读取（CS-A1 当前使用平铺 schema，而非嵌套 `statistical.*` 对象），例如 `sentence_length_std_dev`、`paragraph_length_cv`、`register_mixing`、`emotional_volatility`。
+   - `narration_connectors` 当前没有独立统计字段，使用 `writing_directives` + 黑名单类别作为代理锚点；`vocabulary_diversity` 在数值字段缺失时使用 `vocabulary_richness` 作为枚举代理。
+   - 当 style-profile 缺失这些字段时（旧项目未跑过 CS-A1 的 StyleAnalyzer），使用基于人类写作语料统计的通用默认范围或枚举目标。
 
 5) **向后兼容：4 指标降级模式**
    - 如果某次检测只能获取旧的 4 个指标（例如检测脚本尚未升级），Layer 4 退回使用旧的 5 分制评分表。新旧表并存于 style-guide 中，明确标注适用条件。

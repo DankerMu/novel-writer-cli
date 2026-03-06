@@ -9,11 +9,11 @@
 ## 2. Statistical Distribution Targets (§2.8)
 
 - [x] 2.1 Add new §2.8 section header "统计分布目标" after existing §2.7
-- [x] 2.2 Define dimension 1: `sentence_length_variance` — reference `statistical.sentence_length_std_dev` from style-profile, fallback range 8–18, AI characteristic: std_dev < 6
-- [x] 2.3 Define dimension 2: `paragraph_length_cv` — reference `statistical.paragraph_length_cv` from style-profile, fallback range 0.4–1.2, AI characteristic: CV < 0.3
-- [x] 2.4 Define dimension 3: `vocabulary_diversity` — reference `statistical.vocabulary_diversity` from style-profile, describe human vs AI lexical diversity patterns
+- [x] 2.2 Define dimension 1: `sentence_length_variance` — reference `style-profile.json.sentence_length_std_dev`, fallback range 8–18, AI characteristic: std_dev < 6
+- [x] 2.3 Define dimension 2: `paragraph_length_cv` — reference `style-profile.json.paragraph_length_cv`, fallback range 0.4–1.2, AI characteristic: CV < 0.3
+- [x] 2.4 Define dimension 3: `vocabulary_diversity` — reference `style-profile.json.vocabulary_richness` as the current proxy (upgrade to numeric score when available), describe human vs AI lexical diversity patterns
 - [x] 2.5 Define dimension 4: `narration_connectors` — zero tolerance in narration ("与此同时"、"值得一提的是" etc.), reference existing blacklist overlap
-- [x] 2.6 Define dimension 5: `register_mixing` — describe varying formality levels within text, reference style-profile writing_directives
+- [x] 2.6 Define dimension 5: `register_mixing` — describe varying formality levels within text, reference `style-profile.json.register_mixing` with `writing_directives` as supporting anchor
 - [x] 2.7 Define dimension 6: `emotional_arc` — non-monotonic emotional trajectory per chapter, reference narrative health concepts
 - [x] 2.8 Add summary table with columns: dimension / style-profile field / fallback range / AI characteristic
 
@@ -35,16 +35,16 @@
 - [x] 4.3 L2 形容词/副词密度控制: document thresholds (每300字强调词≤2 / 形容词≤6 / 连续两个以上形容词修饰同名词禁止 / "的"字连用≤2)
 - [x] 4.4 L3 四字成语密度控制: document thresholds (每500字≤3 / 连续两个以上禁止 / 同段≤2); note "四字词组连用是AI写作最明显的特征之一"
 - [x] 4.5 L4 对话去AI化: document intent system (试探/回避/施压/诱导/挑衅/敷衍); document 3 prohibitions (书面语对话 / 叙述重复 / 语气同质化); add "去掉对话标签能否分辨说话人" test
-- [x] 4.6 L5 段落结构 `⚙️ 可覆写`: document defaults (单句段25-45% / 每段20-100字 / 禁止3段以上同句式/同长度); add genre override table
-- [x] 4.7 L6 标点节奏 `⚙️ 可覆写`: document defaults (省略号≤5/章 / 感叹号≤8/章 / 破折号≤5/章 / 禁止连用); add genre override table
+- [x] 4.6 L5 段落结构 `⚙️ 可覆写`: document defaults (单句段25-45% / 每段20-100字 / 超过80字建议拆分 / 禁止3段以上同句式/同长度); add genre override table
+- [x] 4.7 L6 标点节奏 `⚙️ 可覆写`: document defaults (省略号≤1/段且≤5/章 / 感叹号≤1/段且≤8/章 / 破折号≤5/章 / 禁止连用); add genre override table
 
 ## 5. Genre Override Mechanism (§2.11)
 
 - [x] 5.1 Add new §2.11 section header "类型覆写机制"
-- [x] 5.2 Define genre override source: `concept.md` "类型覆写" section or `brief.md` genre field
+- [x] 5.2 Define genre override source: `concept.md` "类型覆写" section or `brief.md` 题材字段
 - [x] 5.3 Document override table for 4 genres:
   - 科幻: 单句段15-30%, 每段可到120字, 感叹号≤5/章, 抽象空词"难以形容/不可名状"每章≤2处
-  - 悬疑: 单句段20-35%, 每段可到100字
+  - 悬疑: 单句段20-35%, 更强调断点, 省略号可到≤8/章
   - 恐怖: 单句段30-50%, 省略号可到≤8/章
   - 言情: 使用默认值
 - [x] 5.4 State override precedence: genre override > default values
@@ -74,7 +74,7 @@
 ## 8. Validation
 
 - [x] 8.1 Verify zero fixed quotas remain in the entire `style-guide.md` Layer 2
-- [x] 8.2 Verify all 6 dimensions in §2.8 reference style-profile statistical fields defined in CS-A1
+- [x] 8.2 Verify all 6 dimensions in §2.8 reference current CS-A1 fields/anchors (flat top-level fields, with `narration_connectors` using a documented proxy anchor)
 - [x] 8.3 Verify all 12 techniques in §2.9 have Chinese name + description + example
 - [x] 8.4 Verify §2.10 covers all 6 layers with quantified thresholds matching anti-ai-polish.md
 - [x] 8.5 Verify §2.11 genre overrides cover 科幻/悬疑/恐怖/言情 with specific parameter adjustments
