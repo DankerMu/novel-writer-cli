@@ -43,7 +43,7 @@ continue 特有规则：
 - commit 完成后可运行 `${NOVEL} next --json` 确认下一步（或直接进入下一轮 loop）
 - 对写作类 packet（尤其 `chapter:*:draft` / `quickstart:trial`），若 `packet.manifest.paths.platform_writing_guide` 存在，按原样传给 `chapter-writer`
 - 对评分类 packet（尤其 `chapter:*:judge` / `quickstart:results`），若 `chapter <= 3` 且项目存在 `golden-chapter-gates.json`，CLI 生成的 packet 可能包含 `packet.manifest.inline.golden_chapter_gates`；不要在 skill 层重算或改写
-- 对 `chapter:*:draft` / `chapter:*:judge` packet，CLI 会按 `canon_status` 过滤上下文：仅 `established`（或缺失字段）规则进入 `hard_rules_list`，`planned` 规则进入 `planned_rules_info`（仅 draft），`deprecated` 角色从 `character_contracts` / `character_profiles` 路径列表中剔除；skill 层只透传，不要自行重算或改写
+- 对 `chapter:*:draft` / `chapter:*:judge` packet，CLI 会按 `canon_status` 过滤上下文：仅 `established`（或缺失字段）规则进入 `hard_rules_list`，`planned` 规则进入 `planned_rules_info`（仅 draft）；draft packet 中已生效角色放入 `character_contracts` / `character_profiles`，planned 角色单独放入 `planned_character_contracts` / `planned_character_profiles`，judge packet 仅保留已生效角色；skill 层只透传，不要自行重算或改写
 - 对 `chapter:*:judge` packet，CLI 会优先读取 `chapter_contract.excitement_type`，缺失时回退 `outline.md` 中可选的 `- **ExcitementType**:` 行，并把结果注入 `packet.manifest.inline.excitement_type`（缺失 = `null`）；skill 层只透传给 `quality-judge`，不要自行重算或改写
 - 若 QualityJudge 因黄金三章硬门失败而返回相关字段，后续 `novel next --json` 会把它当成强制修订/人工复核信号处理；skill 只按 CLI 给出的下一步继续
 
