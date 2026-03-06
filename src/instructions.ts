@@ -1,5 +1,5 @@
 import { readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
@@ -129,21 +129,63 @@ type RuleLifecycleContext = {
   degraded: boolean;
 };
 
-type CharacterContext = {
-  characterContracts: string[];
-  characterProfiles: string[];
+type CharacterCandidate = {
+  id: string;
+  displayName: string;
+  canonStatus: CanonStatus;
+  jsonRel: string;
+  mdRel: string;
+  matched: boolean;
 };
 
-function normalizeCanonStatus(raw: unknown): CanonStatus {
-  if (typeof raw !== "string") return "established";
+type CharacterContext = {
+  activeCharacterContracts: string[];
+  activeCharacterProfiles: string[];
+  plannedCharacterContracts: string[];
+  plannedCharacterProfiles: string[];
+};
+
+type CharacterContextOptions = {
+  includePlannedCharacters: boolean;
+  prioritizePlannedOnFallback: boolean;
+};
+
+type CanonStatusContextOptions = {
+  includePlannedRulesInfo: boolean;
+  includePlannedCharacters: boolean;
+  prioritizePlannedCharactersOnFallback: boolean;
+};
+
+function normalizeCanonStatus(raw: unknown, sourceLabel?: string): CanonStatus {
+  if (raw == null) return "established";
+  if (typeof raw !== "string") {
+    console.warn(`[canon_status] Invalid non-string canon_status${sourceLabel ? ` in ${sourceLabel}` : ""}; defaulting to "established".`);
+    return "established";
+  }
+
   const normalized = raw.trim().toLowerCase();
-  return normalized === "planned" || normalized === "deprecated" || normalized === "established"
-    ? normalized
-    : "established";
+  if (normalized === "") return "established";
+  if (normalized === "planned" || normalized === "deprecated" || normalized === "established") return normalized;
+
+  console.warn(`[canon_status] Invalid canon_status "${raw}"${sourceLabel ? ` in ${sourceLabel}` : ""}; defaulting to "established".`);
+  return "established";
 }
 
 function asNonEmptyString(raw: unknown): string | null {
   return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+function buildPlannedRuleInfo(args: {
+  id: string | null;
+  category: string | null;
+  constraintType: string | null;
+  rule: string;
+}): PlannedRuleInfo {
+  const plannedRuleInfo: PlannedRuleInfo = { canon_status: "planned", rule: args.rule };
+  if (args.id) plannedRuleInfo.id = args.id;
+  if (args.category) plannedRuleInfo.category = args.category;
+  if (args.constraintType) plannedRuleInfo.constraint_type = args.constraintType;
+  return plannedRuleInfo;
 }
 
 async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleContext> {
@@ -154,7 +196,7 @@ async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleC
   try {
     const raw = await readJsonFile(rulesAbs);
     if (!isPlainObject(raw)) return { ...empty, degraded: true };
-    const rules = (raw as Record<string, unknown>).rules;
+    const rules = raw.rules;
     if (!Array.isArray(rules)) return { ...empty, degraded: true };
 
     const hardRulesList: string[] = [];
@@ -162,23 +204,16 @@ async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleC
 
     for (const item of rules) {
       if (!isPlainObject(item)) continue;
-      const obj = item as Record<string, unknown>;
-      const rule = asNonEmptyString(obj.rule);
+      const rule = asNonEmptyString(item.rule);
       if (!rule) continue;
 
-      const status = normalizeCanonStatus(obj.canon_status);
-      const id = asNonEmptyString(obj.id);
-      const category = asNonEmptyString(obj.category);
-      const constraintType = asNonEmptyString(obj.constraint_type);
+      const status = normalizeCanonStatus(item.canon_status, `${relative(rootDir, rulesAbs)}${typeof item.id === "string" ? `#${item.id}` : ""}`);
+      const id = asNonEmptyString(item.id);
+      const category = asNonEmptyString(item.category);
+      const constraintType = asNonEmptyString(item.constraint_type);
 
       if (status === "planned") {
-        plannedRulesInfo.push({
-          ...(id ? { id } : {}),
-          ...(category ? { category } : {}),
-          ...(constraintType ? { constraint_type: constraintType } : {}),
-          canon_status: "planned",
-          rule
-        });
+        plannedRulesInfo.push(buildPlannedRuleInfo({ id, category, constraintType, rule }));
         continue;
       }
 
@@ -193,8 +228,36 @@ async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleC
   }
 }
 
-async function loadCharacterContext(args: { rootDir: string; chapterContractRel: string }): Promise<CharacterContext> {
-  const empty: CharacterContext = { characterContracts: [], characterProfiles: [] };
+function selectFallbackCharacterCandidates(candidates: CharacterCandidate[], options: CharacterContextOptions): CharacterCandidate[] {
+  const nonDeprecatedCandidates = candidates.filter((candidate) => candidate.canonStatus !== "deprecated");
+  if (!options.includePlannedCharacters) {
+    return nonDeprecatedCandidates.filter((candidate) => candidate.canonStatus !== "planned").slice(0, 15);
+  }
+  if (!options.prioritizePlannedOnFallback) return nonDeprecatedCandidates.slice(0, 15);
+
+  const plannedCandidates = nonDeprecatedCandidates.filter((candidate) => candidate.canonStatus === "planned");
+  const activeCandidates = nonDeprecatedCandidates.filter((candidate) => candidate.canonStatus !== "planned");
+  return [...plannedCandidates, ...activeCandidates].slice(0, 15);
+}
+
+async function loadExistingCharacterProfiles(rootDir: string, candidates: CharacterCandidate[]): Promise<string[]> {
+  const pathsOrNull = await Promise.all(
+    candidates.map(async (candidate) => ((await pathExists(join(rootDir, candidate.mdRel))) ? candidate.mdRel : null))
+  );
+  return pathsOrNull.filter((path): path is string => path !== null);
+}
+
+async function loadCharacterContext(args: {
+  rootDir: string;
+  chapterContractRel: string;
+  options: CharacterContextOptions;
+}): Promise<CharacterContext> {
+  const empty: CharacterContext = {
+    activeCharacterContracts: [],
+    activeCharacterProfiles: [],
+    plannedCharacterContracts: [],
+    plannedCharacterProfiles: []
+  };
   const charsDirRel = "characters/active";
   const charsDirAbs = join(args.rootDir, charsDirRel);
   if (!(await pathExists(charsDirAbs))) return empty;
@@ -205,12 +268,8 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
     try {
       const raw = await readJsonFile(contractAbs);
       if (isPlainObject(raw)) {
-        const preconditions = isPlainObject((raw as Record<string, unknown>).preconditions)
-          ? ((raw as Record<string, unknown>).preconditions as Record<string, unknown>)
-          : null;
-        const characterStates = preconditions && isPlainObject(preconditions.character_states)
-          ? (preconditions.character_states as Record<string, unknown>)
-          : null;
+        const preconditions = isPlainObject(raw.preconditions) ? raw.preconditions : null;
+        const characterStates = preconditions && isPlainObject(preconditions.character_states) ? preconditions.character_states : null;
         if (characterStates) {
           for (const key of Object.keys(characterStates)) {
             const normalized = key.trim().toLowerCase();
@@ -225,7 +284,7 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
 
   try {
     const entries = await readdir(charsDirAbs, { withFileTypes: true });
-    const candidates: Array<{ id: string; displayName: string; canonStatus: CanonStatus; jsonRel: string; mdRel: string; matched: boolean }> = [];
+    const candidates: CharacterCandidate[] = [];
     const hasDesiredRefs = desiredRefs.size > 0;
 
     for (const entry of entries) {
@@ -234,10 +293,9 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
       try {
         const raw = await readJsonFile(join(args.rootDir, jsonRel));
         if (!isPlainObject(raw)) continue;
-        const obj = raw as Record<string, unknown>;
-        const id = asNonEmptyString(obj.id) ?? entry.name.replace(/\.json$/u, "");
-        const displayName = asNonEmptyString(obj.display_name) ?? id;
-        const canonStatus = normalizeCanonStatus(obj.canon_status);
+        const id = asNonEmptyString(raw.id) ?? entry.name.replace(/\.json$/u, "");
+        const displayName = asNonEmptyString(raw.display_name) ?? id;
+        const canonStatus = normalizeCanonStatus(raw.canon_status, jsonRel);
         const matched = hasDesiredRefs && (desiredRefs.has(id.toLowerCase()) || desiredRefs.has(displayName.toLowerCase()));
         candidates.push({
           id,
@@ -253,21 +311,58 @@ async function loadCharacterContext(args: { rootDir: string; chapterContractRel:
     }
 
     candidates.sort((left, right) => left.jsonRel.localeCompare(right.jsonRel));
-    const preferred = hasDesiredRefs ? candidates.filter((candidate) => candidate.matched) : [];
-    const selectedBase = preferred.length > 0 ? preferred : candidates.slice(0, 15);
-    const selected = selectedBase.filter((candidate) => candidate.canonStatus !== "deprecated");
-
-    const characterProfiles: string[] = [];
-    for (const candidate of selected) {
-      if (await pathExists(join(args.rootDir, candidate.mdRel))) characterProfiles.push(candidate.mdRel);
-    }
+    const preferred = hasDesiredRefs ? candidates.filter((candidate) => candidate.matched && candidate.canonStatus !== "deprecated") : [];
+    const selectedCandidates = preferred.length > 0 ? preferred : selectFallbackCharacterCandidates(candidates, args.options);
+    const activeCandidates = selectedCandidates.filter((candidate) => candidate.canonStatus !== "planned");
+    const plannedCandidates = args.options.includePlannedCharacters
+      ? selectedCandidates.filter((candidate) => candidate.canonStatus === "planned")
+      : [];
+    const [activeCharacterProfiles, plannedCharacterProfiles] = await Promise.all([
+      loadExistingCharacterProfiles(args.rootDir, activeCandidates),
+      loadExistingCharacterProfiles(args.rootDir, plannedCandidates)
+    ]);
 
     return {
-      characterContracts: selected.map((candidate) => candidate.jsonRel),
-      characterProfiles
+      activeCharacterContracts: activeCandidates.map((candidate) => candidate.jsonRel),
+      activeCharacterProfiles,
+      plannedCharacterContracts: plannedCandidates.map((candidate) => candidate.jsonRel),
+      plannedCharacterProfiles
     };
   } catch {
     return empty;
+  }
+}
+
+async function attachCanonStatusContext(args: {
+  rootDir: string;
+  chapterContractRel: string;
+  inline: Record<string, unknown>;
+  paths: Record<string, unknown>;
+  options: CanonStatusContextOptions;
+}): Promise<void> {
+  const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
+  args.inline.hard_rules_list = ruleLifecycle.hardRulesList;
+  if (ruleLifecycle.degraded) args.inline.world_rules_context_degraded = true;
+  if (args.options.includePlannedRulesInfo && ruleLifecycle.plannedRulesInfo.length > 0) {
+    args.inline.planned_rules_info = ruleLifecycle.plannedRulesInfo;
+  }
+
+  const characterContext = await loadCharacterContext({
+    rootDir: args.rootDir,
+    chapterContractRel: args.chapterContractRel,
+    options: {
+      includePlannedCharacters: args.options.includePlannedCharacters,
+      prioritizePlannedOnFallback: args.options.prioritizePlannedCharactersOnFallback
+    }
+  });
+
+  if (characterContext.activeCharacterContracts.length > 0) args.paths.character_contracts = characterContext.activeCharacterContracts;
+  if (characterContext.activeCharacterProfiles.length > 0) args.paths.character_profiles = characterContext.activeCharacterProfiles;
+  if (args.options.includePlannedCharacters && characterContext.plannedCharacterContracts.length > 0) {
+    args.paths.planned_character_contracts = characterContext.plannedCharacterContracts;
+  }
+  if (args.options.includePlannedCharacters && characterContext.plannedCharacterProfiles.length > 0) {
+    args.paths.planned_character_profiles = characterContext.plannedCharacterProfiles;
   }
 }
 
@@ -913,14 +1008,17 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       inline.promise_ledger_report_summary_degraded = true;
     }
 
-    const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
-    inline.hard_rules_list = ruleLifecycle.hardRulesList;
-    if (ruleLifecycle.degraded) inline.world_rules_context_degraded = true;
-    if (ruleLifecycle.plannedRulesInfo.length > 0) inline.planned_rules_info = ruleLifecycle.plannedRulesInfo;
-
-    const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
-    if (characterContext.characterContracts.length > 0) paths.character_contracts = characterContext.characterContracts;
-    if (characterContext.characterProfiles.length > 0) paths.character_profiles = characterContext.characterProfiles;
+    await attachCanonStatusContext({
+      rootDir: args.rootDir,
+      chapterContractRel,
+      inline,
+      paths,
+      options: {
+        includePlannedRulesInfo: true,
+        includePlannedCharacters: true,
+        prioritizePlannedCharactersOnFallback: true
+      }
+    });
 
     // Optional: inject non-spoiler light-touch reminders for dormant foreshadowing items (best-effort).
     try {
@@ -991,13 +1089,17 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     paths.chapter_draft = chapterDraftRel;
     paths.cross_references = relIfExists(rel.staging.crossrefJson, await pathExists(join(args.rootDir, rel.staging.crossrefJson)));
 
-    const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
-    inline.hard_rules_list = ruleLifecycle.hardRulesList;
-    if (ruleLifecycle.degraded) inline.world_rules_context_degraded = true;
-
-    const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
-    if (characterContext.characterContracts.length > 0) paths.character_contracts = characterContext.characterContracts;
-    if (characterContext.characterProfiles.length > 0) paths.character_profiles = characterContext.characterProfiles;
+    await attachCanonStatusContext({
+      rootDir: args.rootDir,
+      chapterContractRel,
+      inline,
+      paths,
+      options: {
+        includePlannedRulesInfo: false,
+        includePlannedCharacters: false,
+        prioritizePlannedCharactersOnFallback: false
+      }
+    });
 
     const loadedPlatform = await loadPlatformProfile(args.rootDir);
     if (loadedPlatform?.profile.scoring) {

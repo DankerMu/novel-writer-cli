@@ -45,23 +45,21 @@ function makeCheckpoint(stage: Checkpoint["pipeline_stage"]): Checkpoint {
   };
 }
 
-test("issue 128 prompts and skill docs describe canon_status lifecycle", async () => {
-  const worldBuilder = await readRepoText("agents/world-builder.md");
-  const characterWeaver = await readRepoText("agents/character-weaver.md");
+test("issue 169 prompts and skill docs describe split planned character context", async () => {
   const chapterWriter = await readRepoText("agents/chapter-writer.md");
   const qualityJudge = await readRepoText("agents/quality-judge.md");
   const continueSkill = await readRepoText("skills/continue/SKILL.md");
+  const contextContracts = await readRepoText("skills/continue/references/context-contracts.md");
 
-  assert.match(worldBuilder, /canon_status/);
-  assert.match(characterWeaver, /canon_status/);
-  assert.match(chapterWriter, /planned_rules_info/);
-  assert.match(chapterWriter, /`canon_status == "planned"`|可引用、可铺垫/);
-  assert.match(qualityJudge, /skip `planned` \/ `deprecated`|跳过 `planned` \/ `deprecated`/);
-  assert.match(continueSkill, /planned_rules_info/);
-  assert.match(continueSkill, /deprecated.*character_contracts/);
+  assert.match(chapterWriter, /planned_character_contracts/);
+  assert.match(chapterWriter, /planned_character_profiles/);
+  assert.match(qualityJudge, /planned \/ deprecated 不会进入 judge packet/);
+  assert.match(continueSkill, /planned_character_contracts/);
+  assert.match(contextContracts, /planned_character_contracts\?:/);
+  assert.match(contextContracts, /character_contracts: .*仅 established \/ 缺失 canon_status/);
 });
 
-test("buildInstructionPacket filters rules and characters by canon_status", async () => {
+test("buildInstructionPacket splits active and planned character context by canon_status", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-"));
   try {
     await writeJson(join(rootDir, "world/rules.json"), {
@@ -135,14 +133,10 @@ test("buildInstructionPacket filters rules and characters by canon_status", asyn
       }
     ]);
     assert.equal(Object.prototype.hasOwnProperty.call(draftPacket.packet.manifest.inline, "world_rules_context_degraded"), false);
-    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, [
-      "characters/active/alice.json",
-      "characters/active/bob.json"
-    ]);
-    assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, [
-      "characters/active/alice.md",
-      "characters/active/bob.md"
-    ]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, ["characters/active/alice.json"]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, ["characters/active/alice.md"]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_contracts, ["characters/active/bob.json"]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_profiles, ["characters/active/bob.md"]);
 
     const judgePacket = (await buildInstructionPacket({
       rootDir,
@@ -158,20 +152,16 @@ test("buildInstructionPacket filters rules and characters by canon_status", asyn
     ]);
     assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.inline, "planned_rules_info"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.inline, "world_rules_context_degraded"), false);
-    assert.deepEqual(judgePacket.packet.manifest.paths.character_contracts, [
-      "characters/active/alice.json",
-      "characters/active/bob.json"
-    ]);
-    assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, [
-      "characters/active/alice.md",
-      "characters/active/bob.md"
-    ]);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_contracts, ["characters/active/alice.json"]);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, ["characters/active/alice.md"]);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_contracts"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_profiles"), false);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
 });
 
-test("buildInstructionPacket caps fallback character context and keeps empty hard_rules_list explicit", async () => {
+test("buildInstructionPacket prioritizes planned draft characters on fallback and keeps judge active-only", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-fallback-"));
   try {
     await writeJson(join(rootDir, "world/rules.json"), {
@@ -194,9 +184,6 @@ test("buildInstructionPacket caps fallback character context and keeps empty har
     await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
     await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
 
-    const expectedContracts = Array.from({ length: 15 }, (_, index) => `characters/active/char-${String(index + 1).padStart(2, "0")}.json`);
-    const expectedProfiles = Array.from({ length: 15 }, (_, index) => `characters/active/char-${String(index + 1).padStart(2, "0")}.md`);
-
     const draftPacket = (await buildInstructionPacket({
       rootDir,
       checkpoint: makeCheckpoint("committed"),
@@ -207,9 +194,40 @@ test("buildInstructionPacket caps fallback character context and keeps empty har
 
     assert.deepEqual(draftPacket.packet.manifest.inline.hard_rules_list, []);
     assert.equal(Object.prototype.hasOwnProperty.call(draftPacket.packet.manifest.inline, "world_rules_context_degraded"), false);
-    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, expectedContracts);
-    assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, expectedProfiles);
-    assert.match(String((draftPacket.packet.manifest.paths.character_contracts as string[])[4]), /char-05\.json$/);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, [
+      "characters/active/char-01.json",
+      "characters/active/char-02.json",
+      "characters/active/char-03.json",
+      "characters/active/char-04.json",
+      "characters/active/char-06.json",
+      "characters/active/char-07.json",
+      "characters/active/char-08.json",
+      "characters/active/char-09.json",
+      "characters/active/char-10.json",
+      "characters/active/char-11.json",
+      "characters/active/char-12.json",
+      "characters/active/char-13.json",
+      "characters/active/char-14.json",
+      "characters/active/char-15.json"
+    ]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, [
+      "characters/active/char-01.md",
+      "characters/active/char-02.md",
+      "characters/active/char-03.md",
+      "characters/active/char-04.md",
+      "characters/active/char-06.md",
+      "characters/active/char-07.md",
+      "characters/active/char-08.md",
+      "characters/active/char-09.md",
+      "characters/active/char-10.md",
+      "characters/active/char-11.md",
+      "characters/active/char-12.md",
+      "characters/active/char-13.md",
+      "characters/active/char-14.md",
+      "characters/active/char-15.md"
+    ]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_contracts, ["characters/active/char-05.json"]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_profiles, ["characters/active/char-05.md"]);
     assert.equal((draftPacket.packet.manifest.paths.character_contracts as string[]).includes("characters/active/char-18.json"), false);
 
     const judgePacket = (await buildInstructionPacket({
@@ -221,9 +239,132 @@ test("buildInstructionPacket caps fallback character context and keeps empty har
     })) as PacketResult;
 
     assert.deepEqual(judgePacket.packet.manifest.inline.hard_rules_list, []);
-    assert.deepEqual(judgePacket.packet.manifest.paths.character_contracts, expectedContracts);
-    assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, expectedProfiles);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_contracts, [
+      "characters/active/char-01.json",
+      "characters/active/char-02.json",
+      "characters/active/char-03.json",
+      "characters/active/char-04.json",
+      "characters/active/char-06.json",
+      "characters/active/char-07.json",
+      "characters/active/char-08.json",
+      "characters/active/char-09.json",
+      "characters/active/char-10.json",
+      "characters/active/char-11.json",
+      "characters/active/char-12.json",
+      "characters/active/char-13.json",
+      "characters/active/char-14.json",
+      "characters/active/char-15.json",
+      "characters/active/char-16.json"
+    ]);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, [
+      "characters/active/char-01.md",
+      "characters/active/char-02.md",
+      "characters/active/char-03.md",
+      "characters/active/char-04.md",
+      "characters/active/char-06.md",
+      "characters/active/char-07.md",
+      "characters/active/char-08.md",
+      "characters/active/char-09.md",
+      "characters/active/char-10.md",
+      "characters/active/char-11.md",
+      "characters/active/char-12.md",
+      "characters/active/char-13.md",
+      "characters/active/char-14.md",
+      "characters/active/char-15.md",
+      "characters/active/char-16.md"
+    ]);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_contracts"), false);
   } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket returns empty character context for all deprecated characters and soft rules", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-empty-"));
+  try {
+    await writeJson(join(rootDir, "world/rules.json"), {
+      schema_version: 1,
+      rules: [
+        { id: "W-001", category: "physics", rule: "soft established", constraint_type: "soft", canon_status: "established" },
+        { id: "W-002", category: "magic", rule: "soft default", constraint_type: "soft" }
+      ]
+    });
+
+    for (const slug of ["alice", "bob"]) {
+      await writeJson(join(rootDir, `characters/active/${slug}.json`), {
+        id: slug,
+        display_name: slug,
+        canon_status: "deprecated",
+        contracts: [{ id: `C-${slug}`, type: "personality", rule: "rule" }]
+      });
+      await writeText(join(rootDir, `characters/active/${slug}.md`), `# ${slug}\n`);
+    }
+
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const draftPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    assert.deepEqual(draftPacket.packet.manifest.inline.hard_rules_list, []);
+    assert.equal(Object.prototype.hasOwnProperty.call(draftPacket.packet.manifest.paths, "character_contracts"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(draftPacket.packet.manifest.paths, "planned_character_contracts"), false);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket warns and degrades invalid canon_status values to established", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-invalid-"));
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map((arg) => String(arg)).join(" "));
+  };
+
+  try {
+    await writeJson(join(rootDir, "world/rules.json"), {
+      schema_version: 1,
+      rules: [{ id: "W-001", category: "physics", rule: "非法值也按 established", constraint_type: "hard", canon_status: "garbage" }]
+    });
+    await writeJson(join(rootDir, "volumes/vol-01/chapter-contracts/chapter-001.json"), {
+      chapter: 1,
+      storyline_id: "main-arc",
+      preconditions: { character_states: { Alice: { location: "city" } } },
+      objectives: [{ id: "OBJ-1", required: true, description: "x" }]
+    });
+    await writeJson(join(rootDir, "characters/active/alice.json"), {
+      id: "alice",
+      display_name: "Alice",
+      canon_status: true,
+      contracts: [{ id: "C-ALICE-001", type: "personality", rule: "rule" }]
+    });
+    await writeText(join(rootDir, "characters/active/alice.md"), "# Alice\n");
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const draftPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    assert.deepEqual(draftPacket.packet.manifest.inline.hard_rules_list, ["W-001: 非法值也按 established"]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, ["characters/active/alice.json"]);
+    assert.equal(warnings.length, 2);
+    const firstWarning = warnings[0] ?? "";
+    const secondWarning = warnings[1] ?? "";
+    assert.match(firstWarning, /Invalid canon_status/);
+    assert.match(secondWarning, /Invalid non-string canon_status/);
+  } finally {
+    console.warn = originalWarn;
     await rm(rootDir, { recursive: true, force: true });
   }
 });
