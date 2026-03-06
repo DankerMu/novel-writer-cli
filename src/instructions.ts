@@ -259,7 +259,6 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   await maybeAddPath("platform_profile", "platform-profile.json");
   await maybeAddPath("platform_writing_guide", "platform-writing-guide.md");
   await maybeAddPath("style_guide", "skills/novel-writing/references/style-guide.md");
-  await maybeAddPath("writing_methodology", "skills/novel-writing/references/style-guide.md");
   await maybeAddPath("style_profile_template", "style-profile.json");
 
   // Attach staging quickstart artifacts when present (for resume/debug).
@@ -459,7 +458,6 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     await maybeAddPath("platform_profile", "platform-profile.json");
     await maybeAddPath("genre_weight_profiles", "genre-weight-profiles.json");
     await maybeAddPath("style_guide", "skills/novel-writing/references/style-guide.md");
-    await maybeAddPath("writing_methodology", "skills/novel-writing/references/style-guide.md");
     await maybeAddPath("quality_rubric", "skills/novel-writing/references/quality-rubric.md");
     await maybeAddPath("storylines", "storylines/storylines.json");
     await maybeAddPath("world_rules", "world/rules.json");
@@ -592,7 +590,6 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   await maybeAddPath(commonPaths, "web_novel_cliche_lint", "web-novel-cliche-lint.json");
   await maybeAddPath(commonPaths, "genre_weight_profiles", "genre-weight-profiles.json");
   await maybeAddPath(commonPaths, "style_guide", "skills/novel-writing/references/style-guide.md");
-  await maybeAddPath(commonPaths, "writing_methodology", "skills/novel-writing/references/style-guide.md");
   await maybeAddPath(commonPaths, "quality_rubric", "skills/novel-writing/references/quality-rubric.md");
   await maybeAddPath(commonPaths, "current_state", "state/current-state.json");
   await maybeAddPath(commonPaths, "world_rules", "world/rules.json");
