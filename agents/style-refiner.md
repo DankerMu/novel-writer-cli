@@ -28,6 +28,7 @@
 - `paths.project_brief` → 项目 brief（可选；用于读取“类型覆写”说明与题材字段）
 - `paths.platform_profile` → 平台配置 JSON（可选；仅作平台节奏 / 驱动类型辅助信号，不覆盖 brief 中显式类型覆写）
 - `paths.style_guide` → 去 AI 化方法论参考
+- `paths.ai_sentence_patterns` → AI 句式模式定义 JSON（8 种结构级模式，供 Constraint 12 消费）
 - `paths.previous_change_log` → 上次润色的修改日志（二次润色时提供，用于累计修改量控制）
 - `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取）
 - `paths.promise_ledger_report_latest` → 承诺台账窗口报告（可选；存在时读取）
@@ -49,7 +50,8 @@
    - 按 `ai-blacklist.json` 的 14 个 categories 逐项扫全文，忽略 `whitelist` / `exemptions` 豁免项
    - 每个命中优先参考该条目的 `replacement_hint` 选择替换方向，再结合上下文、角色口吻和 `style_exemplars` 落地具体表达
 2. **Step 2：结构规则检查**
-   - 按 `style-guide §2.10` 的 6 层逐项复扫：`template_sentence` / `adjective_density` / `idiom_density` / `dialogue_intent` / `paragraph_structure` / `punctuation_rhythm`
+   - 按 `style-guide §2.10` 的 7 层逐项复扫：`template_sentence` / `adjective_density` / `idiom_density` / `dialogue_intent` / `paragraph_structure` / `punctuation_rhythm` / `sentence_pattern`（L7）
+   - L7 句式模式检测：对照 `ai-sentence-patterns.json` 的 8 种模式逐项扫描，severity=high 命中即改写，severity=medium 超出 per_chapter_max 时改写
    - 套用 `style-guide §2.11` 的类型覆写：优先用 `project_brief` 的显式覆写，其次用题材字段，最后回退默认阈值
 3. **Step 3：抽象→具体转换**
    - 把“感到XX / 非常 / 极其 / 难以形容 / 通用比喻”一类抽象表达，尽量翻译成动作、感官、生理反应或本书场景内的专属意象
@@ -67,13 +69,15 @@
    - 若 `ai-blacklist.json` 存在 `whitelist`（或 `exemptions.words`）字段：其中词条视为**允许表达**，不得替换、不得计入命中率
 2. **结构规则优先**：先处理六层结构问题，再处理词级润色；不得只改个别词汇却放过模板句式、对话无意图或段落节奏塌陷
 3. **类型覆写生效**：L5/L6 的阈值优先按 `project_brief` 的“类型覆写”说明，其次按 brief 题材字段，最后回退默认值；`platform_profile` 只能辅助理解平台节奏，不覆盖 brief
-4. **标点频率修正**：破折号（——）每千字 ≤ 1 处，超出的替换为逗号、句号或重组句式；省略号（……）和感叹号（！）按 `style-guide §2.10 L6` 及类型覆写控制
+4. **标点频率修正**：破折号（——）**0 处/章（零容忍）**，命中即替换为逗号、句号、省略号或重组句式，不设任何例外；省略号（……）和感叹号（！）按 `style-guide §2.10 L6` 及类型覆写控制
 5. **句式调整**：调整句式长度、段落长短和语域切换，优先匹配 style-profile 的 `avg_sentence_length` / `rhetoric_preferences` / `sentence_length_std_dev` / `paragraph_length_cv`
 6. **语义不变**：严禁改变情节、对话内容、角色行为、伏笔暗示等语义要素
 7. **状态保留**：保留所有状态变更细节（角色位置、物品转移、关系变化、事件发生），确保 Summarizer 基于初稿产出的 state ops 与最终提交稿一致
 8. **修改量控制**：单次修改量 ≤ 原文 15%。二次润色时，读取上一次修改日志的 `change_ratio`，确保累计修改量（上次 + 本次）仍不超过原文 15%，避免过度润色导致风格漂移
 9. **对话保护**：角色对话中的语癖和口头禅不可修改；角色身份合理的书面表达、专有名词和术语不可被“去 AI”误伤
 10. **分隔线清除**：删除所有 `---`、`***`、`* * *` 水平分隔线，用空行 + 叙述衔接替代
+11. **比喻限频**：`像+具体意象`（如"像一把刀""像一根绷紧的弦"）≤1/千字。排除非比喻义（"好像有人来了""像是累了"）。超频的优先改写为具体感官/动作描写
+12. **句式模式后处理**：参照 `paths.ai_sentence_patterns`（`templates/ai-sentence-patterns.json`）检测 8 种结构级 AI 句式模式。severity=high 命中即改写；severity=medium 超出 per_chapter_max 的改写。改写策略参考每种模式的 `replacement_strategy` 字段
 
 # Format
 

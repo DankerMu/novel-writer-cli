@@ -40,6 +40,7 @@
 - `paths.storyline_schedule` → 本卷故事线调度（可选）
 - `paths.cross_references` → Summarizer 串线检测输出
 - `paths.quality_rubric` → 8 维度评分标准
+- `paths.ai_sentence_patterns` → AI 句式模式定义 JSON（8 种结构级模式，供 sentence_pattern_violations 消费）
 
 > **读取优先级**：先读 `chapter_draft`（评估对象），再读 `chapter_contract` + `quality_rubric`（评估标准），最后读其余参照文件。
 
@@ -224,6 +225,8 @@
 - `anti_ai.indicator_breakdown` 用于逐指标审计和回看；`anti_ai.statistical_profile` 保留 3 个稳定字段，供 legacy / 轻量消费者读取。两者数值重叠是设计使然，不是冲突
 - `narration_connector_count` 的判定：0 = green；1 个孤立命中 = yellow（仍建议修）；≥2 个或连续多段靠连接词推进 = red
 - `humanize_technique_variety` 只做事后观察，不是配额：若整章 0 种技法且其他指标也健康，可记 yellow；若 0 种且伴随其他 red，则记 red
+- **破折号零容忍**：`punctuation_overuse.em_dash_count > 0` 时，在 `em_dash_zone` 输出 `"red"`；破折号是最明显的 AI 写作标志，零容忍无例外
+- **句式模式扣分**：对照 `paths.ai_sentence_patterns` 检测 8 种结构级 AI 句式模式，结果写入 `anti_ai.sentence_pattern_violations[]`。扣分规则：0 处命中不扣分；1-2 处 medium 命中扣 0.5 分；≥1 处 high 命中至少降 1 分。与其他指标独立叠加
 - 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）；典型条件包括：`chapter_draft` 过短/破损导致句长或段长无法稳定估算，或 `style_profile` 缺失且你只能可靠拿到旧 4 指标
 
 # Constraints
@@ -318,6 +321,7 @@ else:
     "punctuation_overuse": {
       "em_dash_count": 2,
       "em_dash_per_kchars": 0.6,
+      "em_dash_zone": "red",
       "ellipsis_count": 3,
       "ellipsis_per_kchars": 0.9
     },
@@ -333,6 +337,16 @@ else:
         "severity": "yellow",
         "evidence": "原文片段",
         "detail": "为什么它构成结构性 AI 痕迹"
+      }
+    ],
+    "sentence_pattern_violations": [
+      {
+        "pattern_id": "SP-01",
+        "pattern_name": "解释型旁白句",
+        "severity": "high",
+        "count": 1,
+        "evidence": "原文片段",
+        "detail": "为什么命中该模式"
       }
     ],
     "blacklist_update_suggestions": [
