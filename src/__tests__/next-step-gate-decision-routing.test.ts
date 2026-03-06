@@ -30,6 +30,25 @@ test("computeNextStep routes judged+eval to commit on gate pass", async () => {
   assert.equal(next.reason, "judged:gate:pass");
 });
 
+test("computeNextStep routes refined+eval to commit only after gate pass", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-next-step-refined-gate-pass-"));
+  await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+  await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "chapter text\n", "utf8");
+  await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
+  await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4.2, recommendation: "pass" });
+
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    revision_count: 0
+  });
+  assert.equal(next.step, "chapter:001:commit");
+  assert.equal(next.reason, "refined:gate:pass");
+});
+
 test("computeNextStep routes judged+eval to refine on gate polish", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-next-step-gate-polish-"));
   await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
@@ -66,6 +85,35 @@ test("computeNextStep routes judged+eval to draft on gate revise", async () => {
   });
   assert.equal(next.step, "chapter:001:draft");
   assert.equal(next.reason, "judged:gate:revise");
+});
+
+test("computeNextStep routes refined+eval to draft when golden chapter gates fail", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-next-step-refined-golden-gate-fail-"));
+  await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+  await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "chapter text\n", "utf8");
+  await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
+  await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), {
+    chapter: 1,
+    overall: 4.8,
+    recommendation: "pass",
+    golden_chapter_gates: {
+      activated: true,
+      passed: false,
+      failed_gate_ids: ["hook_present"],
+      checks: [{ id: "hook_present", status: "fail" }]
+    }
+  });
+
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "refined",
+    inflight_chapter: 1,
+    revision_count: 0
+  });
+  assert.equal(next.step, "chapter:001:draft");
+  assert.equal(next.reason, "refined:gate:revise");
 });
 
 test("computeNextStep routes judged+eval to commit on force_passed when revisions exhausted", async () => {

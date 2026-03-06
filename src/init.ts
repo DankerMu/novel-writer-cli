@@ -59,7 +59,19 @@ async function writeIfMissingOrForce(args: {
   result: InitProjectResult;
 }): Promise<void> {
   const abs = join(args.rootDir, args.relPath);
-  const exists = await pathExists(abs);
+  let exists = false;
+  try {
+    const current = await stat(abs);
+    if (!current.isFile()) {
+      throw new NovelCliError(`Cannot initialize ${args.relPath}: existing path is not a file. Remove it or choose a different project root.`, 2);
+    }
+    exists = true;
+  } catch (err: unknown) {
+    if (err instanceof NovelCliError) throw err;
+    const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code?: unknown }).code) : null;
+    if (code !== "ENOENT") throw err;
+  }
+
   if (exists && !args.force) {
     args.result.skipped.push(args.relPath);
     return;

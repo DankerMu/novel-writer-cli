@@ -2,6 +2,7 @@ import { isPlainObject } from "./type-guards.js";
 
 export const GATE_DECISIONS = ["pass", "polish", "revise", "pause_for_user", "pause_for_user_force_rewrite", "force_passed"] as const;
 export type GateDecision = (typeof GATE_DECISIONS)[number];
+export type GateEvalFailureReason = "eval_invalid" | "eval_missing_overall";
 
 export type GateDecisionInput = {
   overall_final: number;
@@ -12,7 +13,7 @@ export type GateDecisionInput = {
   max_revisions?: number;
 };
 
-type ContractCheck = Record<string, unknown> & {
+export type ContractCheck = Record<string, unknown> & {
   status?: unknown;
   confidence?: unknown;
   constraint_type?: unknown;
@@ -61,7 +62,7 @@ export function detectHighConfidenceViolation(evalRaw: unknown): {
 }
 
 export function computeGateDecision(args: GateDecisionInput): GateDecision {
-  const maxRevisions = typeof args.max_revisions === "number" && Number.isInteger(args.max_revisions) && args.max_revisions >= 0 ? args.max_revisions : 2;
+  const maxRevisions = normalizeMaxRevisions(args.max_revisions);
 
   if (args.force_pass) return "force_passed";
   if (args.has_high_confidence_violation || args.has_golden_chapter_gate_failure) {
@@ -77,12 +78,32 @@ export function computeGateDecision(args: GateDecisionInput): GateDecision {
   return "pause_for_user_force_rewrite";
 }
 
-type GoldenChapterGateCheck = Record<string, unknown> & {
+export type GoldenChapterGateCheck = Record<string, unknown> & {
   id?: unknown;
   status?: unknown;
   detail?: unknown;
   evidence?: unknown;
 };
+
+export type EvaluatedGateDecision = {
+  overall_final: number;
+  decision: GateDecision;
+  revision_count: number;
+  max_revisions: number | null;
+  has_high_confidence_violation: boolean;
+  high_confidence_violations: ContractCheck[];
+  has_golden_chapter_gate_failure: boolean;
+  golden_chapter_gate_failures: GoldenChapterGateCheck[];
+  recommendation: string | null;
+};
+
+export type EvaluateGateDecisionFromEvalResult =
+  | { ok: true; gate: EvaluatedGateDecision }
+  | { ok: false; reason: GateEvalFailureReason };
+
+function normalizeMaxRevisions(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 2;
+}
 
 function isGoldenChapterGateFailureStatus(value: unknown): boolean {
   return value === "fail" || value === "failed" || value === "violation";
@@ -101,12 +122,20 @@ export function detectGoldenChapterGateFailure(evalRaw: unknown): {
   if (gates.activated === false) return { has_golden_chapter_gate_failure: false, failed_checks: [] };
 
   const failedChecks: GoldenChapterGateCheck[] = [];
+  const seenIds = new Set<string>();
   const checksRaw = gates.checks;
   if (Array.isArray(checksRaw)) {
     for (const item of checksRaw) {
       if (!isPlainObject(item)) continue;
       const check = item as GoldenChapterGateCheck;
       if (!isGoldenChapterGateFailureStatus(check.status)) continue;
+      const id = typeof check.id === "string" && check.id.trim().length > 0 ? check.id.trim() : null;
+      if (id) {
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        failedChecks.push({ ...check, id });
+        continue;
+      }
       failedChecks.push(check);
     }
   }
@@ -115,10 +144,62 @@ export function detectGoldenChapterGateFailure(evalRaw: unknown): {
   if (Array.isArray(failedGateIdsRaw)) {
     for (const item of failedGateIdsRaw) {
       if (typeof item !== "string" || item.trim().length === 0) continue;
-      failedChecks.push({ id: item.trim(), status: "fail" });
+      const id = item.trim();
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      failedChecks.push({ id, status: "fail" });
     }
   }
 
   const hasFailure = gates.passed === false || failedChecks.length > 0;
   return { has_golden_chapter_gate_failure: hasFailure, failed_checks: failedChecks };
+}
+
+export function evaluateGateDecisionFromEval(args: {
+  evalRaw: unknown;
+  revision_count: number;
+  max_revisions?: number | null;
+  force_pass?: boolean;
+}): EvaluateGateDecisionFromEvalResult {
+  if (!isPlainObject(args.evalRaw)) return { ok: false, reason: "eval_invalid" };
+  const evalObj = args.evalRaw as Record<string, unknown>;
+
+  const overall =
+    typeof evalObj.overall_final === "number"
+      ? evalObj.overall_final
+      : typeof evalObj.overall === "number"
+        ? evalObj.overall
+        : null;
+  if (overall === null || !Number.isFinite(overall)) {
+    return { ok: false, reason: "eval_missing_overall" };
+  }
+
+  const maxRevisions = typeof args.max_revisions === "number" && Number.isInteger(args.max_revisions) && args.max_revisions >= 0
+    ? args.max_revisions
+    : null;
+  const violation = detectHighConfidenceViolation(evalObj);
+  const goldenGateFailure = detectGoldenChapterGateFailure(evalObj);
+  const decision = computeGateDecision({
+    overall_final: overall,
+    revision_count: args.revision_count,
+    has_high_confidence_violation: violation.has_high_confidence_violation,
+    has_golden_chapter_gate_failure: goldenGateFailure.has_golden_chapter_gate_failure,
+    ...(maxRevisions === null ? {} : { max_revisions: maxRevisions }),
+    ...(args.force_pass ? { force_pass: true } : {})
+  });
+
+  return {
+    ok: true,
+    gate: {
+      overall_final: overall,
+      decision,
+      revision_count: args.revision_count,
+      max_revisions: maxRevisions,
+      has_high_confidence_violation: violation.has_high_confidence_violation,
+      high_confidence_violations: violation.high_confidence_violations,
+      has_golden_chapter_gate_failure: goldenGateFailure.has_golden_chapter_gate_failure,
+      golden_chapter_gate_failures: goldenGateFailure.failed_checks,
+      recommendation: typeof evalObj.recommendation === "string" ? evalObj.recommendation : null
+    }
+  };
 }

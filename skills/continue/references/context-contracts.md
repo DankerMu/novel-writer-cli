@@ -59,7 +59,7 @@ chapter_writer_manifest = {
     adjacent_memories: ["storylines/{adj_id}/memory.md", ...],         # 可选
     character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取
     project_brief: "brief.md",
-    writing_methodology: "skills/novel-writing/references/style-guide.md",  # 可选
+    style_guide: "skills/novel-writing/references/style-guide.md",           # 可选
     engagement_report_latest: "logs/engagement/latest.json",                # 可选（如存在；用于读取完整报告）
     promise_ledger_report_latest: "logs/promises/latest.json",              # 可选（如存在；用于读取完整报告）
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { computeGateDecision, detectGoldenChapterGateFailure, detectHighConfidenceViolation } from "../gate-decision.js";
+import { computeGateDecision, detectGoldenChapterGateFailure, detectHighConfidenceViolation, evaluateGateDecisionFromEval } from "../gate-decision.js";
 
 test("computeGateDecision maps score bands to decisions (no violations)", () => {
   assert.equal(computeGateDecision({ overall_final: 4.0, revision_count: 0, has_high_confidence_violation: false, has_golden_chapter_gate_failure: false }), "pass");
@@ -94,15 +94,33 @@ test("detectGoldenChapterGateFailure returns false when gates are missing", () =
   });
 });
 
-test("detectGoldenChapterGateFailure detects failed checks and failed_gate_ids", () => {
+test("detectGoldenChapterGateFailure deduplicates repeated failed gate ids", () => {
   const res = detectGoldenChapterGateFailure({
     golden_chapter_gates: {
       activated: true,
       passed: false,
-      failed_gate_ids: ["protagonist_within_200_words"],
+      failed_gate_ids: ["hook_present", "protagonist_within_200_words"],
       checks: [{ id: "hook_present", status: "fail", detail: "no hook" }]
     }
   });
   assert.equal(res.has_golden_chapter_gate_failure, true);
   assert.equal(res.failed_checks.length, 2);
+  assert.deepEqual(
+    res.failed_checks.map((item) => item.id),
+    ["hook_present", "protagonist_within_200_words"]
+  );
+});
+
+test("evaluateGateDecisionFromEval rejects non-object eval payloads", () => {
+  assert.deepEqual(evaluateGateDecisionFromEval({ evalRaw: null, revision_count: 0 }), {
+    ok: false,
+    reason: "eval_invalid"
+  });
+});
+
+test("evaluateGateDecisionFromEval rejects missing overall scores", () => {
+  assert.deepEqual(evaluateGateDecisionFromEval({ evalRaw: { chapter: 1 }, revision_count: 0 }), {
+    ok: false,
+    reason: "eval_missing_overall"
+  });
 });

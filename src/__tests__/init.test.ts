@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -198,6 +198,19 @@ test("initProject skips existing template files without --force", async () => {
     // Verify content was NOT overwritten
     const content = await readFile(join(rootDir, "brief.md"), "utf8");
     assert.equal(content, "custom brief");
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("initProject rejects path collisions when a template target is a directory", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-init-dir-collision-"));
+  try {
+    await mkdir(join(rootDir, "brief.md"));
+    await assert.rejects(
+      () => initProject({ rootDir }),
+      (err: unknown) => err instanceof NovelCliError && /brief\.md.*not a file/i.test(err.message)
+    );
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

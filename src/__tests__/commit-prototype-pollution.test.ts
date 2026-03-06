@@ -31,7 +31,7 @@ test("commitChapter drops __proto__/constructor/prototype path segments to preve
     await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（测试）\n`);
     await writeText(join(rootDir, "staging/summaries/chapter-001-summary.md"), `## 第 1 章摘要\n\n- 测试事件\n`);
     await writeJson(join(rootDir, "staging/state/chapter-001-crossref.json"), { schema_version: 1, chapter: 1, entities: [] });
-    await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1 });
+    await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), { chapter: 1, overall: 4.0, recommendation: "pass" });
     await writeText(join(rootDir, "staging/storylines/main-arc/memory.md"), `- 测试记忆\n`);
 
     await writeJson(join(rootDir, "staging/state/chapter-001-delta.json"), {

@@ -13,6 +13,8 @@ async function readText(relPath: string): Promise<string> {
 test("chapter-writer prompt accepts platform writing guide", async () => {
   const prompt = await readText("agents/chapter-writer.md");
   assert.match(prompt, /paths\.platform_writing_guide/);
+  assert.match(prompt, /paths\.style_guide/);
+  assert.doesNotMatch(prompt, /paths\.writing_methodology/);
   assert.match(prompt, /平台节奏密度、对话比例、钩子、情绪回报周期与文风要求/);
 });
 

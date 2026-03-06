@@ -42,20 +42,20 @@ The `GenreWeightProfilesConfig` type in `src/scoring-weights.ts` SHALL include a
 
 #### Scenario: fanqie multiplier increases hook_strength weight share
 - **GIVEN** base weights from `plot` drive type and `platformId = "fanqie"`
-- **WHEN** `computeEffectiveScoringWeights("plot", "fanqie")` is called
+- **WHEN** `computeEffectiveScoringWeights({ genre_drive_type: "plot", platformId: "fanqie" })` is called
 - **THEN** the returned `hook_strength` weight is higher than in the base profile
 - **AND** all weights sum to 1.0
 
 #### Scenario: No platformId means no multiplier applied
 - **GIVEN** base weights from `plot` drive type and no platformId
-- **WHEN** `computeEffectiveScoringWeights("plot")` is called
+- **WHEN** `computeEffectiveScoringWeights({ genre_drive_type: "plot" })` is called
 - **THEN** the returned weights are identical to the base profile weights
 
 ### Requirement: tomato SHALL use fanqie multipliers
 When `platformId` is `"tomato"`, the system SHALL canonicalize it to `"fanqie"` before looking up platform multipliers.
 
 #### Scenario: tomato gets fanqie multipliers
-- **WHEN** `computeEffectiveScoringWeights("plot", "tomato")` is called
+- **WHEN** `computeEffectiveScoringWeights({ genre_drive_type: "plot", platformId: "tomato" })` is called
 - **THEN** the returned weights are identical to calling with `"fanqie"`
 
 ### Requirement: Missing platform_multipliers SHALL default to 1.0 for all dimensions
@@ -63,12 +63,12 @@ When the `platform_multipliers` section is absent from the config, or when a spe
 
 #### Scenario: Config without platform_multipliers
 - **GIVEN** `genre-weight-profiles.json` has no `platform_multipliers` key
-- **WHEN** `computeEffectiveScoringWeights("plot", "fanqie")` is called
+- **WHEN** `computeEffectiveScoringWeights({ genre_drive_type: "plot", platformId: "fanqie" })` is called
 - **THEN** the returned weights are identical to calling without platformId
 
 #### Scenario: Platform not listed in multipliers
 - **GIVEN** `platform_multipliers` exists but has no entry for `"qidian"`
-- **WHEN** `computeEffectiveScoringWeights("plot", "qidian")` is called
+- **WHEN** `computeEffectiveScoringWeights({ genre_drive_type: "plot", platformId: "qidian" })` is called
 - **THEN** all multipliers default to 1.0 and weights are unchanged from base
 
 ### Requirement: Judge phase SHALL pass platformId to computeEffectiveScoringWeights

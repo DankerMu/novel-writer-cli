@@ -103,7 +103,7 @@
       "properties": {
         "max_new_entities_per_chapter": { "type": "integer", "minimum": 0 },
         "max_unknown_entities_per_chapter": { "type": "integer", "minimum": 0 },
-        "max_new_terms_per_1k_words": { "type": "integer", "minimum": 0 }
+        "max_new_terms_per_1k_words": { "type": "number", "minimum": 0 }
       }
     },
     "compliance_policy": {

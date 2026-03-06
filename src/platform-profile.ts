@@ -150,12 +150,17 @@ function requireSeverityPolicy(value: unknown, file: string, field: string): Sev
 function parseWordCountPolicy(raw: unknown, file: string): WordCountPolicy {
   if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${file}: 'word_count' must be an object.`, 2);
   const obj = raw as Record<string, unknown>;
-  return {
-    target_min: requireIntField(obj, "target_min", file),
-    target_max: requireIntField(obj, "target_max", file),
-    hard_min: requireIntField(obj, "hard_min", file),
-    hard_max: requireIntField(obj, "hard_max", file)
-  };
+  const target_min = requireIntField(obj, "target_min", file);
+  const target_max = requireIntField(obj, "target_max", file);
+  const hard_min = requireIntField(obj, "hard_min", file);
+  const hard_max = requireIntField(obj, "hard_max", file);
+  if (target_min > target_max) {
+    throw new NovelCliError(`Invalid ${file}: 'word_count.target_min' must be <= 'word_count.target_max'.`, 2);
+  }
+  if (hard_min > hard_max) {
+    throw new NovelCliError(`Invalid ${file}: 'word_count.hard_min' must be <= 'word_count.hard_max'.`, 2);
+  }
+  return { target_min, target_max, hard_min, hard_max };
 }
 
 function parseInfoLoadPolicy(raw: unknown, file: string): InfoLoadPolicy {

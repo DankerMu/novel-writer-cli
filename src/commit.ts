@@ -19,6 +19,7 @@ import {
 import { NovelCliError } from "./errors.js";
 import { fingerprintsMatch, hashText } from "./fingerprint.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, removePath, writeJsonFile } from "./fs-utils.js";
+import { evaluateGateDecisionFromEval } from "./gate-decision.js";
 import {
   appendEngagementMetricRecord,
   computeEngagementMetricRecord,
@@ -70,6 +71,10 @@ export type CommitResult = {
   plan: string[];
   warnings: string[];
 };
+
+function isCommitAllowedGateDecision(decision: string): boolean {
+  return decision === "pass" || decision === "force_passed";
+}
 
 type StateFile = Record<string, unknown> & {
   schema_version: number;
@@ -556,6 +561,9 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   const volume = checkpoint.current_volume;
   const warnings: string[] = [];
   const plan: string[] = [];
+  const revisionCount = typeof checkpoint.revision_count === "number" && Number.isInteger(checkpoint.revision_count) && checkpoint.revision_count >= 0
+    ? checkpoint.revision_count
+    : 0;
 
   // Best-effort volume range resolution (for plan + optional volume-end continuity audits).
   // Never block commit on missing outline/contracts.
@@ -600,6 +608,32 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   await ensureFilePresent(args.rootDir, rel.staging.deltaJson);
   await ensureFilePresent(args.rootDir, rel.staging.crossrefJson);
   await ensureFilePresent(args.rootDir, rel.staging.evalJson);
+  const evalStagingAbs = join(args.rootDir, rel.staging.evalJson);
+
+  const gateMaxRevisions =
+    typeof loadedProfile?.profile.scoring?.max_revisions === "number" &&
+    Number.isInteger(loadedProfile.profile.scoring.max_revisions) &&
+    loadedProfile.profile.scoring.max_revisions >= 0
+      ? loadedProfile.profile.scoring.max_revisions
+      : null;
+  const commitEvalRaw = await readJsonFile(evalStagingAbs);
+  const commitGate = evaluateGateDecisionFromEval({
+    evalRaw: commitEvalRaw,
+    revision_count: revisionCount,
+    ...(gateMaxRevisions === null ? {} : { max_revisions: gateMaxRevisions })
+  });
+  if (!commitGate.ok) {
+    if (commitGate.reason === "eval_invalid") {
+      throw new NovelCliError(`Cannot commit chapter ${args.chapter}: ${rel.staging.evalJson} must be a JSON object.`, 2);
+    }
+    throw new NovelCliError(`Cannot commit chapter ${args.chapter}: ${rel.staging.evalJson} is missing a finite overall/overall_final score.`, 2);
+  }
+  if (!isCommitAllowedGateDecision(commitGate.gate.decision)) {
+    throw new NovelCliError(
+      `Cannot commit chapter ${args.chapter}: gate decision is '${commitGate.gate.decision}'. Run 'novel next' and follow the suggested revise/review step first.`,
+      2
+    );
+  }
 
   // Parse delta early to resolve storyline memory paths and state merge.
   const deltaRaw = await readJsonFile(join(args.rootDir, rel.staging.deltaJson));

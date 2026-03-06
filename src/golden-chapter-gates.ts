@@ -5,6 +5,8 @@ import { pathExists, readJsonFile } from "./fs-utils.js";
 import { CANONICAL_PLATFORM_IDS, canonicalPlatformId, type CanonicalPlatformId, type PlatformId } from "./platform-profile.js";
 import { isPlainObject } from "./type-guards.js";
 
+const VALID_THRESHOLD_OPERATORS = ["<", "<=", ">", ">=", "==", "!="] as const;
+
 export type GoldenChapterGateRule = {
   id: string;
   requirement: string;
@@ -67,9 +69,16 @@ function parseRule(raw: unknown, file: string, field: string): GoldenChapterGate
     if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
       throw new NovelCliError(`Invalid ${file}: '${field}.threshold.value' must be string|number|boolean.`, 2);
     }
+    const operator = requireString(threshold.operator, file, `${field}.threshold.operator`);
+    if (!(VALID_THRESHOLD_OPERATORS as readonly string[]).includes(operator)) {
+      throw new NovelCliError(
+        `Invalid ${file}: '${field}.threshold.operator' must be one of: ${VALID_THRESHOLD_OPERATORS.join(", ")}.`,
+        2
+      );
+    }
     out.threshold = {
       metric: requireString(threshold.metric, file, `${field}.threshold.metric`),
-      operator: requireString(threshold.operator, file, `${field}.threshold.operator`),
+      operator,
       value
     };
   }

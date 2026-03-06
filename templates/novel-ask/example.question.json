@@ -5,12 +5,13 @@
     {
       "id": "platform",
       "header": "Platform",
-      "question": "Choose your target platform.",
+      "question": "Choose your target platform. Legacy \"tomato\" remains accepted for existing projects.",
       "kind": "single_choice",
       "required": true,
       "options": [
         { "label": "qidian", "description": "Qidian / 起点中文网" },
-        { "label": "tomato", "description": "Tomato / 番茄小说" }
+        { "label": "fanqie", "description": "Fanqie / 番茄小说" },
+        { "label": "jinjiang", "description": "Jinjiang / 晋江文学城" }
       ],
       "default": "qidian"
     },

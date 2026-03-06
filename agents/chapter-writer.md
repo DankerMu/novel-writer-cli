@@ -44,7 +44,7 @@
 - `paths.adjacent_memories[]` → 相邻线/交汇线记忆
 - `paths.character_contracts[]` → 裁剪后的角色契约 JSON
 - `paths.project_brief` → 项目 brief
-- `paths.writing_methodology` → 去 AI 化方法论参考
+- `paths.style_guide` → 去 AI 化方法论参考
 - `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取以获得更完整上下文）
 - `paths.promise_ledger_report_latest` → 承诺台账窗口报告（可选；存在时读取以获得更完整上下文）
 

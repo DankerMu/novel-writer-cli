@@ -54,6 +54,20 @@ test("parsePlatformProfile accepts explicit null retention/readability/naming", 
   assert.equal(profile.naming, null);
 });
 
+test("parsePlatformProfile accepts fractional max_new_terms_per_1k_words", () => {
+  const raw = {
+    ...makeBaseRaw(),
+    info_load: {
+      max_new_entities_per_chapter: 0,
+      max_unknown_entities_per_chapter: 0,
+      max_new_terms_per_1k_words: 2.5
+    }
+  };
+
+  const profile = parsePlatformProfile(raw, "platform-profile.json");
+  assert.equal(profile.info_load.max_new_terms_per_1k_words, 2.5);
+});
+
 test("parsePlatformProfile loads extended profile with retention/readability/naming", () => {
   const raw = {
     ...makeBaseRaw(),
@@ -197,6 +211,24 @@ test("parsePlatformProfile rejects retention.title_policy min_chars > max_chars"
   assert.throws(() => parsePlatformProfile(raw, "platform-profile.json"), /min_chars.*<=.*max_chars/i);
 });
 
+test("parsePlatformProfile rejects word_count target_min > target_max", () => {
+  const raw = {
+    ...makeBaseRaw(),
+    word_count: { target_min: 3000, target_max: 2000, hard_min: 1500, hard_max: 3500 }
+  };
+
+  assert.throws(() => parsePlatformProfile(raw, "platform-profile.json"), /word_count\.target_min.*<=.*word_count\.target_max/i);
+});
+
+test("parsePlatformProfile rejects word_count hard_min > hard_max", () => {
+  const raw = {
+    ...makeBaseRaw(),
+    word_count: { target_min: 2000, target_max: 3000, hard_min: 3600, hard_max: 3500 }
+  };
+
+  assert.throws(() => parsePlatformProfile(raw, "platform-profile.json"), /word_count\.hard_min.*<=.*word_count\.hard_max/i);
+});
+
 test("parsePlatformProfile rejects retention.title_policy min_chars when float", () => {
   const raw = {
     ...makeBaseRaw(),
@@ -331,4 +363,26 @@ test("templates/platform-profile.json defaults parse as valid platform profiles"
     assert.ok(profile.readability, `expected defaults.${platform}.readability to be present`);
     assert.ok(profile.naming, `expected defaults.${platform}.naming to be present`);
   }
+});
+
+test("templates/platform-profile.json keeps fanqie and tomato shared defaults aligned", async () => {
+  const raw = JSON.parse(await readFile("templates/platform-profile.json", "utf8")) as { defaults?: Record<string, Record<string, unknown>> };
+  assert.ok(raw.defaults, "expected templates/platform-profile.json to have defaults");
+
+  const fanqie = raw.defaults?.fanqie;
+  const tomato = raw.defaults?.tomato;
+  assert.ok(fanqie && tomato, "expected fanqie and tomato defaults");
+
+  const sharedSubset = (profile: Record<string, unknown>) => ({
+    word_count: profile.word_count,
+    hook_policy: profile.hook_policy,
+    info_load: profile.info_load,
+    compliance: profile.compliance,
+    scoring: profile.scoring,
+    retention: profile.retention,
+    readability: profile.readability,
+    naming: profile.naming
+  });
+
+  assert.deepEqual(sharedSubset(fanqie), sharedSubset(tomato));
 });

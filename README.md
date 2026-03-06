@@ -50,7 +50,7 @@ node dist/cli.js --help
 
 ```bash
 mkdir my-novel && cd my-novel
-novel init                      # --platform qidian|tomato 可选
+novel init                      # --platform qidian|fanqie|jinjiang（兼容 tomato 旧别名）
 novel status
 ```
 
