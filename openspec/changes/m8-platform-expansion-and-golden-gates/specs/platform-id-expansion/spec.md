@@ -14,7 +14,7 @@ The system SHALL define `PlatformId` as a union type accepting exactly four valu
 - **THEN** the enum contains exactly `["qidian", "tomato", "fanqie", "jinjiang"]`
 
 ### Requirement: canonicalPlatformId SHALL map tomato to fanqie
-The system SHALL provide a `canonicalPlatformId(id: PlatformId): PlatformId` function that maps `"tomato"` to `"fanqie"` and returns all other IDs unchanged.
+The system SHALL provide a `canonicalPlatformId(id: PlatformId): CanonicalPlatformId` function that maps `"tomato"` to `"fanqie"` and returns all other IDs unchanged.
 
 #### Scenario: tomato is normalized to fanqie
 - **WHEN** `canonicalPlatformId("tomato")` is called

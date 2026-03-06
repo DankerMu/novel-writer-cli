@@ -41,6 +41,9 @@ continue 特有规则：
 
 - 遇到 `commit --chapter X` 且执行成功：`committed_chapters += 1`
 - commit 完成后可运行 `${NOVEL} next --json` 确认下一步（或直接进入下一轮 loop）
+- 对写作类 packet（尤其 `chapter:*:draft` / `quickstart:trial`），若 `packet.manifest.paths.platform_writing_guide` 存在，按原样传给 `chapter-writer`
+- 对评分类 packet（尤其 `chapter:*:judge` / `quickstart:results`），若 `chapter <= 3` 且项目存在 `golden-chapter-gates.json`，CLI 生成的 packet 可能包含 `packet.manifest.inline.golden_chapter_gates`；不要在 skill 层重算或改写
+- 若 QualityJudge 因黄金三章硬门失败而返回相关字段，后续 `novel next --json` 会把它当成强制修订/人工复核信号处理；skill 只按 CLI 给出的下一步继续
 
 ### 退出条件
 

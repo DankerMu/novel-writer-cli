@@ -99,7 +99,7 @@ function buildProgram(argv: string[]): Command {
     .description("Initialize a new novel project directory (.checkpoint.json + staging/** + optional templates).")
     .option("--force", "Overwrite existing files when present.")
     .option("--minimal", "Only create .checkpoint.json + staging/** (skip templates).")
-    .option("--platform <id>", "Also write platform-profile.json (+ genre-weight-profiles.json). Supported: qidian|tomato.")
+    .option("--platform <id>", "Also write platform-profile.json (+ genre-weight-profiles.json). Supported: qidian|tomato|fanqie|jinjiang.")
     .action(async (localOpts: { force?: boolean; minimal?: boolean; platform?: string }) => {
       const opts = program.opts<GlobalOpts>();
       const json = Boolean(opts.json);
@@ -123,6 +123,7 @@ function buildProgram(argv: string[]): Command {
       for (const p of result.created) process.stdout.write(`CREATE ${p}\n`);
       for (const p of result.overwritten) process.stdout.write(`OVERWRITE ${p}\n`);
       for (const p of result.skipped) process.stdout.write(`SKIP ${p}\n`);
+      for (const warning of result.warnings) process.stdout.write(`WARN ${warning}\n`);
       process.stdout.write(`Next: novel next\n`);
     });
 

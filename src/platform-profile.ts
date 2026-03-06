@@ -4,7 +4,10 @@ import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile } from "./fs-utils.js";
 import { isPlainObject } from "./type-guards.js";
 
-export type PlatformId = "qidian" | "tomato";
+export const PLATFORM_IDS = ["qidian", "tomato", "fanqie", "jinjiang"] as const;
+export type PlatformId = (typeof PLATFORM_IDS)[number];
+export const CANONICAL_PLATFORM_IDS = ["qidian", "fanqie", "jinjiang"] as const;
+export type CanonicalPlatformId = (typeof CANONICAL_PLATFORM_IDS)[number];
 export type SeverityPolicy = "warn" | "soft" | "hard";
 
 export type WordCountPolicy = {
@@ -130,8 +133,13 @@ function requireStringField(obj: Record<string, unknown>, field: string, file: s
 }
 
 function requirePlatformId(value: unknown, file: string): PlatformId {
-  if (value === "qidian" || value === "tomato") return value;
-  throw new NovelCliError(`Invalid ${file}: 'platform' must be one of: qidian, tomato.`, 2);
+  if (value === "qidian" || value === "tomato" || value === "fanqie" || value === "jinjiang") return value;
+  throw new NovelCliError(`Invalid ${file}: 'platform' must be one of: ${PLATFORM_IDS.join(", ")}.`, 2);
+}
+
+export function canonicalPlatformId(id: PlatformId): CanonicalPlatformId {
+  if (id === "tomato") return "fanqie";
+  return id;
 }
 
 function requireSeverityPolicy(value: unknown, file: string, field: string): SeverityPolicy {
@@ -142,12 +150,17 @@ function requireSeverityPolicy(value: unknown, file: string, field: string): Sev
 function parseWordCountPolicy(raw: unknown, file: string): WordCountPolicy {
   if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${file}: 'word_count' must be an object.`, 2);
   const obj = raw as Record<string, unknown>;
-  return {
-    target_min: requireIntField(obj, "target_min", file),
-    target_max: requireIntField(obj, "target_max", file),
-    hard_min: requireIntField(obj, "hard_min", file),
-    hard_max: requireIntField(obj, "hard_max", file)
-  };
+  const target_min = requireIntField(obj, "target_min", file);
+  const target_max = requireIntField(obj, "target_max", file);
+  const hard_min = requireIntField(obj, "hard_min", file);
+  const hard_max = requireIntField(obj, "hard_max", file);
+  if (target_min > target_max) {
+    throw new NovelCliError(`Invalid ${file}: 'word_count.target_min' must be <= 'word_count.target_max'.`, 2);
+  }
+  if (hard_min > hard_max) {
+    throw new NovelCliError(`Invalid ${file}: 'word_count.hard_min' must be <= 'word_count.hard_max'.`, 2);
+  }
+  return { target_min, target_max, hard_min, hard_max };
 }
 
 function parseInfoLoadPolicy(raw: unknown, file: string): InfoLoadPolicy {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,8 @@ test("resolveInitRootDir rejects path traversal", () => {
 test("normalizePlatformId accepts valid values", () => {
   assert.equal(normalizePlatformId("qidian"), "qidian");
   assert.equal(normalizePlatformId("tomato"), "tomato");
+  assert.equal(normalizePlatformId("fanqie"), "fanqie");
+  assert.equal(normalizePlatformId("jinjiang"), "jinjiang");
 });
 
 test("normalizePlatformId rejects invalid values", () => {
@@ -80,7 +82,7 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     const result = await initProject({ rootDir });
     assert.equal(result.rootDir, rootDir);
 
-    // Exact created set (non-minimal = checkpoint + 4 templates)
+    // Exact created set (non-minimal = checkpoint + 4 base templates)
     assert.deepEqual(
       result.created.sort(),
       [".checkpoint.json", "ai-blacklist.json", "brief.md", "style-profile.json", "web-novel-cliche-lint.json"].sort()
@@ -131,6 +133,7 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     for (const relFile of ["brief.md", "style-profile.json", "ai-blacklist.json", "web-novel-cliche-lint.json"]) {
       await assertFile(join(rootDir, relFile));
     }
+    assert.equal(await statExists(join(rootDir, "golden-chapter-gates.json")), false);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -200,6 +203,19 @@ test("initProject skips existing template files without --force", async () => {
   }
 });
 
+test("initProject rejects path collisions when a template target is a directory", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-init-dir-collision-"));
+  try {
+    await mkdir(join(rootDir, "brief.md"));
+    await assert.rejects(
+      () => initProject({ rootDir }),
+      (err: unknown) => err instanceof NovelCliError && /brief\.md.*not a file/i.test(err.message)
+    );
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("initProject overwrites template files with --force", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-init-force-tpl-"));
   try {
@@ -222,15 +238,24 @@ test("initProject overwrites template files with --force", async () => {
 test("initProject writes platform-profile.json + genre-weight-profiles.json for --platform tomato", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-init-platform-tomato-"));
   try {
-    const result = await initProject({ rootDir, minimal: true, platform: "tomato" });
+    const result = await initProject({ rootDir, platform: "tomato" });
     assert.ok(result.created.includes("platform-profile.json"));
     assert.ok(result.created.includes("genre-weight-profiles.json"));
+    assert.ok(result.created.includes("platform-writing-guide.md"));
+    assert.ok(result.created.includes("style-profile.json"));
+    assert.ok(result.created.includes("golden-chapter-gates.json"));
 
     const raw = await readJson(join(rootDir, "platform-profile.json"));
     const profile = parsePlatformProfile(raw, "platform-profile.json");
     assert.equal(profile.platform, "tomato");
     assert.ok(typeof profile.created_at === "string" && profile.created_at.length > 0);
     assert.ok(typeof profile.schema_version === "number");
+
+    const styleProfileRaw = await readJson(join(rootDir, "style-profile.json"));
+    assert.equal((styleProfileRaw as Record<string, unknown>).platform, "tomato");
+
+    const guide = await readFile(join(rootDir, "platform-writing-guide.md"), "utf8");
+    assert.match(guide, /番茄平台写作指南/);
 
     // genre-weight-profiles.json should be a valid JSON object
     const genreRaw = await readJson(join(rootDir, "genre-weight-profiles.json"));
@@ -248,13 +273,45 @@ test("initProject writes platform-profile.json for --platform qidian", async () 
     const result = await initProject({ rootDir, minimal: true, platform: "qidian" });
     assert.ok(result.created.includes("platform-profile.json"));
     assert.ok(result.created.includes("genre-weight-profiles.json"));
+    assert.ok(result.created.includes("golden-chapter-gates.json"));
 
     const raw = await readJson(join(rootDir, "platform-profile.json"));
     const profile = parsePlatformProfile(raw, "platform-profile.json");
     assert.equal(profile.platform, "qidian");
     assert.ok(typeof profile.created_at === "string" && profile.created_at.length > 0);
+    await assertFile(join(rootDir, "golden-chapter-gates.json"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("initProject writes fanqie and jinjiang platform artifacts with populated style profile", async () => {
+  const fanqieRoot = await mkdtemp(join(tmpdir(), "novel-init-platform-fanqie-"));
+  const jinjiangRoot = await mkdtemp(join(tmpdir(), "novel-init-platform-jinjiang-"));
+  try {
+    await initProject({ rootDir: fanqieRoot, platform: "fanqie" });
+    await initProject({ rootDir: jinjiangRoot, platform: "jinjiang" });
+
+    const fanqieStyle = await readJson(join(fanqieRoot, "style-profile.json"));
+    const jinjiangStyle = await readJson(join(jinjiangRoot, "style-profile.json"));
+    assert.equal((fanqieStyle as Record<string, unknown>).platform, "fanqie");
+    assert.equal((jinjiangStyle as Record<string, unknown>).platform, "jinjiang");
+
+    const fanqieProfile = parsePlatformProfile(await readJson(join(fanqieRoot, "platform-profile.json")), "platform-profile.json");
+    const jinjiangProfile = parsePlatformProfile(await readJson(join(jinjiangRoot, "platform-profile.json")), "platform-profile.json");
+    assert.equal(fanqieProfile.platform, "fanqie");
+    assert.equal(jinjiangProfile.platform, "jinjiang");
+    assert.equal(jinjiangProfile.word_count.target_min, 2000);
+    assert.equal(jinjiangProfile.word_count.target_max, 3000);
+    assert.equal(jinjiangProfile.scoring?.genre_drive_type, "character");
+
+    const fanqieGuide = await readFile(join(fanqieRoot, "platform-writing-guide.md"), "utf8");
+    const jinjiangGuide = await readFile(join(jinjiangRoot, "platform-writing-guide.md"), "utf8");
+    assert.match(fanqieGuide, /番茄平台写作指南/);
+    assert.match(jinjiangGuide, /晋江平台写作指南/);
+  } finally {
+    await rm(fanqieRoot, { recursive: true, force: true });
+    await rm(jinjiangRoot, { recursive: true, force: true });
   }
 });
 
@@ -273,6 +330,7 @@ test("initProject minimal mode skips templates", async () => {
     assert.equal(await statExists(join(rootDir, "brief.md")), false);
     assert.equal(await statExists(join(rootDir, "style-profile.json")), false);
     assert.equal(await statExists(join(rootDir, "ai-blacklist.json")), false);
+    assert.equal(await statExists(join(rootDir, "golden-chapter-gates.json")), false);
     assert.equal(await statExists(join(rootDir, "web-novel-cliche-lint.json")), false);
   } finally {
     await rm(rootDir, { recursive: true, force: true });

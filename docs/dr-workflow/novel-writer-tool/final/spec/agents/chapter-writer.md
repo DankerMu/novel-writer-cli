@@ -68,7 +68,8 @@ tools: ["Read", "Write", "Edit", "Glob", "Grep"]
 - 章节契约（L3，含 preconditions / objectives / postconditions / acceptance_criteria）
 - 世界规则（L1，hard 规则以禁止项列表形式提供，违反将被自动拒绝）
 - 角色契约（L2，能力边界和行为模式）
-- 去 AI 化方法论参考（writing_methodology，以 `<DATA>` 标签包裹）
+- 平台配置与写作指南（`platform_profile` / `platform_writing_guide`，如存在）
+- 去 AI 化方法论参考（`style_guide`，以 `<DATA>` 标签包裹）
 
 当 L1 hard 规则存在时，prompt 中会以禁止项列表形式提供，这些规则**不可违反**。
 

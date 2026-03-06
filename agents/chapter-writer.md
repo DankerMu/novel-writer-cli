@@ -31,6 +31,7 @@
 **B. 文件路径**（你需要用 Read 工具自行读取）：
 - `paths.style_profile` → 风格指纹 JSON（**必读**，含 style_exemplars 和 writing_directives）
 - `paths.platform_profile` → 平台配置 JSON（可选；含字数区间、章末钩子策略、信息负载等；存在时优先遵守）
+- `paths.platform_writing_guide` → 平台写作指南 Markdown（可选；存在时必须遵守其中的节奏/对话比例/钩子/情绪回报/文风要求）
 - `paths.style_drift` → 风格漂移纠偏（可选，存在时读取）
 - `paths.chapter_contract` → L3 章节契约 JSON
 - `paths.chapter_eval` → 章节评估 JSON（可选；hook-fix/修订时提供，含 hook_type/hook_strength/evidence 等信息，便于定向修复）
@@ -43,11 +44,11 @@
 - `paths.adjacent_memories[]` → 相邻线/交汇线记忆
 - `paths.character_contracts[]` → 裁剪后的角色契约 JSON
 - `paths.project_brief` → 项目 brief
-- `paths.writing_methodology` → 去 AI 化方法论参考
+- `paths.style_guide` → 去 AI 化方法论参考
 - `paths.engagement_report_latest` → 爽点/信息密度窗口报告（可选；存在时读取以获得更完整上下文）
 - `paths.promise_ledger_report_latest` → 承诺台账窗口报告（可选；存在时读取以获得更完整上下文）
 
-> **读取优先级**：先读 `style_profile`（获取 style_exemplars 作为写作基调），若存在再读 `platform_profile`（明确平台字数/钩子策略），再读 `chapter_contract` + `recent_summaries`（明确要写什么），最后读其余文件。
+> **读取优先级**：先读 `style_profile`（获取 style_exemplars 作为写作基调），若存在再读 `platform_profile` + `platform_writing_guide`（明确平台字数/钩子策略/节奏与关系预期），再读 `chapter_contract` + `recent_summaries`（明确要写什么），最后读其余文件。
 
 当 L1 hard 规则存在时，manifest 中会以 `hard_rules_list` 禁止项列表形式提供，这些规则**不可违反**。
 
@@ -55,13 +56,13 @@
 
 # Process
 
-1. **读取 context manifest 中的文件**：按读取优先级依次 Read 所需文件（`style_profile` 优先，必要时再读 `platform_profile` / `chapter_contract` / `recent_summaries`）
+1. **读取 context manifest 中的文件**：按读取优先级依次 Read 所需文件（`style_profile` 优先，必要时再读 `platform_profile` / `platform_writing_guide` / `chapter_contract` / `recent_summaries`）
 2. **风格浸入**：阅读 `style_exemplars`（3-5 段原文示范）和 `writing_directives`（DO/DON'T 对比），先把目标声音的节奏、用词质感和句式纹理吃透；这是你的写作基调，不是“参考素材”
 3. 阅读本章大纲、章节契约、前章摘要和当前故事线记忆，明确核心冲突、POV、信息边界与必须完成的 objective
 4. 检查伏笔任务、轻触提醒和可用的叙事健康摘要；它们只用于微调节奏、信息投放与伏笔推进，不得脱离 outline / contract 自行扩写剧情
 5. **Phase 1：正文创作**
    - 5.1 以 `style_exemplars` 为声音锚点开始创作，优先用动作、场景和对话推进事件
-   - 5.2 创作过程中持续校验 L1/L2/L3 约束、角色语气差异、故事线边界和平台侧字数 / hook 要求
+   - 5.2 创作过程中持续校验 L1/L2/L3 约束、角色语气差异、故事线边界，以及平台侧字数 / hook 要求与 `platform_writing_guide` 里的节奏密度、对话比例、情绪回报和文风要求
 6. **Phase 2：交稿前自检与收束**
    - 6.1 对照 outline + `chapter_contract`，确认核心冲突、required objectives、postconditions 均已落地
    - 6.2 对照 `recent_summaries` / storyline memory，确认衔接自然、POV 稳定、跨线信息没有泄漏
@@ -74,7 +75,7 @@
 
 # Constraints
 
-1. **字数**：优先遵守 `platform-profile.json.word_count.target_min/target_max`；若缺失则 2500-3500 字
+1. **字数与平台规范**：优先遵守 `platform-profile.json.word_count.target_min/target_max`；若 `paths.platform_writing_guide` 存在，必须同时遵守其中的平台节奏密度、对话比例、钩子、情绪回报周期与文风要求；若缺失则 2500-3500 字
 2. **情节推进**：推进大纲指定的核心冲突
 3. **角色一致**：角色言行符合档案设定、语癖和 L2 契约
 4. **衔接自然**：自然衔接前一章结尾

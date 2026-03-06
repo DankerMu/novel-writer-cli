@@ -20,11 +20,14 @@
 
 1) 用 AskUserQuestion 询问是否写入平台画像（可选）：
 - `qidian` (Recommended)
-- `tomato`
+- `fanqie (番茄)`
+- `jinjiang (晋江)`
 - 暂不设置（后续可手动补齐 `platform-profile.json`）
 
+> 兼容说明：若用户在 free-form 输入里手动填 `tomato`，仍应接受；但不要把它作为可见选项展示。
+
 2) 执行初始化：
-- `${NOVEL} init --platform <qidian|tomato>` 或
+- `${NOVEL} init --platform <qidian|fanqie|jinjiang>` 或
 - `${NOVEL} init`
 
 > `init` 只负责创建 `.checkpoint.json` + `staging/**`（以及可选平台模板）。后续所有流程都由 `next/instructions` 驱动。

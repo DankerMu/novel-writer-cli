@@ -59,7 +59,7 @@ node dist/cli.js --help
 
 ```bash
 mkdir my-novel && cd my-novel
-novel init --platform tomato
+novel init --platform fanqie
 ```
 
 默认会：
@@ -67,17 +67,18 @@ novel init --platform tomato
 - 写入 `.checkpoint.json`
 - 创建 `staging/**` 必要目录
 - 写入若干模板文件（如 `brief.md`、`style-profile.json`、`ai-blacklist.json`、`web-novel-cliche-lint.json`）
+- 若指定 `--platform`，额外写入 `platform-profile.json`、`genre-weight-profiles.json`、`golden-chapter-gates.json`、`platform-writing-guide.md`
 
 常用选项：
 
 - `--minimal`：只创建 `.checkpoint.json` + `staging/**`（跳过模板文件）
 - `--force`：覆盖已有文件（谨慎使用）
-- `--platform qidian|tomato`：写入 `platform-profile.json`，并同时写入 `genre-weight-profiles.json`（用于 QualityJudge 动态权重）
+- `--platform qidian|fanqie|jinjiang`：写入 `platform-profile.json`，并同时写入 `genre-weight-profiles.json`、`golden-chapter-gates.json` 与 `platform-writing-guide.md`（兼容旧别名 `tomato`）
 
 也可指定目标目录（会在目录不存在时创建）：
 
 ```bash
-novel init --project ./my-novel --platform tomato
+novel init --project ./my-novel --platform fanqie
 ```
 
 ## 最短路径：跑通“一章的确定性编排”

@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "description": "黄金三章平台硬门控模板：仅适用于 chapter 1-3；平台查找使用 canonical platform id。",
+  "platforms": {
+    "fanqie": {
+      "chapters": {
+        "1": {
+          "gates": [
+            {
+              "id": "protagonist_within_200_words",
+              "requirement": "主角必须在前 200 字内出场（行动、台词或明确 POV 均可）。",
+              "evaluation_hint": "若前 200 字内只有背景铺陈或旁白，没有主角存在感，则判 fail。",
+              "threshold": { "metric": "protagonist_first_appearance_word_index", "operator": "<=", "value": 200 }
+            },
+            {
+              "id": "conflict_present",
+              "requirement": "本章必须至少出现 1 个明确冲突点（危机、对抗、目标受阻三者之一）。",
+              "evaluation_hint": "若整章只有信息介绍或氛围铺陈，没有显性阻力或冲突推进，则判 fail。"
+            },
+            {
+              "id": "hook_present",
+              "requirement": "章末必须有明确钩子，不能以平铺收尾。",
+              "evaluation_hint": "若结尾为总结、回望或纯收束，没有未解问题/威胁/反转/下一目标承诺，则判 fail."
+            },
+            {
+              "id": "excitement_type_allowed",
+              "requirement": "爽点类型需落在 reversal / face_slap / power_up 之一。",
+              "evaluation_hint": "结合章节主冲突与高潮段，判断核心爽点类型是否匹配番茄偏好。",
+              "allowed_values": ["reversal", "face_slap", "power_up"]
+            }
+          ],
+          "notes": ["优先快起冲突、快给反馈，设置描写要嵌在行动里。"]
+        },
+        "2": {
+          "gates": [
+            {
+              "id": "conflict_present",
+              "requirement": "本章必须至少出现 1 个明确冲突点（危机、对抗、目标受阻三者之一）。",
+              "evaluation_hint": "若整章只有信息介绍或氛围铺陈，没有显性阻力或冲突推进，则判 fail。"
+            },
+            {
+              "id": "hook_present",
+              "requirement": "章末必须有明确钩子，不能以平铺收尾。",
+              "evaluation_hint": "若结尾为总结、回望或纯收束，没有未解问题/威胁/反转/下一目标承诺，则判 fail."
+            },
+            {
+              "id": "excitement_type_allowed",
+              "requirement": "爽点类型需落在 reversal / face_slap / power_up 之一。",
+              "evaluation_hint": "结合章节主冲突与高潮段，判断核心爽点类型是否匹配番茄偏好。",
+              "allowed_values": ["reversal", "face_slap", "power_up"]
+            }
+          ],
+          "notes": ["第二章要拉高追读预期，避免单纯补设定。"]
+        },
+        "3": {
+          "gates": [
+            {
+              "id": "conflict_present",
+              "requirement": "本章必须至少出现 1 个明确冲突点（危机、对抗、目标受阻三者之一）。",
+              "evaluation_hint": "若整章只有信息介绍或氛围铺陈，没有显性阻力或冲突推进，则判 fail。"
+            },
+            {
+              "id": "hook_present",
+              "requirement": "章末必须有明确钩子，不能以平铺收尾。",
+              "evaluation_hint": "若结尾为总结、回望或纯收束，没有未解问题/威胁/反转/下一目标承诺，则判 fail."
+            },
+            {
+              "id": "excitement_type_allowed",
+              "requirement": "爽点类型需落在 reversal / face_slap / power_up 之一。",
+              "evaluation_hint": "结合章节主冲突与高潮段，判断核心爽点类型是否匹配番茄偏好。",
+              "allowed_values": ["reversal", "face_slap", "power_up"]
+            }
+          ],
+          "notes": ["第三章要把留存预期打牢，至少形成一个清晰的短期爽点承诺。"]
+        }
+      }
+    },
+    "qidian": {
+      "chapters": {
+        "1": {
+          "gates": [
+            {
+              "id": "system_or_world_present",
+              "requirement": "系统线索或世界观关键差异必须被建立。",
+              "evaluation_hint": "若第一章仍无法判断核心设定、世界规则或系统入口，判 fail。"
+            },
+            {
+              "id": "immersion_min_score",
+              "requirement": "immersion 评分必须 >= 3.5。",
+              "evaluation_hint": "若画面、氛围、世界规则体验感不足，且难以形成代入，则判 fail。",
+              "threshold": { "metric": "scores.immersion.score", "operator": ">=", "value": 3.5 }
+            }
+          ],
+          "notes": ["开篇允许较多设定，但必须服务于代入与悬念。"]
+        },
+        "2": {
+          "gates": [
+            {
+              "id": "system_or_world_present",
+              "requirement": "系统线索或世界观关键差异必须持续推进。",
+              "evaluation_hint": "若第二章对核心设定没有新增抓手，判 fail。"
+            },
+            {
+              "id": "immersion_min_score",
+              "requirement": "immersion 评分必须 >= 3.5。",
+              "evaluation_hint": "若画面、氛围、世界规则体验感不足，且难以形成代入，则判 fail。",
+              "threshold": { "metric": "scores.immersion.score", "operator": ">=", "value": 3.5 }
+            }
+          ],
+          "notes": ["第二章继续加深世界可信度，而不是只讲概念。"]
+        },
+        "3": {
+          "gates": [
+            {
+              "id": "system_or_world_present",
+              "requirement": "系统线索或世界观关键差异必须持续推进。",
+              "evaluation_hint": "若第三章后读者仍抓不到作品的独特规则，判 fail。"
+            },
+            {
+              "id": "immersion_min_score",
+              "requirement": "immersion 评分必须 >= 3.5。",
+              "evaluation_hint": "若画面、氛围、世界规则体验感不足，且难以形成代入，则判 fail。",
+              "threshold": { "metric": "scores.immersion.score", "operator": ">=", "value": 3.5 }
+            }
+          ],
+          "notes": ["第三章要让读者对世界与主线有继续探索的动力。"]
+        }
+      }
+    },
+    "jinjiang": {
+      "chapters": {
+        "1": {
+          "gates": [
+            {
+              "id": "personality_through_behavior",
+              "requirement": "主要角色个性必须通过动作、对话、反应体现，不能只靠旁白直述。",
+              "evaluation_hint": "若个性结论只存在于解说句，没有行为证据支撑，则判 fail。"
+            },
+            {
+              "id": "cp_appears",
+              "requirement": "CP（主感情对手或核心关系对象）必须在前三章早期出现，本章优先建立存在感。",
+              "evaluation_hint": "若第一章完全没有 CP 本人、名字、互动或强关联线索，则判 fail。"
+            },
+            {
+              "id": "emotional_tone_established",
+              "requirement": "情感基调必须清晰建立（拉扯、暧昧、压迫、治愈等至少一种）。",
+              "evaluation_hint": "若读者无法感知情感走向，只剩事件流水账，则判 fail。"
+            },
+            {
+              "id": "style_naturalness_min_score",
+              "requirement": "style_naturalness 评分必须 >= 3.5。",
+              "evaluation_hint": "若文风生硬、腔调重、人物情绪不贴身，则判 fail。",
+              "threshold": { "metric": "scores.style_naturalness.score", "operator": ">=", "value": 3.5 }
+            }
+          ],
+          "notes": ["晋江开篇重人物化学反应与情绪落点，不要把吸引力全押在外部设定。"]
+        },
+        "2": {
+          "gates": [
+            {
+              "id": "personality_through_behavior",
+              "requirement": "主要角色个性必须通过动作、对话、反应体现，不能只靠旁白直述。",
+              "evaluation_hint": "若个性结论只存在于解说句，没有行为证据支撑，则判 fail。"
+            },
+            {
+              "id": "cp_appears",
+              "requirement": "CP 必须在第二章前后形成可感知互动或强关联线索。",
+              "evaluation_hint": "若第二章仍没有 CP 本人、互动或强关系推进，则判 fail。"
+            },
+            {
+              "id": "emotional_tone_established",
+              "requirement": "情感基调必须清晰建立（拉扯、暧昧、压迫、治愈等至少一种）。",
+              "evaluation_hint": "若读者无法感知情感走向，只剩事件流水账，则判 fail。"
+            },
+            {
+              "id": "style_naturalness_min_score",
+              "requirement": "style_naturalness 评分必须 >= 3.5。",
+              "evaluation_hint": "若文风生硬、腔调重、人物情绪不贴身，则判 fail。",
+              "threshold": { "metric": "scores.style_naturalness.score", "operator": ">=", "value": 3.5 }
+            }
+          ],
+          "notes": ["第二章要让关系张力继续升温，而不是只做剧情搬运。"]
+        },
+        "3": {
+          "gates": [
+            {
+              "id": "personality_through_behavior",
+              "requirement": "主要角色个性必须通过动作、对话、反应体现，不能只靠旁白直述。",
+              "evaluation_hint": "若个性结论只存在于解说句，没有行为证据支撑，则判 fail。"
+            },
+            {
+              "id": "cp_appears",
+              "requirement": "CP 必须在第三章前建立稳定存在感。",
+              "evaluation_hint": "若第三章后感情主轴仍无明确关系对象或对象存在感极弱，则判 fail。"
+            },
+            {
+              "id": "emotional_tone_established",
+              "requirement": "情感基调必须清晰建立（拉扯、暧昧、压迫、治愈等至少一种）。",
+              "evaluation_hint": "若读者无法感知情感走向，只剩事件流水账，则判 fail。"
+            },
+            {
+              "id": "style_naturalness_min_score",
+              "requirement": "style_naturalness 评分必须 >= 3.5。",
+              "evaluation_hint": "若文风生硬、腔调重、人物情绪不贴身，则判 fail。",
+              "threshold": { "metric": "scores.style_naturalness.score", "operator": ">=", "value": 3.5 }
+            }
+          ],
+          "notes": ["第三章要让关系方向和情绪回报预期都站住。"]
+        }
+      }
+    }
+  },
+  "invalid_combinations": [
+    {
+      "genre": "slow_burn_literary",
+      "platform": "fanqie",
+      "warning": "番茄对慢热纯文学开篇容忍度较低，需尽快补足冲突与爽点反馈。"
+    },
+    {
+      "genre": "male_power_fantasy",
+      "platform": "jinjiang",
+      "warning": "晋江对单线男性爽文天然不占优势，建议提前明确关系张力与情绪卖点。"
+    },
+    {
+      "genre": "pure_romance_slice_of_life",
+      "platform": "qidian",
+      "warning": "起点对纯日常恋爱开篇要求更强的世界差异点或主线承诺，需防止留存不足。"
+    }
+  ]
+}

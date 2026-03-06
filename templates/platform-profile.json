@@ -74,6 +74,76 @@
       },
       "_comment_naming": "Naming conflict lint (M7): enabled; only exact duplicates are configured as blocking by default."
     },
+    "fanqie": {
+      "$schema": "schemas/platform-profile.schema.json",
+      "schema_version": 1,
+      "platform": "fanqie",
+      "created_at": "2026-02-27T00:00:00Z",
+      "_comment_created_at": "Init SHOULD overwrite this with the actual creation timestamp.",
+      "word_count": {
+        "target_min": 1500,
+        "target_max": 2500,
+        "hard_min": 1000,
+        "hard_max": 3500
+      },
+      "hook_policy": {
+        "required": true,
+        "min_strength": 3,
+        "allowed_types": ["question", "threat_reveal", "twist_reveal", "emotional_cliff", "next_objective"],
+        "fix_strategy": "hook-fix"
+      },
+      "info_load": {
+        "max_new_entities_per_chapter": 5,
+        "max_unknown_entities_per_chapter": 3,
+        "max_new_terms_per_1k_words": 5
+      },
+      "compliance": {
+        "banned_words": [],
+        "duplicate_name_policy": "soft",
+        "script_paths": {
+          "lint_blacklist": "scripts/lint-blacklist.sh",
+          "lint_cliche": "scripts/lint-cliche.sh"
+        }
+      },
+      "scoring": {
+        "genre_drive_type": "plot",
+        "weight_profile_id": "plot:v1"
+      },
+      "retention": {
+        "title_policy": {
+          "enabled": true,
+          "min_chars": 2,
+          "max_chars": 30,
+          "forbidden_patterns": ["^\\s*$", "^(?:无题|未命名|待定)$"],
+          "auto_fix": false
+        },
+        "hook_ledger": {
+          "enabled": true,
+          "fulfillment_window_chapters": 10,
+          "diversity_window_chapters": 5,
+          "max_same_type_streak": 2,
+          "min_distinct_types_in_window": 2,
+          "overdue_policy": "warn"
+        }
+      },
+      "_comment_retention": "Retention guardrails (M7): fanqie keeps the shorter-window mobile-reading defaults used by the legacy tomato profile.",
+      "readability": {
+        "mobile": {
+          "enabled": true,
+          "max_paragraph_chars": 300,
+          "max_consecutive_exposition_paragraphs": 3,
+          "blocking_severity": "hard_only"
+        }
+      },
+      "_comment_readability": "Mobile readability lint (M7): enabled, but only hard issues are allowed to block when implemented.",
+      "naming": {
+        "enabled": true,
+        "near_duplicate_threshold": 0.88,
+        "blocking_conflict_types": ["duplicate"],
+        "exemptions": {}
+      },
+      "_comment_naming": "Naming conflict lint (M7): enabled; only exact duplicates are configured as blocking by default."
+    },
     "tomato": {
       "$schema": "schemas/platform-profile.schema.json",
       "schema_version": 1,
@@ -126,11 +196,81 @@
           "overdue_policy": "warn"
         }
       },
-      "_comment_retention": "Retention guardrails (M7): tomato tends to favor shorter windows; defaults are enabled; enforcement/blocking is implemented in later pipeline steps (hook_ledger.overdue_policy defaults to warn).",
+      "_comment_retention": "Retention guardrails (M7): legacy tomato profile remains for backward compatibility; canonical internal behavior maps to fanqie.",
       "readability": {
         "mobile": {
           "enabled": true,
           "max_paragraph_chars": 300,
+          "max_consecutive_exposition_paragraphs": 3,
+          "blocking_severity": "hard_only"
+        }
+      },
+      "_comment_readability": "Mobile readability lint (M7): enabled, but only hard issues are allowed to block when implemented.",
+      "naming": {
+        "enabled": true,
+        "near_duplicate_threshold": 0.88,
+        "blocking_conflict_types": ["duplicate"],
+        "exemptions": {}
+      },
+      "_comment_naming": "Naming conflict lint (M7): enabled; only exact duplicates are configured as blocking by default."
+    },
+    "jinjiang": {
+      "$schema": "schemas/platform-profile.schema.json",
+      "schema_version": 1,
+      "platform": "jinjiang",
+      "created_at": "2026-02-27T00:00:00Z",
+      "_comment_created_at": "Init SHOULD overwrite this with the actual creation timestamp.",
+      "word_count": {
+        "target_min": 2000,
+        "target_max": 3000,
+        "hard_min": 1500,
+        "hard_max": 3800
+      },
+      "hook_policy": {
+        "required": true,
+        "min_strength": 3,
+        "allowed_types": ["emotional_cliff", "question", "next_objective"],
+        "fix_strategy": "hook-fix"
+      },
+      "info_load": {
+        "max_new_entities_per_chapter": 4,
+        "max_unknown_entities_per_chapter": 2,
+        "max_new_terms_per_1k_words": 4
+      },
+      "compliance": {
+        "banned_words": [],
+        "duplicate_name_policy": "soft",
+        "script_paths": {
+          "lint_blacklist": "scripts/lint-blacklist.sh",
+          "lint_cliche": "scripts/lint-cliche.sh"
+        }
+      },
+      "scoring": {
+        "genre_drive_type": "character",
+        "weight_profile_id": "character:v1"
+      },
+      "retention": {
+        "title_policy": {
+          "enabled": true,
+          "min_chars": 2,
+          "max_chars": 28,
+          "forbidden_patterns": ["^\\s*$", "^(?:无题|未命名|待定)$"],
+          "auto_fix": false
+        },
+        "hook_ledger": {
+          "enabled": true,
+          "fulfillment_window_chapters": 8,
+          "diversity_window_chapters": 5,
+          "max_same_type_streak": 2,
+          "min_distinct_types_in_window": 2,
+          "overdue_policy": "warn"
+        }
+      },
+      "_comment_retention": "Retention guardrails (M7): jinjiang defaults bias toward shorter emotional payoff windows and subtler hook variety.",
+      "readability": {
+        "mobile": {
+          "enabled": true,
+          "max_paragraph_chars": 340,
           "max_consecutive_exposition_paragraphs": 3,
           "blocking_severity": "hard_only"
         }

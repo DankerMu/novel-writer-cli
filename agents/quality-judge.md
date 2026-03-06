@@ -21,6 +21,7 @@
 - blacklist_lint（可选，scripts/lint-blacklist.sh 精确统计 JSON）
 - ner_entities（可选，scripts/run-ner.sh NER 输出 JSON）
 - continuity_report_summary（可选，一致性检查裁剪摘要）
+- golden_chapter_gates（可选；仅 chapter ≤ 3 且平台门控模板存在时注入，包含当前平台的黄金三章硬门控）
 
 **B. 文件路径**（你需要用 Read 工具自行读取）：
 - `paths.chapter_draft` → 章节全文
@@ -78,6 +79,57 @@
 ```
 
 > **confidence 语义**：`high` = 明确违反/通过，可自动执行门控；`medium` = 可能违反，标记警告但不阻断流水线，不触发修订；`low` = 不确定，标记为 `violation_suspected`，写入 eval JSON 并在章节完成输出中警告用户。`/novel:continue` 仅 `high` confidence 的 violation 触发强制修订；`medium` 和 `low` 均为标记 + 警告不阻断，用户可通过 `/novel:start` 质量回顾审核处理。
+
+## Track 3: Golden Chapter Gates（硬门槛，仅前 3 章）
+
+当且仅当以下条件同时满足时，执行 Track 3：
+
+- `chapter <= 3`
+- `manifest.inline.golden_chapter_gates` 存在
+
+执行规则：
+
+1. 读取 `golden_chapter_gates.current_chapter.gates`，逐条核验当前章节是否满足
+2. 对每条门控输出 `pass | fail` 结论、失败细节与原文证据
+3. 若 `golden_chapter_gates.invalid_combination_warnings[]` 存在，可写入 `warnings` / `issues`，但**仅警告，不直接阻断**
+4. 只要任一 gate 失败，`golden_chapter_gates.passed=false`
+5. 只要 `golden_chapter_gates.passed=false`，最终 `recommendation` **必须**为 `"revise"`，不受 overall 分数影响
+
+输出要求：
+
+```json
+{
+  "golden_chapter_gates": {
+    "activated": true,
+    "platform": "fanqie | qidian | jinjiang",
+    "chapter": 1,
+    "passed": false,
+    "failed_gate_ids": ["protagonist_within_200_words"],
+    "checks": [
+      {
+        "id": "protagonist_within_200_words",
+        "status": "pass | fail",
+        "detail": "为什么通过/失败",
+        "evidence": "原文证据（尽量短）"
+      }
+    ],
+    "warnings": ["可选：genre×platform 风险提醒"]
+  }
+}
+```
+
+若 Track 3 未激活，也应输出：
+
+```json
+{
+  "golden_chapter_gates": {
+    "activated": false,
+    "passed": true,
+    "failed_gate_ids": [],
+    "checks": []
+  }
+}
+```
 
 ## Track 2: Quality Scoring（软评估）
 
@@ -163,7 +215,7 @@
 > **注意**：QualityJudge 输出的 `contract_verification.has_violations` 包含**所有** confidence 级别的违规。入口 Skill（`/novel:continue`）在做 `gate_decision` 时仅以 `confidence="high"` 为准。两者语义不同：QualityJudge 提供完整信息供审计，入口 Skill 做保守决策。
 
 ```
-if has_violations:
+if has_violations or (golden_chapter_gates.activated and not golden_chapter_gates.passed):
     recommendation = "revise"  # 强制修订，不管分数多高
 elif overall >= 4.0:
     recommendation = "pass"
@@ -184,6 +236,22 @@ else:
 ```json
 {
   "chapter": N,
+  "golden_chapter_gates": {
+    "activated": true,
+    "platform": "fanqie",
+    "chapter": 1,
+    "passed": false,
+    "failed_gate_ids": ["protagonist_within_200_words"],
+    "checks": [
+      {
+        "id": "protagonist_within_200_words",
+        "status": "fail",
+        "detail": "前 200 字都在铺背景，没有主角行动/台词/明确 POV。",
+        "evidence": "原文片段"
+      }
+    ],
+    "warnings": ["慢热纯文学开篇在番茄留存风险较高"]
+  },
   "hook": {
     "present": true,
     "type": "question | threat_reveal | twist_reveal | emotional_cliff | next_objective | none",
@@ -274,4 +342,5 @@ else:
 - **关键章双裁判模式**：卷首/卷尾/交汇事件章由入口 Skill 使用 Task(model=opus) 发起第二次调用并取较低分，QualityJudge 自身按正常流程执行即可
 - **lint-blacklist 缺失**：若未提供 lint 统计，你仍需给出黑名单命中率与例句，但需标注为估计值；若提供则以其为准
 - **7 指标上下文不足**：若当前上下文拿不到可靠的句长 / 段长 / 词汇多样性 / 技法多样性判断，可回退 `indicator_mode: "4-indicator-compat"`，但必须在 `anti_ai` 中明确写出该模式
+- **黄金三章门控未注入**：当 `golden_chapter_gates` 缺失或 `chapter > 3` 时，输出 `activated=false`，不要自行补造平台门控
 - **修订后重评**：ChapterWriter 修订后重新评估时，应与前次评估对比确认问题已修复

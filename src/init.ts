@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { PlatformId } from "./platform-profile.js";
+import { canonicalPlatformId, type PlatformId } from "./platform-profile.js";
 import { createDefaultCheckpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile } from "./fs-utils.js";
@@ -15,6 +15,7 @@ export type InitProjectResult = {
   created: string[];
   overwritten: string[];
   skipped: string[];
+  warnings: string[];
 };
 
 export function resolveInitRootDir(args: { cwd: string; projectOverride?: string }): string {
@@ -25,8 +26,8 @@ export function resolveInitRootDir(args: { cwd: string; projectOverride?: string
 }
 
 export function normalizePlatformId(value: unknown): PlatformId {
-  if (value === "qidian" || value === "tomato") return value;
-  throw new NovelCliError(`Invalid --platform: ${String(value)} (expected qidian|tomato).`, 2);
+  if (value === "qidian" || value === "tomato" || value === "fanqie" || value === "jinjiang") return value;
+  throw new NovelCliError(`Invalid --platform: ${String(value)} (expected qidian|tomato|fanqie|jinjiang).`, 2);
 }
 
 function moduleRootDir(): string {
@@ -58,7 +59,19 @@ async function writeIfMissingOrForce(args: {
   result: InitProjectResult;
 }): Promise<void> {
   const abs = join(args.rootDir, args.relPath);
-  const exists = await pathExists(abs);
+  let exists = false;
+  try {
+    const current = await stat(abs);
+    if (!current.isFile()) {
+      throw new NovelCliError(`Cannot initialize ${args.relPath}: existing path is not a file. Remove it or choose a different project root.`, 2);
+    }
+    exists = true;
+  } catch (err: unknown) {
+    if (err instanceof NovelCliError) throw err;
+    const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code?: unknown }).code) : null;
+    if (code !== "ENOENT") throw err;
+  }
+
   if (exists && !args.force) {
     args.result.skipped.push(args.relPath);
     return;
@@ -111,6 +124,28 @@ async function loadPlatformProfileTemplate(platform: PlatformId): Promise<Record
   return selected;
 }
 
+async function tryLoadPlatformWritingGuide(platform: PlatformId): Promise<{ text: string | null; warning: string | null }> {
+  const canonicalPlatform = canonicalPlatformId(platform);
+  const relPath = `platforms/${canonicalPlatform}.md`;
+  const absPath = join(TEMPLATE_DIR, relPath);
+  if (!(await pathExists(absPath))) {
+    return {
+      text: null,
+      warning: `Missing optional platform writing guide template: templates/${relPath}. Init continued without platform-writing-guide.md.`
+    };
+  }
+
+  try {
+    return { text: await readTextFile(absPath), warning: null };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      text: null,
+      warning: `Failed to read optional platform writing guide template: templates/${relPath}. ${message}`
+    };
+  }
+}
+
 type TemplateEntry =
   | { relPath: string; templateName: string; kind: "text" }
   | { relPath: string; templateName: string; kind: "json" };
@@ -150,7 +185,8 @@ export async function initProject(args: {
     ensuredDirs: [],
     created: [],
     overwritten: [],
-    skipped: []
+    skipped: [],
+    warnings: []
   };
 
   await ensureRootIsDirectory(args.rootDir);
@@ -172,10 +208,17 @@ export async function initProject(args: {
 
   if (!minimal) {
     for (const tmpl of DEFAULT_TEMPLATES) {
-      const contents =
-        tmpl.kind === "text"
-          ? { kind: "text" as const, text: await loadTemplateText(tmpl.templateName) }
-          : { kind: "json" as const, json: await loadTemplateJson(tmpl.templateName) };
+      let contents: { kind: "text"; text: string } | { kind: "json"; json: unknown };
+      if (tmpl.kind === "text") {
+        contents = { kind: "text" as const, text: await loadTemplateText(tmpl.templateName) };
+      } else {
+        const json = await loadTemplateJson(tmpl.templateName);
+        if (tmpl.relPath === "style-profile.json" && platform) {
+          contents = { kind: "json" as const, json: { ...json, platform } };
+        } else {
+          contents = { kind: "json" as const, json };
+        }
+      }
       await writeIfMissingOrForce({ rootDir: args.rootDir, relPath: tmpl.relPath, contents, force, result });
     }
   }
@@ -198,6 +241,27 @@ export async function initProject(args: {
       force,
       result
     });
+
+    await writeIfMissingOrForce({
+      rootDir: args.rootDir,
+      relPath: "golden-chapter-gates.json",
+      contents: { kind: "json", json: await loadTemplateJson("golden-chapter-gates.json") },
+      force,
+      result
+    });
+
+    const guide = await tryLoadPlatformWritingGuide(platform);
+    if (guide.text !== null) {
+      await writeIfMissingOrForce({
+        rootDir: args.rootDir,
+        relPath: "platform-writing-guide.md",
+        contents: { kind: "text", text: guide.text },
+        force,
+        result
+      });
+    } else if (guide.warning) {
+      result.warnings.push(guide.warning);
+    }
   }
 
   return result;

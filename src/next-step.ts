@@ -5,7 +5,7 @@ import type { Checkpoint } from "./checkpoint.js";
 import { tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
-import { computeGateDecision, detectHighConfidenceViolation } from "./gate-decision.js";
+import { evaluateGateDecisionFromEval, normalizeGateMaxRevisions, normalizeGateRevisionCount } from "./gate-decision.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
@@ -28,6 +28,101 @@ export type NextStepResult = {
   inflight: { chapter: number | null; pipeline_stage: string | null };
   evidence?: Record<string, unknown>;
 };
+
+function resolveMaxRevisions(loadedProfile: LoadedProfile | null): number | null {
+  return normalizeGateMaxRevisions(loadedProfile?.profile.scoring?.max_revisions);
+}
+
+function routeGateDrivenNextStep(args: {
+  stagePrefix: "refined" | "judged";
+  inflightChapter: number;
+  pipelineStage: string;
+  evidence: Record<string, unknown>;
+  evalRaw: unknown;
+  revisionCount: number;
+  maxRevisions: number | null;
+}): NextStepResult {
+  const evaluated = evaluateGateDecisionFromEval({
+    evalRaw: args.evalRaw,
+    revision_count: args.revisionCount,
+    ...(args.maxRevisions === null ? {} : { max_revisions: args.maxRevisions })
+  });
+
+  if (!evaluated.ok) {
+    return {
+      step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "judge" }),
+      reason: `${args.stagePrefix}:${evaluated.reason}`,
+      inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+      evidence: { ...args.evidence }
+    };
+  }
+
+  const gate = evaluated.gate;
+  const gateEvidence = {
+    ...args.evidence,
+    gate: {
+      decision: gate.decision,
+      overall_final: gate.overall_final,
+      revision_count: gate.revision_count,
+      max_revisions: gate.max_revisions,
+      has_high_confidence_violation: gate.has_high_confidence_violation,
+      high_confidence_violations: gate.high_confidence_violations.slice(0, 10),
+      has_golden_chapter_gate_failure: gate.has_golden_chapter_gate_failure,
+      golden_chapter_gate_failures: gate.golden_chapter_gate_failures.slice(0, 10)
+    },
+    quality_judge: {
+      recommendation: gate.recommendation
+    }
+  };
+
+  if (gate.decision === "pass") {
+    return {
+      step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "commit" }),
+      reason: `${args.stagePrefix}:gate:pass`,
+      inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+      evidence: gateEvidence
+    };
+  }
+
+  if (gate.decision === "force_passed") {
+    return {
+      step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "commit" }),
+      reason: `${args.stagePrefix}:gate:force_passed`,
+      inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+      evidence: gateEvidence
+    };
+  }
+
+  if (gate.decision === "polish") {
+    return {
+      step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "refine" }),
+      reason: `${args.stagePrefix}:gate:polish`,
+      inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+      evidence: gateEvidence
+    };
+  }
+
+  if (gate.decision === "revise") {
+    return {
+      step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "draft" }),
+      reason: `${args.stagePrefix}:gate:revise`,
+      inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+      evidence: gateEvidence
+    };
+  }
+
+  if (gate.decision === "pause_for_user" || gate.decision === "pause_for_user_force_rewrite") {
+    return {
+      step: formatStepId({ kind: "chapter", chapter: args.inflightChapter, stage: "review" }),
+      reason: `${args.stagePrefix}:gate:${gate.decision}`,
+      inflight: { chapter: args.inflightChapter, pipeline_stage: args.pipelineStage },
+      evidence: gateEvidence
+    };
+  }
+
+  const _exhaustive: never = gate.decision;
+  throw new NovelCliError(`Unsupported gate decision: ${String(_exhaustive)}`, 2);
+}
 
 function normalizeStage(stage: unknown): string | null {
   if (stage === null || stage === undefined) return null;
@@ -434,12 +529,29 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
     });
     if (guardrailsGate) return guardrailsGate;
 
-    return {
-      step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
-      reason: "refined:ready_commit",
-      inflight: { chapter: inflightChapter, pipeline_stage: stage },
-      evidence
-    };
+    let evalRaw: unknown;
+    try {
+      evalRaw = await readJsonFile(join(projectRootDir, rel.staging.evalJson));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),
+        reason: "refined:eval_read_failed",
+        inflight: { chapter: inflightChapter, pipeline_stage: stage },
+        evidence: { ...evidence, error: message }
+      };
+    }
+
+    const revisionCount = normalizeGateRevisionCount(checkpoint.revision_count);
+    return routeGateDrivenNextStep({
+      stagePrefix: "refined",
+      inflightChapter,
+      pipelineStage: stage,
+      evidence,
+      evalRaw,
+      revisionCount,
+      maxRevisions: resolveMaxRevisions(loadedProfile)
+    });
   }
 
   if (stage === "judged") {
@@ -522,98 +634,16 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
       };
     }
 
-    const evalObj = evalRaw as Record<string, unknown>;
-    const overall = typeof evalObj.overall_final === "number" ? evalObj.overall_final : typeof evalObj.overall === "number" ? evalObj.overall : null;
-    if (overall === null || !Number.isFinite(overall)) {
-      return {
-        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "judge" }),
-        reason: `judged:eval_missing_overall`,
-        inflight: { chapter: inflightChapter, pipeline_stage: stage },
-        evidence: { ...evidence }
-      };
-    }
-
-    const revisionCount = typeof checkpoint.revision_count === "number" && Number.isInteger(checkpoint.revision_count) && checkpoint.revision_count >= 0
-      ? checkpoint.revision_count
-      : 0;
-    const violation = detectHighConfidenceViolation(evalRaw);
-
-    const maxRevisions =
-      typeof loadedProfile?.profile.scoring?.max_revisions === "number" &&
-      Number.isInteger(loadedProfile.profile.scoring.max_revisions) &&
-      loadedProfile.profile.scoring.max_revisions >= 0
-        ? loadedProfile.profile.scoring.max_revisions
-        : null;
-
-    const gateDecision = computeGateDecision({
-      overall_final: overall,
-      revision_count: revisionCount,
-      has_high_confidence_violation: violation.has_high_confidence_violation,
-      ...(maxRevisions === null ? {} : { max_revisions: maxRevisions })
+    const revisionCount = normalizeGateRevisionCount(checkpoint.revision_count);
+    return routeGateDrivenNextStep({
+      stagePrefix: "judged",
+      inflightChapter,
+      pipelineStage: stage,
+      evidence,
+      evalRaw,
+      revisionCount,
+      maxRevisions: resolveMaxRevisions(loadedProfile)
     });
-
-    const gateEvidence = {
-      ...evidence,
-      gate: {
-        decision: gateDecision,
-        overall_final: overall,
-        revision_count: revisionCount,
-        max_revisions: maxRevisions,
-        has_high_confidence_violation: violation.has_high_confidence_violation,
-        high_confidence_violations: violation.high_confidence_violations.slice(0, 10)
-      },
-      quality_judge: {
-        recommendation: typeof evalObj.recommendation === "string" ? evalObj.recommendation : null
-      }
-    };
-
-    if (gateDecision === "pass") {
-      return {
-        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
-        reason: "judged:gate:pass",
-        inflight: { chapter: inflightChapter, pipeline_stage: stage },
-        evidence: gateEvidence
-      };
-    }
-
-    if (gateDecision === "force_passed") {
-      return {
-        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "commit" }),
-        reason: "judged:gate:force_passed",
-        inflight: { chapter: inflightChapter, pipeline_stage: stage },
-        evidence: gateEvidence
-      };
-    }
-
-    if (gateDecision === "polish") {
-      return {
-        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "refine" }),
-        reason: "judged:gate:polish",
-        inflight: { chapter: inflightChapter, pipeline_stage: stage },
-        evidence: gateEvidence
-      };
-    }
-
-    if (gateDecision === "revise") {
-      return {
-        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "draft" }),
-        reason: "judged:gate:revise",
-        inflight: { chapter: inflightChapter, pipeline_stage: stage },
-        evidence: gateEvidence
-      };
-    }
-
-    if (gateDecision === "pause_for_user" || gateDecision === "pause_for_user_force_rewrite") {
-      return {
-        step: formatStepId({ kind: "chapter", chapter: inflightChapter, stage: "review" }),
-        reason: `judged:gate:${gateDecision}`,
-        inflight: { chapter: inflightChapter, pipeline_stage: stage },
-        evidence: gateEvidence
-      };
-    }
-
-    const _exhaustive: never = gateDecision;
-    throw new NovelCliError(`Unsupported gate decision: ${String(_exhaustive)}`, 2);
   }
 
   // Unknown stage: upstream parseCheckpoint validates enum so this should be unreachable.
