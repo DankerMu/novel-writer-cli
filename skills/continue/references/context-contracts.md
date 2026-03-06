@@ -31,7 +31,8 @@ chapter_writer_manifest = {
   },
   concurrent_state: {str: str},         # 其他活跃线一句话状态
   transition_hint: obj | null,          # 切线过渡
-  hard_rules_list: [str],              # L1 禁止项列表（已格式化）
+  hard_rules_list: [str],              # L1 禁止项列表（仅 established / 缺失 canon_status 的 hard 规则）
+  planned_rules_info?: [obj],          # 可选：planned L1 规则（仅供伏笔/铺垫参考，不绑定）
   foreshadowing_tasks: [obj],          # 本章伏笔任务子集
   foreshadow_light_touch_tasks?: [     # 可选：伏笔沉默超阈值时的“轻触提醒”（非剧透、不兑现）；为空则省略该字段
     {id: str, scope: str, status: str, chapters_since_last_update: int, instruction: str}
@@ -57,7 +58,8 @@ chapter_writer_manifest = {
     recent_summaries: ["summaries/chapter-{C-1:03d}-summary.md", ...], # 近 3 章
     storyline_memory: "storylines/{storyline_id}/memory.md",           # 可选
     adjacent_memories: ["storylines/{adj_id}/memory.md", ...],         # 可选
-    character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取
+    character_profiles: ["characters/active/{slug}.md", ...],          # 裁剪后选取（deprecated 已剔除）
+    character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取（deprecated 已剔除；planned 可见但不强制）
     project_brief: "brief.md",
     style_guide: "skills/novel-writing/references/style-guide.md",           # 可选
     engagement_report_latest: "logs/engagement/latest.json",                # 可选（如存在；用于读取完整报告）
@@ -142,7 +144,7 @@ quality_judge_manifest = {
   chapter: int,
   volume: int,
   chapter_outline_block: str,
-  hard_rules_list: [str],
+  hard_rules_list: [str],              # 仅 established / 缺失 canon_status 的 hard 规则
   blacklist_lint: obj | null,                    # scripts/lint-blacklist.sh 输出
   ner_entities: obj | null,                      # scripts/run-ner.sh 输出
   continuity_report_summary: obj | null,         # logs/continuity/latest.json 裁剪
@@ -156,8 +158,8 @@ quality_judge_manifest = {
     chapter_contract: "volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json",
     world_rules: "world/rules.json",                                  # 可选
     prev_summary: "summaries/chapter-{C-1:03d}-summary.md",           # 可选（首章无）
-    character_profiles: ["characters/active/{slug}.md", ...],          # 裁剪后选取（叙述档案）
-    character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取（L2 结构化契约）
+    character_profiles: ["characters/active/{slug}.md", ...],          # 裁剪后选取（叙述档案；deprecated 已剔除）
+    character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取（L2 结构化契约；planned 可见但不强制，deprecated 已剔除）
     storyline_spec: "storylines/storyline-spec.json",                  # 可选
     storyline_schedule: "volumes/vol-{V:02d}/storyline-schedule.json", # 可选
     cross_references: "staging/state/chapter-{C:03d}-crossref.json",

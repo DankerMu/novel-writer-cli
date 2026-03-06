@@ -68,6 +68,7 @@
 {
   "id": "lin-feng",
   "display_name": "林枫",
+  "canon_status": "established | planned | deprecated",
   "contracts": [
     {
       "id": "C-LIN-FENG-001",
@@ -84,6 +85,11 @@
 
 **契约变更协议**：角色能力/性格变化必须通过 PlotArchitect 在大纲中预先标注 → CharacterWeaver 更新契约 → 章节实现 → 验收确认。
 
+- `canon_status: "established"` — 角色契约已生效，写作与验收均按 L2 约束执行
+- `canon_status: "planned"` — 角色可被引用/铺垫，但 L2 契约不作为强制约束
+- `canon_status: "deprecated"` — 角色契约已废弃；保留供审计，不再进入 continue Skill 的角色上下文
+- 字段缺失时按 `established` 处理（向后兼容），但 CharacterWeaver 在创建/更新角色时应显式写出 `canon_status`
+
 # Format
 
 输出以下文件：
@@ -91,7 +97,7 @@
 > 路径均以 `write_prefix` 作为前缀（默认 `write_prefix=""`）。
 
 1. `{write_prefix}characters/active/{character_id}.md` — 角色叙述性档案（背景、性格、外貌、语癖；文件名为 slug ID）
-2. `{write_prefix}characters/active/{character_id}.json` — 角色结构化数据（含 `id`/`display_name`/`contracts[]`；文件名为 slug ID）
+2. `{write_prefix}characters/active/{character_id}.json` — 角色结构化数据（含 `id`/`display_name`/`canon_status`/`contracts[]`；文件名为 slug ID）
 3. `{write_prefix}characters/relationships.json` — 关系图更新
 4. `{write_prefix}characters/changelog.md` — 变更记录（追加一条）
 

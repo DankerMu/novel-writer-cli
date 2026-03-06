@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement 1: L1 world rules SHALL support a `canon_status` lifecycle enum
+### Requirement: L1 world rules SHALL support a `canon_status` lifecycle enum
 
 Each entry in `world/rules.json` SHALL support an optional `canon_status` field with the following enum values:
 - `established` — active hard constraint (default when field is missing)
@@ -38,7 +38,7 @@ WorldBuilder SHALL set `canon_status` explicitly when creating or updating rules
 
 ---
 
-### Requirement 2: L2 character contracts SHALL support the same `canon_status` lifecycle enum
+### Requirement: L2 character contracts SHALL support the same `canon_status` lifecycle enum
 
 Each character entry in `characters/active/*.json` SHALL support an optional `canon_status` field with the same enum and default behavior as Requirement 1.
 
@@ -63,7 +63,7 @@ CharacterWeaver SHALL set `canon_status` explicitly when creating or updating ch
 
 ---
 
-### Requirement 3: ChapterWriter SHALL filter constraints by `canon_status`
+### Requirement: ChapterWriter SHALL filter constraints by `canon_status`
 
 ChapterWriter SHALL distinguish between constraint enforcement levels based on `canon_status`:
 - `established` (or missing): hard constraint — appears in `hard_rules_list` and character contracts
@@ -90,7 +90,7 @@ ChapterWriter SHALL distinguish between constraint enforcement levels based on `
 
 ---
 
-### Requirement 4: QualityJudge Track 1 SHALL only verify `established` items
+### Requirement: QualityJudge Track 1 SHALL only verify `established` items
 
 QualityJudge Track 1 (Contract Verification) SHALL skip L1/L2 compliance checks for any item whose `canon_status` is `planned` or `deprecated`. Items with missing `canon_status` SHALL be verified (treated as `established`).
 

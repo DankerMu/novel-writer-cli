@@ -112,6 +112,150 @@ async function loadChapterExcitementType(args: { rootDir: string; volume: number
   return outlineExcitementType === undefined ? null : outlineExcitementType;
 }
 
+
+type CanonStatus = "established" | "planned" | "deprecated";
+
+type RuleLifecycleContext = {
+  hardRulesList: string[];
+  plannedRulesInfo: Array<Record<string, unknown>>;
+};
+
+type CharacterContext = {
+  characterContracts: string[];
+  characterProfiles: string[];
+};
+
+function normalizeCanonStatus(raw: unknown): CanonStatus {
+  return raw === "planned" || raw === "deprecated" || raw === "established" ? raw : "established";
+}
+
+function asNonEmptyString(raw: unknown): string | null {
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+async function loadRuleLifecycleContext(rootDir: string): Promise<RuleLifecycleContext> {
+  const empty: RuleLifecycleContext = { hardRulesList: [], plannedRulesInfo: [] };
+  const rulesAbs = join(rootDir, "world/rules.json");
+  if (!(await pathExists(rulesAbs))) return empty;
+
+  try {
+    const raw = await readJsonFile(rulesAbs);
+    if (!isPlainObject(raw)) return empty;
+    const rules = (raw as Record<string, unknown>).rules;
+    if (!Array.isArray(rules)) return empty;
+
+    const hardRulesList: string[] = [];
+    const plannedRulesInfo: Array<Record<string, unknown>> = [];
+
+    for (const item of rules) {
+      if (!isPlainObject(item)) continue;
+      const obj = item as Record<string, unknown>;
+      const rule = asNonEmptyString(obj.rule);
+      if (!rule) continue;
+
+      const status = normalizeCanonStatus(obj.canon_status);
+      const id = asNonEmptyString(obj.id);
+      const category = asNonEmptyString(obj.category);
+      const constraintType = asNonEmptyString(obj.constraint_type);
+
+      if (status === "planned") {
+        plannedRulesInfo.push({
+          ...(id ? { id } : {}),
+          ...(category ? { category } : {}),
+          ...(constraintType ? { constraint_type: constraintType } : {}),
+          canon_status: "planned",
+          rule
+        });
+        continue;
+      }
+
+      if (status === "deprecated") continue;
+      if (constraintType !== "hard") continue;
+      hardRulesList.push(id ? `${id}: ${rule}` : rule);
+    }
+
+    return { hardRulesList, plannedRulesInfo };
+  } catch {
+    return empty;
+  }
+}
+
+async function loadCharacterContext(args: { rootDir: string; chapterContractRel: string }): Promise<CharacterContext> {
+  const empty: CharacterContext = { characterContracts: [], characterProfiles: [] };
+  const charsDirRel = "characters/active";
+  const charsDirAbs = join(args.rootDir, charsDirRel);
+  if (!(await pathExists(charsDirAbs))) return empty;
+
+  const desiredRefs = new Set<string>();
+  const contractAbs = join(args.rootDir, args.chapterContractRel);
+  if (await pathExists(contractAbs)) {
+    try {
+      const raw = await readJsonFile(contractAbs);
+      if (isPlainObject(raw)) {
+        const preconditions = isPlainObject((raw as Record<string, unknown>).preconditions)
+          ? ((raw as Record<string, unknown>).preconditions as Record<string, unknown>)
+          : null;
+        const characterStates = preconditions && isPlainObject(preconditions.character_states)
+          ? (preconditions.character_states as Record<string, unknown>)
+          : null;
+        if (characterStates) {
+          for (const key of Object.keys(characterStates)) {
+            const normalized = key.trim().toLowerCase();
+            if (normalized.length > 0) desiredRefs.add(normalized);
+          }
+        }
+      }
+    } catch {
+      // Ignore malformed chapter contracts here; validateStep remains the source of truth.
+    }
+  }
+
+  try {
+    const entries = await readdir(charsDirAbs, { withFileTypes: true });
+    const candidates: Array<{ id: string; displayName: string; canonStatus: CanonStatus; jsonRel: string; mdRel: string; matched: boolean }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+      const jsonRel = `${charsDirRel}/${entry.name}`;
+      try {
+        const raw = await readJsonFile(join(args.rootDir, jsonRel));
+        if (!isPlainObject(raw)) continue;
+        const obj = raw as Record<string, unknown>;
+        const id = asNonEmptyString(obj.id) ?? entry.name.replace(/\.json$/u, "");
+        const displayName = asNonEmptyString(obj.display_name) ?? id;
+        const canonStatus = normalizeCanonStatus(obj.canon_status);
+        const matched = desiredRefs.size === 0 || desiredRefs.has(id.toLowerCase()) || desiredRefs.has(displayName.toLowerCase());
+        candidates.push({
+          id,
+          displayName,
+          canonStatus,
+          jsonRel,
+          mdRel: `${charsDirRel}/${entry.name.replace(/\.json$/u, '.md')}`,
+          matched
+        });
+      } catch {
+        continue;
+      }
+    }
+
+    candidates.sort((left, right) => left.jsonRel.localeCompare(right.jsonRel));
+    const preferred = candidates.filter((candidate) => candidate.matched);
+    const selected = (preferred.length > 0 ? preferred : candidates.slice(0, 15)).filter((candidate) => candidate.canonStatus !== "deprecated");
+
+    const characterProfiles: string[] = [];
+    for (const candidate of selected) {
+      if (await pathExists(join(args.rootDir, candidate.mdRel))) characterProfiles.push(candidate.mdRel);
+    }
+
+    return {
+      characterContracts: selected.map((candidate) => candidate.jsonRel),
+      characterProfiles
+    };
+  } catch {
+    return empty;
+  }
+}
+
 async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
   const stepId = formatStepId(args.step);
   if (args.step.kind !== "review") throw new NovelCliError(`Unsupported review step: ${stepId}`, 2);
@@ -753,6 +897,15 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       inline.engagement_report_summary_degraded = true;
       inline.promise_ledger_report_summary_degraded = true;
     }
+
+    const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
+    if (ruleLifecycle.hardRulesList.length > 0) inline.hard_rules_list = ruleLifecycle.hardRulesList;
+    if (ruleLifecycle.plannedRulesInfo.length > 0) inline.planned_rules_info = ruleLifecycle.plannedRulesInfo;
+
+    const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
+    if (characterContext.characterContracts.length > 0) paths.character_contracts = characterContext.characterContracts;
+    if (characterContext.characterProfiles.length > 0) paths.character_profiles = characterContext.characterProfiles;
+
     // Optional: inject non-spoiler light-touch reminders for dormant foreshadowing items (best-effort).
     try {
       const loadedPlatform = await loadPlatformProfile(args.rootDir).catch(() => null);
@@ -821,6 +974,13 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     const chapterDraftRel = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     paths.chapter_draft = chapterDraftRel;
     paths.cross_references = relIfExists(rel.staging.crossrefJson, await pathExists(join(args.rootDir, rel.staging.crossrefJson)));
+
+    const ruleLifecycle = await loadRuleLifecycleContext(args.rootDir);
+    if (ruleLifecycle.hardRulesList.length > 0) inline.hard_rules_list = ruleLifecycle.hardRulesList;
+
+    const characterContext = await loadCharacterContext({ rootDir: args.rootDir, chapterContractRel });
+    if (characterContext.characterContracts.length > 0) paths.character_contracts = characterContext.characterContracts;
+    if (characterContext.characterProfiles.length > 0) paths.character_profiles = characterContext.characterProfiles;
 
     const loadedPlatform = await loadPlatformProfile(args.rootDir);
     if (loadedPlatform?.profile.scoring) {

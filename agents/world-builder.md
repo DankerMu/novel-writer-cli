@@ -78,6 +78,7 @@
       "category": "magic_system | geography | social | physics",
       "rule": "规则的自然语言描述",
       "constraint_type": "hard | soft",
+      "canon_status": "established | planned | deprecated",
       "exceptions": [],
       "introduced_chapter": null,
       "last_verified": null
@@ -86,10 +87,14 @@
 }
 ```
 
-**严格 schema 约束**：输出 JSON 的字段名必须与上述 schema **完全一致**（`id`/`category`/`rule`/`constraint_type`/`exceptions`/`introduced_chapter`/`last_verified`）。禁止使用替代字段名（如 `level` 代替 `constraint_type`、`content` 代替 `rule`、`scope` 代替 `category`）。下游 QualityJudge 按此 schema 逐字段校验，字段名不匹配会导致验收失败。
+**严格 schema 约束**：输出 JSON 的字段名必须与上述 schema **完全一致**（`id`/`category`/`rule`/`constraint_type`/`canon_status`/`exceptions`/`introduced_chapter`/`last_verified`）。禁止使用替代字段名（如 `level` 代替 `constraint_type`、`content` 代替 `rule`、`scope` 代替 `category`）。下游 QualityJudge 按此 schema 逐字段校验，字段名不匹配会导致验收失败。
 
 - `constraint_type: "hard"` — 不可违反，违反即阻塞（类似编译错误）
 - `constraint_type: "soft"` — 可有例外，但需说明理由
+- `canon_status: "established"` — 已生效；ChapterWriter 必须遵守，QualityJudge 必须检查
+- `canon_status: "planned"` — 可见但未生效；仅供伏笔/铺垫参考，不作为硬约束
+- `canon_status: "deprecated"` — 已废弃；保留供审计，不进入写作/验收上下文
+- 字段缺失时按 `established` 处理（向后兼容），但 WorldBuilder 在创建/更新规则时应显式写出 `canon_status`
 - ChapterWriter 收到 hard 规则时以禁止项注入：`"违反以下规则的内容将被自动拒绝"`
 - `last_verified` — 最近一次确认该规则仍然有效的章节号；在增量世界观更新时，优先写入 `last_completed_chapter`（如提供）
 

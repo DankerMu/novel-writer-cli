@@ -1,0 +1,149 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import type { Checkpoint } from "../checkpoint.js";
+import { buildInstructionPacket } from "../instructions.js";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+async function readRepoText(relPath: string): Promise<string> {
+  return readFile(join(repoRoot, relPath), "utf8");
+}
+
+async function writeText(absPath: string, contents: string): Promise<void> {
+  await mkdir(dirname(absPath), { recursive: true });
+  await writeFile(absPath, contents, "utf8");
+}
+
+async function writeJson(absPath: string, payload: unknown): Promise<void> {
+  await writeText(absPath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function makeCheckpoint(stage: Checkpoint["pipeline_stage"]): Checkpoint {
+  return {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: stage,
+    inflight_chapter: 1,
+    revision_count: 0,
+    hook_fix_count: 0,
+    title_fix_count: 0
+  };
+}
+
+test("issue 128 prompts and skill docs describe canon_status lifecycle", async () => {
+  const worldBuilder = await readRepoText("agents/world-builder.md");
+  const characterWeaver = await readRepoText("agents/character-weaver.md");
+  const chapterWriter = await readRepoText("agents/chapter-writer.md");
+  const qualityJudge = await readRepoText("agents/quality-judge.md");
+  const continueSkill = await readRepoText("skills/continue/SKILL.md");
+
+  assert.match(worldBuilder, /canon_status/);
+  assert.match(characterWeaver, /canon_status/);
+  assert.match(chapterWriter, /planned_rules_info/);
+  assert.match(chapterWriter, /planned"\)[:：]? 可引用|`canon_status == "planned"`/);
+  assert.match(qualityJudge, /skip `planned` \/ `deprecated`|跳过 `planned` \/ `deprecated`|跳过 `planned` \/ `deprecated`/);
+  assert.match(continueSkill, /planned_rules_info/);
+  assert.match(continueSkill, /deprecated.*character_contracts/);
+});
+
+test("buildInstructionPacket filters rules and characters by canon_status", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-"));
+  try {
+    await writeJson(join(rootDir, "world/rules.json"), {
+      schema_version: 1,
+      rules: [
+        { id: "W-001", category: "physics", rule: "旧规则也要生效", constraint_type: "hard" },
+        { id: "W-002", category: "physics", rule: "当前已生效规则", constraint_type: "hard", canon_status: "established" },
+        { id: "W-003", category: "magic_system", rule: "未来卷才生效的设定", constraint_type: "hard", canon_status: "planned" },
+        { id: "W-004", category: "social", rule: "已废弃规则", constraint_type: "hard", canon_status: "deprecated" },
+        { id: "W-005", category: "social", rule: "未来的软规则提示", constraint_type: "soft", canon_status: "planned" }
+      ]
+    });
+
+    await writeJson(join(rootDir, "volumes/vol-01/chapter-contracts/chapter-001.json"), {
+      chapter: 1,
+      storyline_id: "main-arc",
+      preconditions: {
+        character_states: {
+          Alice: { location: "city" },
+          Bob: { location: "city" },
+          Carol: { location: "city" }
+        }
+      },
+      objectives: [{ id: "OBJ-1", required: true, description: "x" }]
+    });
+
+    for (const [slug, displayName, canonStatus] of [
+      ["alice", "Alice", undefined],
+      ["bob", "Bob", "planned"],
+      ["carol", "Carol", "deprecated"],
+      ["dave", "Dave", "established"]
+    ] as const) {
+      await writeJson(join(rootDir, `characters/active/${slug}.json`), {
+        id: slug,
+        display_name: displayName,
+        ...(canonStatus ? { canon_status: canonStatus } : {}),
+        contracts: [{ id: `C-${slug.toUpperCase()}-001`, type: "personality", rule: "rule" }]
+      });
+      await writeText(join(rootDir, `characters/active/${slug}.md`), `# ${displayName}\n`);
+    }
+
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const draftPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as { packet: any };
+
+    assert.deepEqual(draftPacket.packet.manifest.inline.hard_rules_list, [
+      "W-001: 旧规则也要生效",
+      "W-002: 当前已生效规则"
+    ]);
+    assert.deepEqual(
+      draftPacket.packet.manifest.inline.planned_rules_info.map((item: any) => item.id),
+      ["W-003", "W-005"]
+    );
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, [
+      "characters/active/alice.json",
+      "characters/active/bob.json"
+    ]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, [
+      "characters/active/alice.md",
+      "characters/active/bob.md"
+    ]);
+
+    const judgePacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as { packet: any };
+
+    assert.deepEqual(judgePacket.packet.manifest.inline.hard_rules_list, [
+      "W-001: 旧规则也要生效",
+      "W-002: 当前已生效规则"
+    ]);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.inline, "planned_rules_info"), false);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_contracts, [
+      "characters/active/alice.json",
+      "characters/active/bob.json"
+    ]);
+    assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, [
+      "characters/active/alice.md",
+      "characters/active/bob.md"
+    ]);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
