@@ -29,6 +29,21 @@
     "slice_of_life": "slice_of_life:v1"
   },
 
+  "platform_multipliers": {
+    "fanqie": {
+      "hook_strength": 1.5,
+      "pacing": 1.3
+    },
+    "qidian": {
+      "immersion": 1.3
+    },
+    "jinjiang": {
+      "character": 1.3,
+      "style_naturalness": 1.3,
+      "emotional_impact": 1.2
+    }
+  },
+
   "profiles": {
     "plot:v1": {
       "drive_type": "plot",

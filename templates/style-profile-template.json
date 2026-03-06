@@ -7,6 +7,9 @@
   "reference_author": null,
   "_reference_author_comment": "仿写模式时填写参考作者名，原创模式为 null",
 
+  "platform": null,
+  "_platform_comment": "平台绑定（qidian|tomato|fanqie|jinjiang）；init 时若已选择平台则自动填充，未选择时保持 null",
+
   "avg_sentence_length": null,
   "_avg_sentence_length_comment": "平均句长（字数），如 18 表示平均每句 18 字",
 

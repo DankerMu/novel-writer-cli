@@ -7,6 +7,7 @@ export type GateDecisionInput = {
   overall_final: number;
   revision_count: number;
   has_high_confidence_violation: boolean;
+  has_golden_chapter_gate_failure: boolean;
   force_pass?: boolean;
   max_revisions?: number;
 };
@@ -63,7 +64,7 @@ export function computeGateDecision(args: GateDecisionInput): GateDecision {
   const maxRevisions = typeof args.max_revisions === "number" && Number.isInteger(args.max_revisions) && args.max_revisions >= 0 ? args.max_revisions : 2;
 
   if (args.force_pass) return "force_passed";
-  if (args.has_high_confidence_violation) {
+  if (args.has_high_confidence_violation || args.has_golden_chapter_gate_failure) {
     return args.revision_count >= maxRevisions ? "pause_for_user" : "revise";
   }
 
@@ -74,4 +75,50 @@ export function computeGateDecision(args: GateDecisionInput): GateDecision {
   if (score >= 3.0) return args.revision_count >= maxRevisions ? "force_passed" : "revise";
   if (score >= 2.0) return "pause_for_user";
   return "pause_for_user_force_rewrite";
+}
+
+type GoldenChapterGateCheck = Record<string, unknown> & {
+  id?: unknown;
+  status?: unknown;
+  detail?: unknown;
+  evidence?: unknown;
+};
+
+function isGoldenChapterGateFailureStatus(value: unknown): boolean {
+  return value === "fail" || value === "failed" || value === "violation";
+}
+
+export function detectGoldenChapterGateFailure(evalRaw: unknown): {
+  has_golden_chapter_gate_failure: boolean;
+  failed_checks: GoldenChapterGateCheck[];
+} {
+  if (!isPlainObject(evalRaw)) return { has_golden_chapter_gate_failure: false, failed_checks: [] };
+  const evalObj = evalRaw as Record<string, unknown>;
+  const raw = evalObj.golden_chapter_gates;
+  if (!isPlainObject(raw)) return { has_golden_chapter_gate_failure: false, failed_checks: [] };
+
+  const gates = raw as Record<string, unknown>;
+  if (gates.activated === false) return { has_golden_chapter_gate_failure: false, failed_checks: [] };
+
+  const failedChecks: GoldenChapterGateCheck[] = [];
+  const checksRaw = gates.checks;
+  if (Array.isArray(checksRaw)) {
+    for (const item of checksRaw) {
+      if (!isPlainObject(item)) continue;
+      const check = item as GoldenChapterGateCheck;
+      if (!isGoldenChapterGateFailureStatus(check.status)) continue;
+      failedChecks.push(check);
+    }
+  }
+
+  const failedGateIdsRaw = gates.failed_gate_ids;
+  if (Array.isArray(failedGateIdsRaw)) {
+    for (const item of failedGateIdsRaw) {
+      if (typeof item !== "string" || item.trim().length === 0) continue;
+      failedChecks.push({ id: item.trim(), status: "fail" });
+    }
+  }
+
+  const hasFailure = gates.passed === false || failedChecks.length > 0;
+  return { has_golden_chapter_gate_failure: hasFailure, failed_checks: failedChecks };
 }

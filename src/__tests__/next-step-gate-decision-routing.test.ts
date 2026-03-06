@@ -129,3 +129,61 @@ test("computeNextStep forces revise when eval has high-confidence violations", a
   assert.equal(next.step, "chapter:001:draft");
   assert.equal(next.reason, "judged:gate:revise");
 });
+
+test("computeNextStep forces revise when golden chapter gates fail despite high overall", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-next-step-golden-gate-fail-"));
+  await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+  await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "chapter text\n", "utf8");
+  await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
+  await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), {
+    chapter: 1,
+    overall: 4.8,
+    recommendation: "pass",
+    golden_chapter_gates: {
+      activated: true,
+      passed: false,
+      failed_gate_ids: ["protagonist_within_200_words"],
+      checks: [{ id: "protagonist_within_200_words", status: "fail" }]
+    }
+  });
+
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1,
+    revision_count: 0
+  });
+  assert.equal(next.step, "chapter:001:draft");
+  assert.equal(next.reason, "judged:gate:revise");
+});
+
+test("computeNextStep routes to review when golden chapter gate failures persist beyond max revisions", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-next-step-golden-gate-pause-"));
+  await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+  await writeFile(join(rootDir, "staging/chapters/chapter-001.md"), "chapter text\n", "utf8");
+  await mkdir(join(rootDir, "staging/evaluations"), { recursive: true });
+  await writeJson(join(rootDir, "staging/evaluations/chapter-001-eval.json"), {
+    chapter: 1,
+    overall: 4.8,
+    recommendation: "pass",
+    golden_chapter_gates: {
+      activated: true,
+      passed: false,
+      failed_gate_ids: ["hook_present"],
+      checks: [{ id: "hook_present", status: "fail" }]
+    }
+  });
+
+  const next = await computeNextStep(rootDir, {
+    last_completed_chapter: 0,
+    current_volume: 1,
+    orchestrator_state: "WRITING",
+    pipeline_stage: "judged",
+    inflight_chapter: 1,
+    revision_count: 2
+  });
+  assert.equal(next.step, "chapter:001:review");
+  assert.equal(next.reason, "judged:gate:pause_for_user");
+});

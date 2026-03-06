@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { parsePlatformProfile } from "../platform-profile.js";
+import { canonicalPlatformId, parsePlatformProfile } from "../platform-profile.js";
 
 function makeBaseRaw(): Record<string, unknown> {
   return {
@@ -24,6 +24,20 @@ test("parsePlatformProfile loads legacy profile without retention/readability/na
   assert.equal(Object.prototype.hasOwnProperty.call(profile, "retention"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(profile, "readability"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(profile, "naming"), false);
+});
+
+test("canonicalPlatformId maps tomato to fanqie and preserves canonical ids", () => {
+  assert.equal(canonicalPlatformId("tomato"), "fanqie");
+  assert.equal(canonicalPlatformId("fanqie"), "fanqie");
+  assert.equal(canonicalPlatformId("qidian"), "qidian");
+  assert.equal(canonicalPlatformId("jinjiang"), "jinjiang");
+});
+
+test("parsePlatformProfile accepts fanqie and jinjiang platform ids", () => {
+  const fanqie = parsePlatformProfile({ ...makeBaseRaw(), platform: "fanqie" }, "platform-profile.json");
+  const jinjiang = parsePlatformProfile({ ...makeBaseRaw(), platform: "jinjiang" }, "platform-profile.json");
+  assert.equal(fanqie.platform, "fanqie");
+  assert.equal(jinjiang.platform, "jinjiang");
 });
 
 test("parsePlatformProfile accepts explicit null retention/readability/naming", () => {

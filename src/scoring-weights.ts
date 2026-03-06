@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, writeJsonFile } from "./fs-utils.js";
-import type { HookPolicy, PlatformProfile, ScoringPolicy } from "./platform-profile.js";
+import { CANONICAL_PLATFORM_IDS, canonicalPlatformId, type CanonicalPlatformId, type HookPolicy, type PlatformId, type PlatformProfile, type ScoringPolicy } from "./platform-profile.js";
 import { isPlainObject } from "./type-guards.js";
 
 type NormalizationSpec = {
@@ -33,6 +33,7 @@ export type GenreWeightProfilesConfig = {
   dimensions: string[];
   normalization: NormalizationSpec;
   default_profile_by_drive_type: Record<string, string>;
+  platform_multipliers?: Partial<Record<CanonicalPlatformId, Record<string, number>>>;
   profiles: Record<
     string,
     {
@@ -131,6 +132,7 @@ export function parseGenreWeightProfiles(raw: unknown, file: string): GenreWeigh
   if (!isPlainObject(obj.profiles)) throw new NovelCliError(`Invalid ${file}: 'profiles' must be an object.`, 2);
   const profilesRaw = obj.profiles as Record<string, unknown>;
   const profiles: GenreWeightProfilesConfig["profiles"] = {};
+  const canonicalPlatforms = new Set<string>(CANONICAL_PLATFORM_IDS);
 
   const allowedDims = new Set(dimensions);
 
@@ -180,6 +182,38 @@ export function parseGenreWeightProfiles(raw: unknown, file: string): GenreWeigh
     default_profile_by_drive_type,
     profiles
   };
+
+  if (obj.platform_multipliers !== undefined) {
+    if (!isPlainObject(obj.platform_multipliers)) {
+      throw new NovelCliError(`Invalid ${file}: 'platform_multipliers' must be an object.`, 2);
+    }
+    const multipliersRaw = obj.platform_multipliers as Record<string, unknown>;
+    const platform_multipliers: NonNullable<GenreWeightProfilesConfig["platform_multipliers"]> = {};
+    for (const [platformId, platformRaw] of Object.entries(multipliersRaw)) {
+      if (!canonicalPlatforms.has(platformId)) {
+        throw new NovelCliError(
+          `Invalid ${file}: unknown platform_multipliers key '${platformId}' (allowed canonical ids: ${CANONICAL_PLATFORM_IDS.join(", ")}).`,
+          2
+        );
+      }
+      if (!isPlainObject(platformRaw)) {
+        throw new NovelCliError(`Invalid ${file}: 'platform_multipliers.${platformId}' must be an object.`, 2);
+      }
+      const weightsRaw = platformRaw as Record<string, unknown>;
+      const parsedWeights: Record<string, number> = {};
+      for (const [dim, value] of Object.entries(weightsRaw)) {
+        if (!allowedDims.has(dim)) {
+          throw new NovelCliError(
+            `Invalid ${file}: unknown dimension '${dim}' in platform_multipliers.${platformId} (allowed: ${dimensions.join(", ")}).`,
+            2
+          );
+        }
+        parsedWeights[dim] = requireFiniteNonNegativeNumber(value, file, `platform_multipliers.${platformId}.${dim}`);
+      }
+      platform_multipliers[platformId as CanonicalPlatformId] = parsedWeights;
+    }
+    out.platform_multipliers = platform_multipliers;
+  }
 
   if (typeof obj.description === "string" && obj.description.trim().length > 0) out.description = obj.description.trim();
   if (typeof obj.last_updated === "string" && obj.last_updated.trim().length > 0) out.last_updated = obj.last_updated.trim();
@@ -231,6 +265,7 @@ export function computeEffectiveScoringWeights(args: {
   config: GenreWeightProfilesConfig;
   scoring: ScoringPolicy;
   hookPolicy?: HookPolicy | undefined;
+  platformId?: PlatformId | undefined;
 }): EffectiveScoringWeights {
   const driveType = args.scoring.genre_drive_type;
   const selectedProfileId = args.scoring.weight_profile_id;
@@ -262,6 +297,8 @@ export function computeEffectiveScoringWeights(args: {
 
   const overridesRaw = args.scoring.weight_overrides ?? null;
   const overrides: Record<string, number> | null = overridesRaw ? { ...overridesRaw } : null;
+  const platformMultipliers =
+    args.platformId !== undefined ? args.config.platform_multipliers?.[canonicalPlatformId(args.platformId)] ?? null : null;
 
   const allowedDims = new Set(configDims);
   const effectiveDims = new Set(dims);
@@ -289,7 +326,9 @@ export function computeEffectiveScoringWeights(args: {
 
   const rawWeights: Record<string, number> = {};
   for (const dim of dims) {
-    rawWeights[dim] = typeof overrides?.[dim] === "number" ? overrides[dim]! : profile.weights[dim]!;
+    const baseWeight = typeof overrides?.[dim] === "number" ? overrides[dim]! : profile.weights[dim]!;
+    const multiplier = platformMultipliers?.[dim] ?? 1.0;
+    rawWeights[dim] = baseWeight * multiplier;
   }
 
   const normalization = normalizeWeights({
@@ -342,7 +381,8 @@ export async function attachScoringWeightsToEval(args: {
   const effective = computeEffectiveScoringWeights({
     config: args.genreWeightProfiles.config,
     scoring,
-    hookPolicy: args.platformProfile.hook_policy
+    hookPolicy: args.platformProfile.hook_policy,
+    platformId: args.platformProfile.platform
   });
 
   const raw = await readJsonFile(args.evalAbsPath);

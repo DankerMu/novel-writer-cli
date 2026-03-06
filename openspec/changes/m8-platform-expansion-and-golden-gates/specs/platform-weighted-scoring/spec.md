@@ -18,7 +18,7 @@
 
 #### Scenario: jinjiang multipliers emphasize character, style, and emotion
 - **GIVEN** the `platform_multipliers.jinjiang` entry
-- **THEN** it defines `character: 1.3`, `style_naturalness: 1.3`, and `emotional: 1.2` (other dimensions default to 1.0)
+- **THEN** it defines `character: 1.3`, `style_naturalness: 1.3`, and `emotional_impact: 1.2` (other dimensions default to 1.0)
 
 ### Requirement: GenreWeightProfilesConfig SHALL declare optional platform_multipliers field
 The `GenreWeightProfilesConfig` type in `src/scoring-weights.ts` SHALL include an optional `platform_multipliers` field typed as a record of platform ID to dimension-multiplier records.

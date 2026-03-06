@@ -48,6 +48,7 @@ chapter_writer_manifest = {
   paths: {
     style_profile: "style-profile.json",                              # 必读（含 style_exemplars + writing_directives）
     platform_profile: "platform-profile.json",                        # 可选（平台字数/钩子策略/信息负载等）
+    platform_writing_guide: "platform-writing-guide.md",              # 可选（平台节奏/对话比例/钩子/情绪回报/文风要求）
     style_drift: "style-drift.json",                                  # 可选
     chapter_contract: "volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json",
     volume_outline: "volumes/vol-{V:02d}/outline.md",
@@ -145,6 +146,7 @@ quality_judge_manifest = {
   blacklist_lint: obj | null,                    # scripts/lint-blacklist.sh 输出
   ner_entities: obj | null,                      # scripts/run-ner.sh 输出
   continuity_report_summary: obj | null,         # logs/continuity/latest.json 裁剪
+  golden_chapter_gates?: obj,                    # 可选：chapter <= 3 时注入的当前平台黄金三章硬门控
 
   # ── paths ──
   paths: {

@@ -5,7 +5,7 @@ import type { Checkpoint } from "./checkpoint.js";
 import { tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
-import { computeGateDecision, detectHighConfidenceViolation } from "./gate-decision.js";
+import { computeGateDecision, detectGoldenChapterGateFailure, detectHighConfidenceViolation } from "./gate-decision.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
@@ -537,6 +537,7 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
       ? checkpoint.revision_count
       : 0;
     const violation = detectHighConfidenceViolation(evalRaw);
+    const goldenGateFailure = detectGoldenChapterGateFailure(evalRaw);
 
     const maxRevisions =
       typeof loadedProfile?.profile.scoring?.max_revisions === "number" &&
@@ -549,6 +550,7 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
       overall_final: overall,
       revision_count: revisionCount,
       has_high_confidence_violation: violation.has_high_confidence_violation,
+      has_golden_chapter_gate_failure: goldenGateFailure.has_golden_chapter_gate_failure,
       ...(maxRevisions === null ? {} : { max_revisions: maxRevisions })
     });
 
@@ -560,7 +562,9 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
         revision_count: revisionCount,
         max_revisions: maxRevisions,
         has_high_confidence_violation: violation.has_high_confidence_violation,
-        high_confidence_violations: violation.high_confidence_violations.slice(0, 10)
+        high_confidence_violations: violation.high_confidence_violations.slice(0, 10),
+        has_golden_chapter_gate_failure: goldenGateFailure.has_golden_chapter_gate_failure,
+        golden_chapter_gate_failures: goldenGateFailure.failed_checks.slice(0, 10)
       },
       quality_judge: {
         recommendation: typeof evalObj.recommendation === "string" ? evalObj.recommendation : null

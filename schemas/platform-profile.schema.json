@@ -29,7 +29,7 @@
     },
     "platform": {
       "type": "string",
-      "enum": ["qidian", "tomato"],
+      "enum": ["qidian", "tomato", "fanqie", "jinjiang"],
       "description": "Immutable platform binding chosen at init."
     },
     "created_at": {

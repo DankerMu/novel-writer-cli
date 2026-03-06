@@ -7,6 +7,7 @@ import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, write
 import { loadContinuityLatestSummary, tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
+import { loadGoldenChapterGates, selectGoldenChapterGatesForPlatform } from "./golden-chapter-gates.js";
 import { computeEffectiveScoringWeights, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
@@ -256,6 +257,7 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
 
   await maybeAddPath("project_brief", "brief.md");
   await maybeAddPath("platform_profile", "platform-profile.json");
+  await maybeAddPath("platform_writing_guide", "platform-writing-guide.md");
   await maybeAddPath("style_profile_template", "style-profile.json");
 
   // Attach staging quickstart artifacts when present (for resume/debug).
@@ -323,6 +325,41 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     next_actions.push({ kind: "command", command: `novel instructions quickstart:results --json`, note: "After advance, evaluate trial results." });
   } else if (step.phase === "results") {
     agent = { kind: "subagent", name: "quality-judge" };
+    const loadedPlatform = await loadPlatformProfile(args.rootDir);
+    if (loadedPlatform?.profile.scoring) {
+      const loadedWeights = await loadGenreWeightProfiles(args.rootDir);
+      if (!loadedWeights) {
+        throw new NovelCliError(
+          "Missing required file: genre-weight-profiles.json (required when platform-profile.json.scoring is present). Copy it from templates/genre-weight-profiles.json.",
+          2
+        );
+      }
+      inline.scoring_weights = {
+        ...computeEffectiveScoringWeights({
+          config: loadedWeights.config,
+          scoring: loadedPlatform.profile.scoring,
+          hookPolicy: loadedPlatform.profile.hook_policy,
+          platformId: loadedPlatform.profile.platform
+        }),
+        source: { platform_profile: loadedPlatform.relPath, genre_weight_profiles: loadedWeights.relPath }
+      };
+    }
+    if (loadedPlatform && trialChapter <= 3) {
+      const loadedGoldenGates = await loadGoldenChapterGates(args.rootDir);
+      if (loadedGoldenGates) {
+        const selectedGoldenGates = selectGoldenChapterGatesForPlatform({
+          config: loadedGoldenGates.config,
+          platformId: loadedPlatform.profile.platform,
+          chapter: trialChapter
+        });
+        if (selectedGoldenGates) {
+          inline.golden_chapter_gates = {
+            ...selectedGoldenGates,
+            source: loadedGoldenGates.relPath
+          };
+        }
+      }
+    }
     expected_outputs.push({
       path: QUICKSTART_STAGING_RELS.evaluationJson,
       required: true,
@@ -547,6 +584,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   await maybeAddPath(commonPaths, "project_brief", "brief.md");
   await maybeAddPath(commonPaths, "style_profile", "style-profile.json");
   await maybeAddPath(commonPaths, "platform_profile", "platform-profile.json");
+  await maybeAddPath(commonPaths, "platform_writing_guide", "platform-writing-guide.md");
   await maybeAddPath(commonPaths, "ai_blacklist", "ai-blacklist.json");
   await maybeAddPath(commonPaths, "web_novel_cliche_lint", "web-novel-cliche-lint.json");
   await maybeAddPath(commonPaths, "genre_weight_profiles", "genre-weight-profiles.json");
@@ -739,12 +777,30 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       const effective = computeEffectiveScoringWeights({
         config: loadedWeights.config,
         scoring: loadedPlatform.profile.scoring,
-        hookPolicy: loadedPlatform.profile.hook_policy
+        hookPolicy: loadedPlatform.profile.hook_policy,
+        platformId: loadedPlatform.profile.platform
       });
       inline.scoring_weights = {
         ...effective,
         source: { platform_profile: loadedPlatform.relPath, genre_weight_profiles: loadedWeights.relPath }
       };
+    }
+
+    if (loadedPlatform && step.chapter <= 3) {
+      const loadedGoldenGates = await loadGoldenChapterGates(args.rootDir);
+      if (loadedGoldenGates) {
+        const selectedGoldenGates = selectGoldenChapterGatesForPlatform({
+          config: loadedGoldenGates.config,
+          platformId: loadedPlatform.profile.platform,
+          chapter: step.chapter
+        });
+        if (selectedGoldenGates) {
+          inline.golden_chapter_gates = {
+            ...selectedGoldenGates,
+            source: loadedGoldenGates.relPath
+          };
+        }
+      }
     }
 
     // Optional: inject compact continuity summary for LS-001 evidence (non-blocking).

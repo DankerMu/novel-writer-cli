@@ -4,7 +4,10 @@ import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile } from "./fs-utils.js";
 import { isPlainObject } from "./type-guards.js";
 
-export type PlatformId = "qidian" | "tomato";
+export const PLATFORM_IDS = ["qidian", "tomato", "fanqie", "jinjiang"] as const;
+export type PlatformId = (typeof PLATFORM_IDS)[number];
+export const CANONICAL_PLATFORM_IDS = ["qidian", "fanqie", "jinjiang"] as const;
+export type CanonicalPlatformId = (typeof CANONICAL_PLATFORM_IDS)[number];
 export type SeverityPolicy = "warn" | "soft" | "hard";
 
 export type WordCountPolicy = {
@@ -130,8 +133,13 @@ function requireStringField(obj: Record<string, unknown>, field: string, file: s
 }
 
 function requirePlatformId(value: unknown, file: string): PlatformId {
-  if (value === "qidian" || value === "tomato") return value;
-  throw new NovelCliError(`Invalid ${file}: 'platform' must be one of: qidian, tomato.`, 2);
+  if (value === "qidian" || value === "tomato" || value === "fanqie" || value === "jinjiang") return value;
+  throw new NovelCliError(`Invalid ${file}: 'platform' must be one of: ${PLATFORM_IDS.join(", ")}.`, 2);
+}
+
+export function canonicalPlatformId(id: PlatformId): CanonicalPlatformId {
+  if (id === "tomato") return "fanqie";
+  return id;
 }
 
 function requireSeverityPolicy(value: unknown, file: string, field: string): SeverityPolicy {
