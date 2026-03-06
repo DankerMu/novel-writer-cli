@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
-  "description": "AI 高频中文用语黑名单 — 生成时禁止使用（支持 replacement_hint / per_chapter_max / category_metadata: narration_only + genre_override）",
-  "last_updated": "2026-03-05",
+  "version": "2.1.0",
+  "description": "AI 高频中文用语黑名单 — 生成时禁止使用（支持 replacement_hint / per_chapter_max / category_metadata: narration_only + genre_override + like_simile_rule）",
+  "last_updated": "2026-03-06",
   "max_words": 250,
   "words": [
     "总而言之",
@@ -224,7 +224,15 @@
     "让人难以置信",
     "不可思议",
     "难以想象",
-    "各种各样"
+    "各种各样",
+    "像一把刀",
+    "像一根绷紧的弦",
+    "像被什么扼住",
+    "像是要燃烧起来",
+    "像潮水一样涌来",
+    "像针扎一样",
+    "像一块石头",
+    "像触电一样"
   ],
   "categories": {
     "summary_word": [
@@ -445,7 +453,15 @@
     "simile_cliche": [
       { "word": "宛如", "replacement_hint": "每段至多保留一个比喻，优先直写本体与触感" },
       { "word": "恍若", "replacement_hint": "每段至多保留一个比喻，优先直写本体与触感" },
-      { "word": "仿佛置身于", "replacement_hint": "直接写环境变化与感官细节，不要借套话跳场" }
+      { "word": "仿佛置身于", "replacement_hint": "直接写环境变化与感官细节，不要借套话跳场" },
+      { "word": "像一把刀", "replacement_hint": "用具体痛感/伤口/动作代替抽象比喻" },
+      { "word": "像一根绷紧的弦", "replacement_hint": "用身体僵硬/呼吸变浅等具体反应代替" },
+      { "word": "像被什么扼住", "replacement_hint": "直接写喉咙发紧/胸口发闷的生理反应" },
+      { "word": "像是要燃烧起来", "replacement_hint": "写具体的热感/发红/出汗" },
+      { "word": "像潮水一样涌来", "replacement_hint": "用具体感受的层次变化代替笼统比喻" },
+      { "word": "像针扎一样", "replacement_hint": "写具体的刺痛位置和反应" },
+      { "word": "像一块石头", "replacement_hint": "用具体的沉重感/僵硬动作代替" },
+      { "word": "像触电一样", "replacement_hint": "写手指发麻/肌肉一抽等具体反应" }
     ],
     "action_cliche": [
       { "word": "深吸一口气", "replacement_hint": "每章限频，或改为具体呼吸/动作描写", "per_chapter_max": 1 },
@@ -500,6 +516,15 @@
       "context": "narration_only",
       "description": "仅叙述文禁止，对话中允许；本类词条不进入 words 扁平列表"
     },
+    "simile_cliche": {
+      "description": "比喻套话与'像'字比喻高频模式",
+      "like_simile_rule": {
+        "pattern": "像+具体意象",
+        "per_kchars_max": 1,
+        "exclusions": ["好像+动词", "像是+判断"],
+        "description": "通用'像+具体意象'比喻限频：≤1/千字。排除非比喻义用法（'好像有人来了'、'像是累了'等）"
+      }
+    },
     "abstract_filler": {
       "description": "抽象空词：建议改为具体感官/事件/程度",
       "genre_override": {
@@ -513,10 +538,16 @@
   "whitelist": [],
   "update_log": [
       {
+        "date": "2026-03-06",
+        "version": "2.1.0",
+        "description": "simile_cliche 类别新增 8 个'像'字比喻高频词条；新增 category_metadata.simile_cliche.like_simile_rule 限频规则（像+具体意象 ≤1/千字）。",
+        "words_count": 229
+      },
+      {
         "date": "2026-03-05",
         "version": "2.0.0",
         "description": "扩展黑名单至 200+ 词（对齐 anti-ai-polish 10 类），新增 max_words/replacement_hint/per_chapter_max/category_metadata（narration_only/genre_override）。",
-        "words_count": 221
+        "words_count": 229
       }
     ]
   }
