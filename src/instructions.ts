@@ -20,7 +20,7 @@ import { computeTitlePolicyReport } from "./title-policy.js";
 import { chapterRelPaths, formatStepId, pad2, pad3, titleFixSnapshotRel, type Step } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
-import { computeVolumeChapterRange, volumeFinalRelPaths, volumeStagingRelPaths } from "./volume-planning.js";
+import { QUICKSTART_MINI_PLANNING_RANGE, resolveVolumeChapterRange, volumeFinalRelPaths, volumeStagingRelPaths } from "./volume-planning.js";
 
 export type InstructionPacket = {
   version: 1;
@@ -710,6 +710,8 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   }
 
   const trialChapter = Math.max(1, args.checkpoint.last_completed_chapter + 1);
+  const miniPlanningStaging = volumeStagingRelPaths(1);
+  const miniPlanningFinal = volumeFinalRelPaths(1);
   const isTrialMode = step.phase === "trial" || step.phase === "results";
   const inline: Record<string, unknown> = {
     quickstart_phase: step.phase,
@@ -730,6 +732,7 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   await maybeAddPath("platform_writing_guide", "platform-writing-guide.md");
   await maybeAddPath("style_guide", "skills/novel-writing/references/style-guide.md");
   await maybeAddPath("style_profile_template", "style-profile.json");
+  await maybeAddPath("storylines", "storylines/storylines.json");
 
   // Attach staging quickstart artifacts when present (for resume/debug).
   await maybeAddPath("quickstart_rules", QUICKSTART_STAGING_RELS.rulesJson);
@@ -738,6 +741,14 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   await maybeAddPath("quickstart_trial_chapter", QUICKSTART_STAGING_RELS.trialChapterMd);
   await maybeAddPath("quickstart_evaluation", QUICKSTART_STAGING_RELS.evaluationJson);
 
+  // Attach committed mini-planning artifacts when present.
+  await maybeAddPath("mini_volume_outline", miniPlanningFinal.outlineMd);
+  await maybeAddPath("mini_storyline_schedule", miniPlanningFinal.storylineScheduleJson);
+  await maybeAddPath("mini_volume_foreshadowing", miniPlanningFinal.foreshadowingJson);
+  if (trialChapter <= QUICKSTART_MINI_PLANNING_RANGE.end) {
+    await maybeAddPath("mini_chapter_contract", miniPlanningFinal.chapterContractJson(trialChapter));
+  }
+
   const asString = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
   const qsRules = asString(paths.quickstart_rules);
@@ -745,6 +756,10 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   const qsStyleProfile = asString(paths.quickstart_style_profile);
   const qsTrialChapter = asString(paths.quickstart_trial_chapter);
   const styleTemplate = asString(paths.style_profile_template);
+  const miniOutline = asString(paths.mini_volume_outline);
+  const miniStorylineSchedule = asString(paths.mini_storyline_schedule);
+  const miniVolumeForeshadowing = asString(paths.mini_volume_foreshadowing);
+  const miniChapterContract = asString(paths.mini_chapter_contract);
 
   // Provide canonical manifest keys in addition to quickstart-scoped aliases.
   if (qsRules) paths.world_rules = qsRules;
@@ -752,6 +767,10 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
   if (qsStyleProfile) paths.style_profile = qsStyleProfile;
   else if (styleTemplate) paths.style_profile = styleTemplate;
   if (qsTrialChapter) paths.chapter_draft = qsTrialChapter;
+  if (miniOutline) paths.volume_outline = miniOutline;
+  if (miniStorylineSchedule) paths.storyline_schedule = miniStorylineSchedule;
+  if (miniVolumeForeshadowing) paths.volume_foreshadowing = miniVolumeForeshadowing;
+  if (miniChapterContract) paths.chapter_contract = miniChapterContract;
 
   let agent: InstructionPacket["agent"];
   const expected_outputs: InstructionPacket["expected_outputs"] = [];
@@ -786,7 +805,25 @@ async function buildQuickStartInstructionPacket(args: BuildArgs): Promise<Record
     next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
     next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
     next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
-    next_actions.push({ kind: "command", command: `novel instructions quickstart:trial --json`, note: "After advance, proceed to trial chapter." });
+    next_actions.push({ kind: "command", command: `novel instructions quickstart:f0 --json`, note: "After advance, generate the opening mini-plan for chapters 1-3." });
+  } else if (step.phase === "f0") {
+    agent = { kind: "subagent", name: "plot-architect" };
+    inline.quickstart_mini_planning = true;
+    inline.volume_plan = { volume: 1, chapter_range: [QUICKSTART_MINI_PLANNING_RANGE.start, QUICKSTART_MINI_PLANNING_RANGE.end] };
+    inline.expected_outputs_base_dir = miniPlanningStaging.dir;
+    const selectedGenreExcitementMap = await loadSelectedGenreExcitementMap(args.rootDir);
+    if (selectedGenreExcitementMap) inline.genre_excitement_map = selectedGenreExcitementMap;
+    expected_outputs.push({ path: miniPlanningStaging.outlineMd, required: true });
+    expected_outputs.push({ path: miniPlanningStaging.storylineScheduleJson, required: true });
+    expected_outputs.push({ path: miniPlanningStaging.foreshadowingJson, required: true });
+    expected_outputs.push({ path: miniPlanningStaging.newCharactersJson, required: true });
+    for (let ch = QUICKSTART_MINI_PLANNING_RANGE.start; ch <= QUICKSTART_MINI_PLANNING_RANGE.end; ch++) {
+      expected_outputs.push({ path: miniPlanningStaging.chapterContractJson(ch), required: true });
+    }
+    next_actions.push({ kind: "command", command: `novel validate ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel advance ${stepId}` });
+    next_actions.push({ kind: "command", command: `novel next`, note: "Compute next deterministic step (skips already-generated artifacts)." });
+    next_actions.push({ kind: "command", command: `novel instructions quickstart:trial --json`, note: "After mini-plan commit, proceed to trial chapter writing." });
   } else if (step.phase === "trial") {
     agent = { kind: "subagent", name: "chapter-writer" };
     expected_outputs.push({ path: QUICKSTART_STAGING_RELS.trialChapterMd, required: true });
@@ -901,7 +938,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
   if (args.step.kind === "volume") {
     const step = args.step;
     const volume = args.checkpoint.current_volume;
-    const range = computeVolumeChapterRange({ current_volume: volume, last_completed_chapter: args.checkpoint.last_completed_chapter });
+    const range = await resolveVolumeChapterRange({ rootDir: args.rootDir, current_volume: volume, last_completed_chapter: args.checkpoint.last_completed_chapter });
 
     const embedMode = safeEmbedMode(args.embedMode);
     const embed: Record<string, unknown> = {};
@@ -955,6 +992,13 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
     const staging = volumeStagingRelPaths(volume);
     const final = volumeFinalRelPaths(volume);
+    if (range.start > 1) {
+      await maybeAddPath("existing_volume_outline", final.outlineMd);
+      await maybeAddPath("existing_storyline_schedule", final.storylineScheduleJson);
+      await maybeAddPath("existing_foreshadowing", final.foreshadowingJson);
+      await maybeAddPath("existing_chapter_contracts_dir", final.chapterContractsDir);
+      inline.volume_plan_seed_range = [1, range.start - 1];
+    }
 
     const addPlanningOutputs = (base: typeof staging): void => {
       expected_outputs.push({ path: base.outlineMd, required: true });

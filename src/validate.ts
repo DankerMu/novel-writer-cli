@@ -12,7 +12,7 @@ import { QUICKSTART_PHASES, chapterRelPaths, formatStepId, titleFixSnapshotRel, 
 import { assertTitleFixOnlyChangedTitleLine, extractChapterTitleFromMarkdown } from "./title-policy.js";
 import { isPlainObject } from "./type-guards.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
-import { computeVolumeChapterRange, volumeFinalRelPaths, volumeForChapter, volumeStagingRelPaths } from "./volume-planning.js";
+import { QUICKSTART_MINI_PLANNING_RANGE, resolveVolumeChapterRange, volumeFinalRelPaths, volumeForChapter, volumeStagingRelPaths } from "./volume-planning.js";
 import {
   validateQuickstartContractsDir,
   validateQuickstartRulesSchema,
@@ -40,6 +40,266 @@ function requireNumberField(obj: Record<string, unknown>, field: string, file: s
   const v = obj[field];
   if (typeof v !== "number" || !Number.isFinite(v)) throw new NovelCliError(`Invalid ${file}: missing number field '${field}'.`, 2);
   return v;
+}
+
+
+async function validateVolumePlanArtifacts(args: {
+  rootDir: string;
+  volume: number;
+  range: { start: number; end: number };
+  rels: ReturnType<typeof volumeStagingRelPaths>;
+  warnings: string[];
+}): Promise<void> {
+  const { rootDir, volume, range, rels, warnings } = args;
+
+  const requireVolumePlanArtifacts = async (): Promise<void> => {
+    requireFile(await pathExists(join(rootDir, rels.outlineMd)), rels.outlineMd);
+    requireFile(await pathExists(join(rootDir, rels.storylineScheduleJson)), rels.storylineScheduleJson);
+    requireFile(await pathExists(join(rootDir, rels.foreshadowingJson)), rels.foreshadowingJson);
+    requireFile(await pathExists(join(rootDir, rels.newCharactersJson)), rels.newCharactersJson);
+    for (let ch = range.start; ch <= range.end; ch++) {
+      requireFile(await pathExists(join(rootDir, rels.chapterContractJson(ch))), rels.chapterContractJson(ch));
+    }
+  };
+
+  const outlineAbs = join(rootDir, rels.outlineMd);
+  const parseOutlineChapterMetadata = async (): Promise<Map<number, { storylineId: string; excitementType: ExcitementType | null }>> => {
+    const text = await readTextFile(outlineAbs);
+    if (text.trim().length === 0) throw new NovelCliError(`Empty outline file: ${rels.outlineMd}`, 2);
+
+    const lines = text.split(/\r?\n/u);
+    const chapterRe = /^###\s*第\s*(\d+)\s*章/u;
+    const chapters: Array<{ chapter: number; startLine: number; endLine: number }> = [];
+    for (let i = 0; i < lines.length; i++) {
+      const m = chapterRe.exec(lines[i] ?? "");
+      if (!m) continue;
+      const chapter = Number.parseInt(m[1] ?? "", 10);
+      if (!Number.isInteger(chapter) || chapter <= 0) continue;
+      chapters.push({ chapter, startLine: i, endLine: lines.length });
+    }
+    if (chapters.length === 0) {
+      throw new NovelCliError(
+        `Invalid outline: could not parse any chapter headings. Expected lines like "### 第 1 章" (spaces are flexible). File: ${rels.outlineMd}`,
+        2
+      );
+    }
+
+    const seen = new Set<number>();
+    for (let i = 0; i < chapters.length; i++) {
+      const c = chapters[i]!;
+      const next = chapters[i + 1];
+      if (seen.has(c.chapter)) throw new NovelCliError(`Invalid outline: duplicate chapter block for chapter ${c.chapter} (${rels.outlineMd}).`, 2);
+      seen.add(c.chapter);
+      c.endLine = next ? next.startLine : lines.length;
+    }
+
+    for (let ch = range.start; ch <= range.end; ch++) {
+      if (!seen.has(ch)) {
+        throw new NovelCliError(
+          `Invalid outline: missing chapter block for chapter ${ch} (expected continuous coverage ${range.start}-${range.end}). File: ${rels.outlineMd}`,
+          2
+        );
+      }
+    }
+
+    const requiredKeys = [
+      "Storyline",
+      "POV",
+      "Location",
+      "Conflict",
+      "Arc",
+      "Foreshadowing",
+      "StateChanges",
+      "TransitionHint"
+    ] as const;
+    const excitementPrefix = "- **ExcitementType**:";
+
+    const chapterMetadata = new Map<number, { storylineId: string; excitementType: ExcitementType | null }>();
+    for (const c of chapters) {
+      if (c.chapter < range.start || c.chapter > range.end) continue;
+      const blockLines = lines.slice(c.startLine, c.endLine);
+      const keyFound = new Set<string>();
+      let storylineId: string | null = null;
+      let excitementType: ExcitementType | null = null;
+      for (const line of blockLines) {
+        for (const key of requiredKeys) {
+          const prefix = `- **${key}**:`;
+          if (line.startsWith(prefix)) {
+            keyFound.add(key);
+            if (key === "Storyline") {
+              const value = line.slice(prefix.length).trim();
+              if (value.length > 0) storylineId = value;
+            }
+          }
+        }
+
+        if (line.startsWith(excitementPrefix)) {
+          const rawExcitementType = line.slice(excitementPrefix.length).trim();
+          const normalizedExcitementType = normalizeExcitementType(rawExcitementType);
+          if (normalizedExcitementType === undefined) {
+            warnings.push(
+              `Outline chapter ${c.chapter} has unknown ExcitementType '${rawExcitementType}' in ${rels.outlineMd}; treating as null.`
+            );
+          } else {
+            excitementType = normalizedExcitementType;
+          }
+        }
+      }
+      for (const key of requiredKeys) {
+        if (!keyFound.has(key)) {
+          throw new NovelCliError(
+            `Invalid outline: chapter ${c.chapter} block missing required key '${key}' line. File: ${rels.outlineMd}`,
+            2
+          );
+        }
+      }
+      if (!storylineId) {
+        throw new NovelCliError(`Invalid outline: chapter ${c.chapter} missing non-empty Storyline value. File: ${rels.outlineMd}`, 2);
+      }
+      chapterMetadata.set(c.chapter, { storylineId, excitementType });
+    }
+
+    return chapterMetadata;
+  };
+
+  const validateNewCharacters = (raw: unknown): void => {
+    if (!Array.isArray(raw)) throw new NovelCliError(`Invalid ${rels.newCharactersJson}: expected an array.`, 2);
+    for (const [idx, item] of raw.entries()) {
+      if (!isPlainObject(item)) throw new NovelCliError(`Invalid ${rels.newCharactersJson}: entry ${idx} must be an object.`, 2);
+      const obj = item as Record<string, unknown>;
+      const name = typeof obj.name === "string" ? obj.name.trim() : "";
+      const role = typeof obj.role === "string" ? obj.role.trim() : "";
+      const brief = typeof obj.brief === "string" ? obj.brief.trim() : "";
+      const firstChapter = typeof obj.first_chapter === "number" && Number.isInteger(obj.first_chapter) ? obj.first_chapter : null;
+      if (name.length === 0) throw new NovelCliError(`Invalid ${rels.newCharactersJson}: entry ${idx} missing name.`, 2);
+      if (brief.length === 0) throw new NovelCliError(`Invalid ${rels.newCharactersJson}: entry ${idx} missing brief.`, 2);
+      if (firstChapter === null || firstChapter < range.start || firstChapter > range.end) {
+        throw new NovelCliError(
+          `Invalid ${rels.newCharactersJson}: entry ${idx} first_chapter=${String(obj.first_chapter)} out of range (${range.start}-${range.end}).`,
+          2
+        );
+      }
+      if (role !== "antagonist" && role !== "supporting" && role !== "minor") {
+        throw new NovelCliError(
+          `Invalid ${rels.newCharactersJson}: entry ${idx} role must be one of: antagonist, supporting, minor.`,
+          2
+        );
+      }
+    }
+  };
+
+  const validateSchedule = (raw: unknown, chapterMetadata: Map<number, { storylineId: string; excitementType: ExcitementType | null }>): void => {
+    if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: must be an object.`, 2);
+    const obj = raw as Record<string, unknown>;
+    const active = obj.active_storylines;
+    if (!Array.isArray(active)) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: missing active_storylines array.`, 2);
+    const activeIds: string[] = [];
+    for (const [idx, value] of active.entries()) {
+      if (typeof value !== "string") {
+        warnings.push(`WARN ${rels.storylineScheduleJson}: active_storylines[${idx}] is not a string; ignoring.`);
+        continue;
+      }
+      const id = value.trim();
+      if (id.length > 0) activeIds.push(id);
+    }
+    if (activeIds.length === 0) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: active_storylines must be non-empty.`, 2);
+    if (activeIds.length > 4) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: active_storylines length must be <= 4.`, 2);
+    const activeSet = new Set(activeIds);
+
+    for (const [chapter, metadata] of chapterMetadata.entries()) {
+      if (!activeSet.has(metadata.storylineId)) {
+        throw new NovelCliError(
+          `Invalid volume plan: outline chapter ${chapter} Storyline=${metadata.storylineId} not in storyline-schedule.json.active_storylines.`,
+          2
+        );
+      }
+    }
+  };
+
+  const validateForeshadowingPlan = (raw: unknown): void => {
+    if (!isPlainObject(raw)) {
+      throw new NovelCliError(`Invalid ${rels.foreshadowingJson}: expected JSON object with {schema_version, items}.`, 2);
+    }
+    const obj = raw as Record<string, unknown>;
+    if (obj.schema_version !== 1) warnings.push(`Unexpected schema_version in ${rels.foreshadowingJson}.`);
+    if (!Array.isArray(obj.items)) throw new NovelCliError(`Invalid ${rels.foreshadowingJson}: items must be an array.`, 2);
+  };
+
+  const validateContracts = async (chapterMetadata: Map<number, { storylineId: string; excitementType: ExcitementType | null }>): Promise<void> => {
+    for (let ch = range.start; ch <= range.end; ch++) {
+      const rel = rels.chapterContractJson(ch);
+      const raw = await readJsonFile(join(rootDir, rel));
+      if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${rel}: must be an object.`, 2);
+      const obj = raw as Record<string, unknown>;
+      const chapter = requireNumberField(obj, "chapter", rel);
+      if (!Number.isInteger(chapter) || chapter !== ch) throw new NovelCliError(`Invalid ${rel}: chapter=${chapter} expected ${ch}.`, 2);
+      const storylineId = requireStringField(obj, "storyline_id", rel).trim();
+      const expectedStorylineId = chapterMetadata.get(ch)?.storylineId ?? null;
+      if (!expectedStorylineId || storylineId !== expectedStorylineId) {
+        throw new NovelCliError(
+          `Invalid ${rel}: storyline_id=${storylineId} expected ${expectedStorylineId ?? "(missing in outline)"}.`,
+          2
+        );
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(obj, "excitement_type")) {
+        warnings.push(`Missing optional excitement_type in ${rel}; treating as null.`);
+      } else {
+        const normalizedExcitementType = normalizeExcitementType(obj.excitement_type);
+        if (normalizedExcitementType === undefined) {
+          warnings.push(`Unknown excitement_type '${String(obj.excitement_type)}' in ${rel}; treating as null.`);
+        }
+      }
+
+      const objectivesRaw = obj.objectives;
+      if (!Array.isArray(objectivesRaw)) throw new NovelCliError(`Invalid ${rel}: objectives must be an array.`, 2);
+      const hasRequired = objectivesRaw.some((it) => isPlainObject(it) && (it as Record<string, unknown>).required === true);
+      if (!hasRequired) throw new NovelCliError(`Invalid ${rel}: objectives must include at least one entry with required=true.`, 2);
+
+      const prevChapter = ch - 1;
+      if (prevChapter >= 1) {
+        const prevRel =
+          prevChapter >= range.start
+            ? rels.chapterContractJson(prevChapter)
+            : volumeFinalRelPaths(volumeForChapter(prevChapter)).chapterContractJson(prevChapter);
+
+        if (await pathExists(join(rootDir, prevRel))) {
+          const prevRaw = await readJsonFile(join(rootDir, prevRel));
+          if (isPlainObject(prevRaw)) {
+            const prevObj = prevRaw as Record<string, unknown>;
+            const post = isPlainObject(prevObj.postconditions) ? (prevObj.postconditions as Record<string, unknown>) : null;
+            const stateChanges = post && isPlainObject(post.state_changes) ? (post.state_changes as Record<string, unknown>) : null;
+            const pre = isPlainObject(obj.preconditions) ? (obj.preconditions as Record<string, unknown>) : null;
+            const characterStates = pre && isPlainObject(pre.character_states) ? (pre.character_states as Record<string, unknown>) : null;
+
+            if (stateChanges && Object.keys(stateChanges).length > 0) {
+              if (!characterStates) {
+                throw new NovelCliError(
+                  `Invalid ${rel}: missing preconditions.character_states required by chain propagation from ${prevRel}.`,
+                  2
+                );
+              }
+              for (const characterKey of Object.keys(stateChanges)) {
+                if (!(characterKey in characterStates)) {
+                  throw new NovelCliError(
+                    `Invalid ${rel}: preconditions.character_states missing '${characterKey}' (required by ${prevRel}.postconditions.state_changes).`,
+                    2
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  await requireVolumePlanArtifacts();
+  const chapterMetadata = await parseOutlineChapterMetadata();
+  validateSchedule(await readJsonFile(join(rootDir, rels.storylineScheduleJson)), chapterMetadata);
+  validateForeshadowingPlan(await readJsonFile(join(rootDir, rels.foreshadowingJson)));
+  validateNewCharacters(await readJsonFile(join(rootDir, rels.newCharactersJson)));
+  await validateContracts(chapterMetadata);
 }
 
 export async function validateStep(args: { rootDir: string; checkpoint: Checkpoint; step: Step }): Promise<ValidateReport> {
@@ -100,7 +360,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
 
   if (args.step.kind === "volume") {
     const volume = args.checkpoint.current_volume;
-    const range = computeVolumeChapterRange({ current_volume: volume, last_completed_chapter: args.checkpoint.last_completed_chapter });
+    const range = await resolveVolumeChapterRange({ rootDir: args.rootDir, current_volume: volume, last_completed_chapter: args.checkpoint.last_completed_chapter });
     const rels = volumeStagingRelPaths(volume);
 
     const requireVolumePlanArtifacts = async (): Promise<void> => {
@@ -379,6 +639,24 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     const trialAbs = join(args.rootDir, QUICKSTART_STAGING_RELS.trialChapterMd);
     const evalAbs = join(args.rootDir, QUICKSTART_STAGING_RELS.evaluationJson);
 
+    if (args.step.phase === "f0") {
+      requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
+      requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
+      requireFile(await pathExists(styleAbs), QUICKSTART_STAGING_RELS.styleProfileJson);
+      const rulesCount = await validateQuickstartRulesSchema(rulesAbs);
+      if (rulesCount === 0) warnings.push(`Empty rules list in ${QUICKSTART_STAGING_RELS.rulesJson}.`);
+      await validateQuickstartContractsDir(contractsAbs);
+      await validateQuickstartStyleProfileSchema(styleAbs);
+      await validateVolumePlanArtifacts({
+        rootDir: args.rootDir,
+        volume: 1,
+        range: QUICKSTART_MINI_PLANNING_RANGE,
+        rels: volumeStagingRelPaths(1),
+        warnings
+      });
+      return { ok: true, step: stepId, warnings };
+    }
+
     if (args.step.phase === "results") {
       requireFile(await pathExists(rulesAbs), QUICKSTART_STAGING_RELS.rulesJson);
       requireFile(await pathExists(contractsAbs), QUICKSTART_STAGING_RELS.contractsDir);
@@ -429,6 +707,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
           if (warning) warnings.push(warning);
           break;
         }
+        case "f0":
         case "results":
           break;
         default: {

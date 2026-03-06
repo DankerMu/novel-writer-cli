@@ -134,5 +134,7 @@
 # Edge Cases
 
 - **上卷无回顾**：首卷规划时，跳过上卷承接检查，从 brief 派生初始大纲
+- **黄金三章迷你规划**：当 `volume=1` 且 `chapter_range=[1,3]` 时，进入 mini-planning 模式；你必须输出紧凑的 3 章大纲、`chapter-001/002/003` 的完整 L3 契约、`storyline-schedule.json` 的 3 章调度，以及 1-3 条 seed foreshadows。若提供 `genre_excitement_map`，优先按映射填写 `excitement_type`；未提供时自由分配，不得报错。
+- **首卷续规（已有 F0 种子）**：若 context 提供 `existing_volume_outline` / `existing_storyline_schedule` / `existing_foreshadowing` / `existing_chapter_contracts_dir`，说明卷一前 3 章已由 F0 固化；你只规划 `chapter_range` 指定的新章节，`chapter-001/002/003` 视为只读，outline 只追加新章，storyline-schedule 与 foreshadowing 只做增量追加。
 - **伏笔过期**：short scope 伏笔超过 `target_resolve_range` 上限仍未回收时（若未提供 range，则以 >10 章作为经验阈值），在伏笔计划中标记 `overdue` 并建议本卷安排回收
 - **活跃线过多**：storylines.json 中活跃线 > 4 时，选择最高优先级的 4 条，其余标为 seasoning 或暂休眠

@@ -9,6 +9,7 @@ import { formatStepId, pad2, pad3 } from "./steps.js";
 export type VolumeChapterRange = { start: number; end: number };
 
 export const CHAPTERS_PER_VOLUME = 30;
+export const QUICKSTART_MINI_PLANNING_RANGE = { start: 1, end: 3 } as const;
 
 export function volumeForChapter(chapter: number): number {
   if (!Number.isInteger(chapter) || chapter < 1) {
@@ -72,6 +73,36 @@ export function volumeFinalRelPaths(volume: number): {
     chapterContractsDir,
     chapterContractJson: (chapter: number) => `${chapterContractsDir}/chapter-${pad3(chapter)}.json`
   };
+}
+
+export async function hasQuickstartMiniPlanningArtifacts(rootDir: string): Promise<boolean> {
+  const final = volumeFinalRelPaths(1);
+  const requiredPaths = [
+    final.outlineMd,
+    final.storylineScheduleJson,
+    final.foreshadowingJson,
+    final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.start),
+    final.chapterContractJson(2),
+    final.chapterContractJson(QUICKSTART_MINI_PLANNING_RANGE.end)
+  ];
+  for (const relPath of requiredPaths) {
+    if (!(await pathExists(join(rootDir, relPath)))) return false;
+  }
+  return true;
+}
+
+export async function resolveVolumeChapterRange(args: { rootDir: string; current_volume: number; last_completed_chapter: number }): Promise<VolumeChapterRange> {
+  const range = computeVolumeChapterRange({ current_volume: args.current_volume, last_completed_chapter: args.last_completed_chapter });
+  if (
+    args.current_volume !== 1
+    || range.start !== QUICKSTART_MINI_PLANNING_RANGE.start
+    || range.end <= QUICKSTART_MINI_PLANNING_RANGE.end
+  ) {
+    return range;
+  }
+
+  if (!(await hasQuickstartMiniPlanningArtifacts(args.rootDir))) return range;
+  return { start: QUICKSTART_MINI_PLANNING_RANGE.end + 1, end: range.end };
 }
 
 function normalizeVolumePipelineStage(value: unknown): "outline" | "validate" | "commit" | null {
@@ -138,7 +169,7 @@ export async function computeVolumeNextStep(rootDir: string, checkpoint: Checkpo
   }
 
   const volume = checkpoint.current_volume;
-  const range = computeVolumeChapterRange({ current_volume: volume, last_completed_chapter: checkpoint.last_completed_chapter });
+  const range = await resolveVolumeChapterRange({ rootDir, current_volume: volume, last_completed_chapter: checkpoint.last_completed_chapter });
 
   const artifacts = await hasAllPlanningArtifacts({ rootDir, volume, range });
 
@@ -185,6 +216,5 @@ export async function computeVolumeNextStep(rootDir: string, checkpoint: Checkpo
     };
   }
 
-  // normalizeVolumePipelineStage() ensures the above is exhaustive.
   throw new NovelCliError(`Unsupported volume_pipeline_stage: ${String(checkpoint.volume_pipeline_stage)}`, 2);
 }

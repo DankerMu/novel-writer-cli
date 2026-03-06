@@ -10,6 +10,7 @@ test("formatStepId formats chapter ids with pad3", () => {
 test("formatStepId formats volume/quickstart/review ids", () => {
   assert.equal(formatStepId({ kind: "volume", phase: "outline" }), "volume:outline");
   assert.equal(formatStepId({ kind: "quickstart", phase: "world" }), "quickstart:world");
+  assert.equal(formatStepId({ kind: "quickstart", phase: "f0" }), "quickstart:f0");
   assert.equal(formatStepId({ kind: "review", phase: "report" }), "review:report");
 });
 
@@ -20,6 +21,7 @@ test("parseStepId parses chapter ids and trims whitespace", () => {
 test("parseStepId parses volume/quickstart/review ids", () => {
   assert.deepEqual(parseStepId("volume:validate"), { kind: "volume", phase: "validate" });
   assert.deepEqual(parseStepId("quickstart:trial"), { kind: "quickstart", phase: "trial" });
+  assert.deepEqual(parseStepId("quickstart:f0"), { kind: "quickstart", phase: "f0" });
   assert.deepEqual(parseStepId("review:cleanup"), { kind: "review", phase: "cleanup" });
 });
 
