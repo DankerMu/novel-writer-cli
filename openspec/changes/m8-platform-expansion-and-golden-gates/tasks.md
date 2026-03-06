@@ -1,7 +1,7 @@
 ## 1. Platform ID Expansion (3a)
 
 - [x] 1.1 Extend `PlatformId` type in `src/platform-profile.ts` to `"qidian" | "tomato" | "fanqie" | "jinjiang"`
-- [x] 1.2 Add `canonicalPlatformId(id: PlatformId): PlatformId` function that maps tomato → fanqie, others pass through
+- [x] 1.2 Add `canonicalPlatformId(id: PlatformId): CanonicalPlatformId` function that maps tomato → fanqie, others pass through
 - [x] 1.3 Update `schemas/platform-profile.schema.json` enum to include all four values
 - [x] 1.4 Update `src/init.ts` to accept all four platform IDs during initialization
 - [x] 1.5 Add fanqie + jinjiang default configurations to `templates/platform-profile.json` (jinjiang: word_count 2000-3000, genre_drive_type=character)
@@ -32,7 +32,7 @@
   - qidian: system/world presence + immersion ≥ 3.5
   - jinjiang: personality through behavior + CP appears + emotional tone + style_naturalness ≥ 3.5
   - Include `invalid_combinations` genre×platform WARNING table
-- [x] 5.2 Update `src/init.ts` DEFAULT_TEMPLATES to include `golden-chapter-gates.json`
+- [x] 5.2 Update `src/init.ts` platform initialization path to copy `golden-chapter-gates.json` when `--platform` is selected
 - [x] 5.3 Update `agents/quality-judge.md` to add Track 3: Golden Chapter Gates (active when chapter ≤ 3); gate fail → recommendation=revise
 - [x] 5.4 Update `skills/continue/SKILL.md` Step 2.6: when chapter ≤ 3, inject `inline.golden_chapter_gates` with platform-specific gates
 - [x] 5.5 Update `skills/continue/SKILL.md` Step 5 gate decision: add hard gate failure as forced revision trigger

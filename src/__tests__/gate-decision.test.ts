@@ -111,6 +111,24 @@ test("detectGoldenChapterGateFailure deduplicates repeated failed gate ids", () 
   );
 });
 
+test("detectGoldenChapterGateFailure accepts failed and violation statuses", () => {
+  const res = detectGoldenChapterGateFailure({
+    golden_chapter_gates: {
+      activated: true,
+      checks: [
+        { id: "a", status: "failed" },
+        { id: "b", status: "violation" }
+      ]
+    }
+  });
+
+  assert.equal(res.has_golden_chapter_gate_failure, true);
+  assert.deepEqual(
+    res.failed_checks.map((item) => item.id),
+    ["a", "b"]
+  );
+});
+
 test("evaluateGateDecisionFromEval rejects non-object eval payloads", () => {
   assert.deepEqual(evaluateGateDecisionFromEval({ evalRaw: null, revision_count: 0 }), {
     ok: false,

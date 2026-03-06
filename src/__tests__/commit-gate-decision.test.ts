@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
+import { readCheckpoint } from "../checkpoint.js";
 import { commitChapter } from "../commit.js";
 import { NovelCliError } from "../errors.js";
 
@@ -16,14 +17,14 @@ async function writeJson(absPath: string, payload: unknown): Promise<void> {
   await writeText(absPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
-async function seedCommitFixture(rootDir: string, evalPayload: unknown): Promise<void> {
+async function seedCommitFixture(rootDir: string, evalPayload: unknown, revisionCount = 0): Promise<void> {
   await writeJson(join(rootDir, ".checkpoint.json"), {
     last_completed_chapter: 0,
     current_volume: 1,
     orchestrator_state: "WRITING",
     pipeline_stage: "refined",
     inflight_chapter: 1,
-    revision_count: 0
+    revision_count: revisionCount
   });
 
   await writeText(join(rootDir, "staging/chapters/chapter-001.md"), `# 第1章\n\n（测试）\n`);
@@ -47,4 +48,36 @@ test("commitChapter rejects gated evals that still require revision", async () =
     () => commitChapter({ rootDir, chapter: 1, dryRun: false }),
     (err: unknown) => err instanceof NovelCliError && /gate decision is 'revise'/i.test(err.message)
   );
+});
+
+test("commitChapter rejects golden chapter gate failures even when overall is high", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-commit-golden-gate-block-"));
+  await seedCommitFixture(rootDir, {
+    chapter: 1,
+    overall: 4.8,
+    recommendation: "pass",
+    golden_chapter_gates: {
+      activated: true,
+      passed: false,
+      checks: [{ id: "hook_present", status: "fail" }]
+    }
+  });
+
+  await assert.rejects(
+    () => commitChapter({ rootDir, chapter: 1, dryRun: false }),
+    (err: unknown) => err instanceof NovelCliError && /gate decision is 'revise'/i.test(err.message)
+  );
+});
+
+test("commitChapter allows force_passed when revisions are exhausted", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-commit-force-passed-"));
+  await seedCommitFixture(rootDir, { chapter: 1, overall: 3.6, recommendation: "polish" }, 2);
+
+  await commitChapter({ rootDir, chapter: 1, dryRun: false });
+
+  const checkpoint = await readCheckpoint(rootDir);
+  assert.equal(checkpoint.pipeline_stage, "committed");
+  assert.equal(checkpoint.inflight_chapter, null);
+  const finalChapter = await readFile(join(rootDir, "chapters/chapter-001.md"), "utf8");
+  assert.match(finalChapter, /第1章/);
 });

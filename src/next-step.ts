@@ -5,7 +5,7 @@ import type { Checkpoint } from "./checkpoint.js";
 import { tryResolveVolumeChapterRange } from "./consistency-auditor.js";
 import { NovelCliError } from "./errors.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
-import { evaluateGateDecisionFromEval } from "./gate-decision.js";
+import { evaluateGateDecisionFromEval, normalizeGateMaxRevisions, normalizeGateRevisionCount } from "./gate-decision.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import type { PlatformProfile } from "./platform-profile.js";
 import { loadPlatformProfile } from "./platform-profile.js";
@@ -30,11 +30,7 @@ export type NextStepResult = {
 };
 
 function resolveMaxRevisions(loadedProfile: LoadedProfile | null): number | null {
-  return typeof loadedProfile?.profile.scoring?.max_revisions === "number" &&
-    Number.isInteger(loadedProfile.profile.scoring.max_revisions) &&
-    loadedProfile.profile.scoring.max_revisions >= 0
-    ? loadedProfile.profile.scoring.max_revisions
-    : null;
+  return normalizeGateMaxRevisions(loadedProfile?.profile.scoring?.max_revisions);
 }
 
 function routeGateDrivenNextStep(args: {
@@ -546,9 +542,7 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
       };
     }
 
-    const revisionCount = typeof checkpoint.revision_count === "number" && Number.isInteger(checkpoint.revision_count) && checkpoint.revision_count >= 0
-      ? checkpoint.revision_count
-      : 0;
+    const revisionCount = normalizeGateRevisionCount(checkpoint.revision_count);
     return routeGateDrivenNextStep({
       stagePrefix: "refined",
       inflightChapter,
@@ -640,9 +634,7 @@ async function computeChapterNextStep(projectRootDir: string, checkpoint: Checkp
       };
     }
 
-    const revisionCount = typeof checkpoint.revision_count === "number" && Number.isInteger(checkpoint.revision_count) && checkpoint.revision_count >= 0
-      ? checkpoint.revision_count
-      : 0;
+    const revisionCount = normalizeGateRevisionCount(checkpoint.revision_count);
     return routeGateDrivenNextStep({
       stagePrefix: "judged",
       inflightChapter,

@@ -49,6 +49,7 @@ test("buildInstructionPacket includes platform writing guide for chapter and qui
     scoring: { genre_drive_type: "plot", weight_profile_id: "plot:v1" }
   });
   await writeText(join(rootDir, "platform-writing-guide.md"), "# 平台指南\n");
+  await writeText(join(rootDir, "skills/novel-writing/references/style-guide.md"), "# style guide\n");
 
   const chapterPacket = (await buildInstructionPacket({
     rootDir,
@@ -58,6 +59,8 @@ test("buildInstructionPacket includes platform writing guide for chapter and qui
     writeManifest: false
   })) as { packet: any };
   assert.equal(chapterPacket.packet.manifest.paths.platform_writing_guide, "platform-writing-guide.md");
+  assert.equal(chapterPacket.packet.manifest.paths.style_guide, "skills/novel-writing/references/style-guide.md");
+  assert.equal(chapterPacket.packet.manifest.paths.writing_methodology, "skills/novel-writing/references/style-guide.md");
 
   const quickstartPacket = (await buildInstructionPacket({
     rootDir,
@@ -73,6 +76,8 @@ test("buildInstructionPacket includes platform writing guide for chapter and qui
     writeManifest: false
   })) as { packet: any };
   assert.equal(quickstartPacket.packet.manifest.paths.platform_writing_guide, "platform-writing-guide.md");
+  assert.equal(quickstartPacket.packet.manifest.paths.style_guide, "skills/novel-writing/references/style-guide.md");
+  assert.equal(quickstartPacket.packet.manifest.paths.writing_methodology, "skills/novel-writing/references/style-guide.md");
 });
 
 test("buildInstructionPacket injects platform-aware scoring and golden chapter gates for judge packets", async () => {

@@ -154,8 +154,7 @@ const DEFAULT_TEMPLATES: TemplateEntry[] = [
   { relPath: "brief.md", templateName: "brief-template.md", kind: "text" },
   { relPath: "style-profile.json", templateName: "style-profile-template.json", kind: "json" },
   { relPath: "ai-blacklist.json", templateName: "ai-blacklist.json", kind: "json" },
-  { relPath: "web-novel-cliche-lint.json", templateName: "web-novel-cliche-lint.json", kind: "json" },
-  { relPath: "golden-chapter-gates.json", templateName: "golden-chapter-gates.json", kind: "json" }
+  { relPath: "web-novel-cliche-lint.json", templateName: "web-novel-cliche-lint.json", kind: "json" }
 ];
 
 const STAGING_SUBDIRS = [
@@ -239,6 +238,14 @@ export async function initProject(args: {
       rootDir: args.rootDir,
       relPath: "genre-weight-profiles.json",
       contents: { kind: "json", json: await loadTemplateJson("genre-weight-profiles.json") },
+      force,
+      result
+    });
+
+    await writeIfMissingOrForce({
+      rootDir: args.rootDir,
+      relPath: "golden-chapter-gates.json",
+      contents: { kind: "json", json: await loadTemplateJson("golden-chapter-gates.json") },
       force,
       result
     });

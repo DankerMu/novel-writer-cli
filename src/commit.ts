@@ -19,7 +19,7 @@ import {
 import { NovelCliError } from "./errors.js";
 import { fingerprintsMatch, hashText } from "./fingerprint.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, removePath, writeJsonFile } from "./fs-utils.js";
-import { evaluateGateDecisionFromEval } from "./gate-decision.js";
+import { evaluateGateDecisionFromEval, normalizeGateMaxRevisions, normalizeGateRevisionCount } from "./gate-decision.js";
 import {
   appendEngagementMetricRecord,
   computeEngagementMetricRecord,
@@ -561,9 +561,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   const volume = checkpoint.current_volume;
   const warnings: string[] = [];
   const plan: string[] = [];
-  const revisionCount = typeof checkpoint.revision_count === "number" && Number.isInteger(checkpoint.revision_count) && checkpoint.revision_count >= 0
-    ? checkpoint.revision_count
-    : 0;
+  const revisionCount = normalizeGateRevisionCount(checkpoint.revision_count);
 
   // Best-effort volume range resolution (for plan + optional volume-end continuity audits).
   // Never block commit on missing outline/contracts.
@@ -610,12 +608,7 @@ export async function commitChapter(args: CommitArgs): Promise<CommitResult> {
   await ensureFilePresent(args.rootDir, rel.staging.evalJson);
   const evalStagingAbs = join(args.rootDir, rel.staging.evalJson);
 
-  const gateMaxRevisions =
-    typeof loadedProfile?.profile.scoring?.max_revisions === "number" &&
-    Number.isInteger(loadedProfile.profile.scoring.max_revisions) &&
-    loadedProfile.profile.scoring.max_revisions >= 0
-      ? loadedProfile.profile.scoring.max_revisions
-      : null;
+  const gateMaxRevisions = normalizeGateMaxRevisions(loadedProfile?.profile.scoring?.max_revisions);
   const commitEvalRaw = await readJsonFile(evalStagingAbs);
   const commitGate = evaluateGateDecisionFromEval({
     evalRaw: commitEvalRaw,

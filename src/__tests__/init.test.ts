@@ -82,10 +82,10 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     const result = await initProject({ rootDir });
     assert.equal(result.rootDir, rootDir);
 
-    // Exact created set (non-minimal = checkpoint + 4 templates)
+    // Exact created set (non-minimal = checkpoint + 4 base templates)
     assert.deepEqual(
       result.created.sort(),
-      [".checkpoint.json", "ai-blacklist.json", "brief.md", "golden-chapter-gates.json", "style-profile.json", "web-novel-cliche-lint.json"].sort()
+      [".checkpoint.json", "ai-blacklist.json", "brief.md", "style-profile.json", "web-novel-cliche-lint.json"].sort()
     );
 
     // All staging dirs ensured
@@ -130,9 +130,10 @@ test("initProject creates a runnable skeleton with all checkpoint fields", async
     }
 
     // All template files exist
-    for (const relFile of ["brief.md", "style-profile.json", "ai-blacklist.json", "golden-chapter-gates.json", "web-novel-cliche-lint.json"]) {
+    for (const relFile of ["brief.md", "style-profile.json", "ai-blacklist.json", "web-novel-cliche-lint.json"]) {
       await assertFile(join(rootDir, relFile));
     }
+    assert.equal(await statExists(join(rootDir, "golden-chapter-gates.json")), false);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -192,7 +193,6 @@ test("initProject skips existing template files without --force", async () => {
     assert.ok(result.skipped.includes("brief.md"));
     assert.ok(result.skipped.includes("ai-blacklist.json"));
     assert.ok(result.created.includes("style-profile.json"));
-    assert.ok(result.created.includes("golden-chapter-gates.json"));
     assert.ok(result.created.includes("web-novel-cliche-lint.json"));
 
     // Verify content was NOT overwritten
@@ -273,11 +273,13 @@ test("initProject writes platform-profile.json for --platform qidian", async () 
     const result = await initProject({ rootDir, minimal: true, platform: "qidian" });
     assert.ok(result.created.includes("platform-profile.json"));
     assert.ok(result.created.includes("genre-weight-profiles.json"));
+    assert.ok(result.created.includes("golden-chapter-gates.json"));
 
     const raw = await readJson(join(rootDir, "platform-profile.json"));
     const profile = parsePlatformProfile(raw, "platform-profile.json");
     assert.equal(profile.platform, "qidian");
     assert.ok(typeof profile.created_at === "string" && profile.created_at.length > 0);
+    await assertFile(join(rootDir, "golden-chapter-gates.json"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

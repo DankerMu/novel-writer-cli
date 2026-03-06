@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { computeEffectiveScoringWeights, parseGenreWeightProfiles } from "../scoring-weights.js";
+import { attachScoringWeightsToEval, computeEffectiveScoringWeights, parseGenreWeightProfiles } from "../scoring-weights.js";
 
 const baseConfigRaw = {
   schema_version: 1,
@@ -137,4 +140,87 @@ test("computeEffectiveScoringWeights leaves weights unchanged when platform mult
     platformId: "qidian"
   });
   assert.deepEqual(withPlatform.weights, base.weights);
+});
+
+test("attachScoringWeightsToEval writes metadata and per-dimension weights", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-attach-scoring-weights-"));
+  const evalAbsPath = join(rootDir, "chapter-001-eval.json");
+  await writeFile(
+    evalAbsPath,
+    `${JSON.stringify({
+      chapter: 1,
+      scores: {
+        plot_logic: { score: 4 },
+        character: { score: 4 },
+        immersion: { score: 4 },
+        foreshadowing: { score: 4 },
+        pacing: { score: 4 },
+        style_naturalness: { score: 4 },
+        emotional_impact: { score: 4 },
+        storyline_coherence: { score: 4 },
+        hook_strength: { score: 4 }
+      }
+    }, null, 2)}\n`,
+    "utf8"
+  );
+
+  const config = parseGenreWeightProfiles(baseConfigRaw, "genre-weight-profiles.json");
+  await attachScoringWeightsToEval({
+    evalAbsPath,
+    evalRelPath: "staging/evaluations/chapter-001-eval.json",
+    platformProfile: {
+      schema_version: 1,
+      platform: "tomato",
+      created_at: "2026-01-01T00:00:00Z",
+      word_count: { target_min: 1, target_max: 2, hard_min: 1, hard_max: 2 },
+      info_load: { max_new_entities_per_chapter: 1, max_unknown_entities_per_chapter: 1, max_new_terms_per_1k_words: 1 },
+      compliance: { banned_words: [], duplicate_name_policy: "warn" },
+      hook_policy: hookPolicy,
+      scoring: { genre_drive_type: "plot", weight_profile_id: "plot:v1" }
+    },
+    genreWeightProfiles: { relPath: "genre-weight-profiles.json", config }
+  });
+
+  const written = JSON.parse(await readFile(evalAbsPath, "utf8")) as Record<string, any>;
+  assert.equal(written.scoring_weights.source.platform_profile, "platform-profile.json");
+  assert.equal(written.scoring_weights.source.genre_weight_profiles, "genre-weight-profiles.json");
+  assert.equal(written.scoring_weights.weights.hook_strength > 0, true);
+  assert.equal(written.scores.plot_logic.weight, written.scoring_weights.weights.plot_logic);
+  assert.equal(written.scores.hook_strength.weight, written.scoring_weights.weights.hook_strength);
+});
+
+test("attachScoringWeightsToEval rejects evals missing required score dimensions", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-attach-scoring-weights-missing-dim-"));
+  const evalAbsPath = join(rootDir, "chapter-001-eval.json");
+  await writeFile(
+    evalAbsPath,
+    `${JSON.stringify({
+      chapter: 1,
+      scores: {
+        plot_logic: { score: 4 }
+      }
+    }, null, 2)}\n`,
+    "utf8"
+  );
+
+  const config = parseGenreWeightProfiles(baseConfigRaw, "genre-weight-profiles.json");
+  await assert.rejects(
+    () =>
+      attachScoringWeightsToEval({
+        evalAbsPath,
+        evalRelPath: "staging/evaluations/chapter-001-eval.json",
+        platformProfile: {
+          schema_version: 1,
+          platform: "qidian",
+          created_at: "2026-01-01T00:00:00Z",
+          word_count: { target_min: 1, target_max: 2, hard_min: 1, hard_max: 2 },
+          info_load: { max_new_entities_per_chapter: 1, max_unknown_entities_per_chapter: 1, max_new_terms_per_1k_words: 1 },
+          compliance: { banned_words: [], duplicate_name_policy: "warn" },
+          hook_policy: hookPolicy,
+          scoring: { genre_drive_type: "plot", weight_profile_id: "plot:v1" }
+        },
+        genreWeightProfiles: { relPath: "genre-weight-profiles.json", config }
+      }),
+    /missing score dimensions/i
+  );
 });

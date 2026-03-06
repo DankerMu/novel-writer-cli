@@ -80,13 +80,18 @@ When any golden chapter gate condition fails, the QualityJudge output SHALL set 
 - **WHEN** the continue skill processes the evaluation in Step 5
 - **THEN** it enters the revision loop (same as score < 3.0 behavior)
 
-### Requirement: Init SHALL register golden-chapter-gates.json as a default template
-`src/init.ts` DEFAULT_TEMPLATES list SHALL include `golden-chapter-gates.json` so that it is copied to the project root during initialization.
+### Requirement: Init SHALL copy golden-chapter-gates.json only for platform-bound projects
+When `--platform` is selected during initialization, `src/init.ts` SHALL copy `golden-chapter-gates.json` to the project root alongside the other platform-bound artifacts. Projects without `platform-profile.json` SHALL NOT receive this file by default.
 
-#### Scenario: Golden gates template copied on init
-- **GIVEN** the user runs project initialization
+#### Scenario: Golden gates template copied for platform init
+- **GIVEN** the user runs project initialization with `--platform fanqie`
 - **WHEN** initialization completes
 - **THEN** `golden-chapter-gates.json` exists in the project root
+
+#### Scenario: Non-platform init omits golden gates template
+- **GIVEN** the user runs project initialization without `--platform`
+- **WHEN** initialization completes
+- **THEN** `golden-chapter-gates.json` does NOT exist in the project root
 
 ## References
 

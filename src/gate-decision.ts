@@ -79,9 +79,9 @@ export function computeGateDecision(args: GateDecisionInput): GateDecision {
 }
 
 export type GoldenChapterGateCheck = Record<string, unknown> & {
-  id?: unknown;
-  status?: unknown;
-  detail?: unknown;
+  id?: string;
+  status?: string;
+  detail?: string;
   evidence?: unknown;
 };
 
@@ -103,6 +103,14 @@ export type EvaluateGateDecisionFromEvalResult =
 
 function normalizeMaxRevisions(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 2;
+}
+
+export function normalizeGateRevisionCount(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+export function normalizeGateMaxRevisions(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function isGoldenChapterGateFailureStatus(value: unknown): boolean {
@@ -174,9 +182,7 @@ export function evaluateGateDecisionFromEval(args: {
     return { ok: false, reason: "eval_missing_overall" };
   }
 
-  const maxRevisions = typeof args.max_revisions === "number" && Number.isInteger(args.max_revisions) && args.max_revisions >= 0
-    ? args.max_revisions
-    : null;
+  const maxRevisions = normalizeGateMaxRevisions(args.max_revisions);
   const violation = detectHighConfidenceViolation(evalObj);
   const goldenGateFailure = detectGoldenChapterGateFailure(evalObj);
   const decision = computeGateDecision({
