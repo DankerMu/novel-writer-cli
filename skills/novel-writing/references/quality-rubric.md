@@ -66,7 +66,9 @@
 
 ## 6. 风格自然度（style_naturalness）— 权重 0.15
 
-评估去 AI 化效果，基于可量化指标。
+评估去 AI 化效果，基于可量化指标。默认使用 13 项三区判定（`indicator_mode: "13-indicator"`）；正文过短或 `ai_sentence_patterns` 缺失时回退到 7 项；正文破损或 style_profile 缺失时回退到 4 项 legacy 模式。
+
+13 项指标：`blacklist_hit_rate` / `sentence_repetition_rate` / `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_diversity_score` / `narration_connector_count` / `humanize_technique_variety` / `em_dash_count` / `sentence_pattern_score` / `simile_density` / `dialogue_distinguishability` / `ellipsis_density` / `exclamation_density`。详见 style-guide Layer 4 三区判定表。
 
 | 分数 | AI 黑名单命中率 | 句式重复率（相邻 5 句） | style-profile 匹配度 | 句式模式命中 |
 |------|----------------|----------------------|---------------------|-------------|
