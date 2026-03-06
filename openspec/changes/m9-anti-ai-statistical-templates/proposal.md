@@ -14,13 +14,13 @@
 
 1. **style-profile-template.json** 新增 5 个 nullable 统计字段（句长标准差、段落长度变异系数、情感波动性、语域混合度、词汇丰富度），插入在 `sentence_length_range` 之后。所有字段 nullable，旧项目无需迁移。
 
-2. **ai-blacklist.json** 从约 40 条扩展到 10 类 200+ 条（对齐 `docs/anti-ai-polish.md` 的 10 类词表）：
-   - 新增 7 个分类：`narration_connector`（仅叙述文禁止，对话中允许）、`paragraph_opener`（AI 定型段首）、`smooth_transition`（过度打磨的过渡）、`summary_word`（总结概括词）、`enumeration_template`（枚举模板词）、`academic_tone`（学术腔/书面腔）、`abstract_filler`（抽象空词）
-   - 扩展现有分类：`emotion_cliche` +8（含百感交集/心如刀割等）、`expression_cliche` +4、`action_cliche` +6（含微微一笑/缓缓开口/深吸一口气等）、`environment_cliche`（新增环境套话：月光如水/微风拂面等）、`narrative_filler`（叙事填充词：就这样/于是乎/只见/但见等）
+2. **ai-blacklist.json** 扩展到 **200+ 条**，并覆盖 `docs/anti-ai-polish.md` 的 **10 类词表**（同时补充更细粒度分类如 `paragraph_opener` / `smooth_transition` / `expression_cliche`）：
+   - 新增/补充分类：`summary_word`、`enumeration_template`、`academic_tone`、`narration_connector`（仅叙述文禁止，对话中允许）、`environment_cliche`、`narrative_filler`、`mechanical_opening`、`paragraph_opener`、`smooth_transition`、`abstract_filler`
+   - 扩展基础分类：`emotion_cliche`、`action_cliche`、`expression_cliche`
    - 新增 `max_words: 250` 增长上限字段（200+ 条 + ~25% 余量）
    - 新增 `category_metadata` 支持 `narration_only` 上下文和 `per_chapter_max` 频次限制
    - 每条词汇附 `replacement_hint` 替换方向（从 `anti-ai-polish.md` 的替换方向列提取）
-   - 更新 `schema_version` 和 `update_log`
+   - 更新 `version` 和 `update_log`
 
 ## Capabilities
 

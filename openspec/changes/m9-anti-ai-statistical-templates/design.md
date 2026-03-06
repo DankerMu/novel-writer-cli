@@ -2,7 +2,7 @@
 
 当前反 AI 策略以词汇黑名单和标点限频为核心。`templates/ai-blacklist.json` 包含 7 个分类共约 40 个词条，`templates/style-profile-template.json` 提供句长均值、句长范围、对话占比等结构化风格指纹。
 
-朱雀等 AI 检测工具使用的统计特征维度（句长方差、段落长度一致性、词汇分布、情感一致性）在系统中无对应数据结构。黑名单的分类虽支持 severity 分级概念，但缺少"按上下文区分"的能力——`narration_connector` 类词汇（"然而""不过""显然"）在叙述中是 AI 信号但在对话中属于自然用语。此外，AI 定型段首和过度打磨的过渡短语两个维度完全未覆盖。
+朱雀等 AI 检测工具使用的统计特征维度（句长方差、段落长度一致性、词汇分布、情感一致性）在系统中无对应数据结构。黑名单的分类虽支持 severity 分级概念，但缺少"按上下文区分"的能力——`narration_connector` 类词汇（"然而""不过""因此"）在叙述中是 AI 信号但在对话中属于自然用语。此外，AI 定型段首和过度打磨的过渡短语两个维度完全未覆盖。
 
 ## Goals / Non-Goals
 
@@ -32,13 +32,13 @@
 3) **`narration_connector` 分类引入上下文元数据**
    - 在 `categories` 中新增 `narration_connector` 分类，同时在 `category_metadata` 中标注 `context: "narration_only"`。相同词汇在叙述段落 vs 对话段落有不同处理。lint 脚本的上下文感知逻辑由 CS-A4 实现，本 changeset 仅定义数据结构。
 
-4) **10 类分类体系（对齐 anti-ai-polish.md）**
-   - 原有 7 类：`emotion_cliche`、`expression_cliche`、`action_cliche`、`description_cliche`、`logic_connector`、`filler_word`、`honorific_excess`
-   - 新增 7 类（合并后去重为 10 类）：`summary_word`（总结概括词）、`enumeration_template`（枚举模板词）、`academic_tone`（学术腔/书面腔）、`narration_connector`（逻辑连接词-叙述限定）、`abstract_filler`（抽象空词）、`environment_cliche`（环境套话）、`narrative_filler`（叙事填充词）、`paragraph_opener`（AI 定型段首）、`smooth_transition`（过度打磨过渡）、`mechanical_opening`（机械开合词）
-   - 部分新类与原有类有词汇重叠（如 `logic_connector` ↔ `narration_connector`），以新分类体系为准，旧类保留兼容但词汇归入新类。
+4) **分类体系（对齐 anti-ai-polish.md 的 10 类 + 额外细分类）**
+   - v1 模板原有 7 类：`emotion_cliche`、`expression_cliche`、`action_cliche`、`transition_cliche`、`simile_cliche`、`time_cliche`、`thought_cliche`
+   - v2 保证 `docs/anti-ai-polish.md` 的 10 类全部在 `categories` 中可用：`summary_word`、`enumeration_template`、`academic_tone`、`narration_connector`、`emotion_cliche`、`action_cliche`、`environment_cliche`、`narrative_filler`、`abstract_filler`、`mechanical_opening`
+   - 同时新增更细粒度的补充分类（如 `paragraph_opener`、`smooth_transition`、`expression_cliche`），便于 lint/提示和后续扩展。
 
 5) **`replacement_hint` 字段**
-   - 每条词汇新增可选 `replacement_hint` 字符串，从 `anti-ai-polish.md` 的"替换方向"列提取。供 StyleRefiner 在润色时参考具体替换策略。
+   - 每条词汇新增必填 `replacement_hint` 字符串，从 `anti-ai-polish.md` 的"替换方向"列提取。供 StyleRefiner 在润色时参考具体替换策略。
    - 示例：`{ "word": "感到震惊", "replacement_hint": "用身体反应代替：握拳、瞳孔收缩" }`
 
 6) **`per_chapter_max` 频次限制**
@@ -59,7 +59,7 @@
 
 ## Migration Plan
 
-无需迁移。`style-profile-template.json` 新增字段全部 nullable，旧项目不受影响。`ai-blacklist.json` 的 `max_words`、`category_metadata`、`replacement_hint`、`per_chapter_max` 为新增字段，不影响现有消费逻辑。
+无需迁移。`style-profile-template.json` 新增字段全部 nullable，旧项目不受影响。`ai-blacklist.json` 的 `max_words`、`category_metadata`、`replacement_hint`、`per_chapter_max` 为新增字段；对只消费 `words[]` 的逻辑保持兼容。
 
 ## References
 
