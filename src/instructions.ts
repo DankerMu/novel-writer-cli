@@ -311,7 +311,14 @@ async function loadCharacterContext(args: {
     }
 
     candidates.sort((left, right) => left.jsonRel.localeCompare(right.jsonRel));
-    const preferred = hasDesiredRefs ? candidates.filter((candidate) => candidate.matched && candidate.canonStatus !== "deprecated") : [];
+    const preferred = hasDesiredRefs
+      ? candidates.filter(
+          (candidate) =>
+            candidate.matched &&
+            candidate.canonStatus !== "deprecated" &&
+            (args.options.includePlannedCharacters || candidate.canonStatus !== "planned")
+        )
+      : [];
     const selectedCandidates = preferred.length > 0 ? preferred : selectFallbackCharacterCandidates(candidates, args.options);
     const activeCandidates = selectedCandidates.filter((candidate) => candidate.canonStatus !== "planned");
     const plannedCandidates = args.options.includePlannedCharacters

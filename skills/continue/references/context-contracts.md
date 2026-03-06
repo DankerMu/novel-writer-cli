@@ -59,8 +59,8 @@ chapter_writer_manifest = {
     recent_summaries: ["summaries/chapter-{C-1:03d}-summary.md", ...], # 近 3 章
     storyline_memory: "storylines/{storyline_id}/memory.md",           # 可选
     adjacent_memories: ["storylines/{adj_id}/memory.md", ...],         # 可选
-    character_profiles: ["characters/active/{slug}.md", ...],          # 裁剪后选取（仅 established / 缺失 canon_status）
-    character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取（仅 established / 缺失 canon_status；当前章需遵守的 L2 约束）
+    character_profiles?: ["characters/active/{slug}.md", ...],         # 可选：裁剪后选取（仅 established / 缺失 canon_status）
+    character_contracts?: ["characters/active/{slug}.json", ...],      # 可选：裁剪后选取（仅 established / 缺失 canon_status；当前章需遵守的 L2 约束）
     planned_character_profiles?: ["characters/active/{slug}.md", ...],  # 可选：planned 角色档案（仅供铺垫/预告参考）
     planned_character_contracts?: ["characters/active/{slug}.json", ...], # 可选：planned 角色契约（仅供铺垫/预告参考，不绑定）
     project_brief: "brief.md",
@@ -162,8 +162,8 @@ quality_judge_manifest = {
     chapter_contract: "volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json",
     world_rules: "world/rules.json",                                  # 可选
     prev_summary: "summaries/chapter-{C-1:03d}-summary.md",           # 可选（首章无）
-    character_profiles: ["characters/active/{slug}.md", ...],          # 裁剪后选取（叙述档案；仅 established / 缺失 canon_status）
-    character_contracts: ["characters/active/{slug}.json", ...],       # 裁剪后选取（L2 结构化契约；仅 established / 缺失 canon_status；planned / deprecated 不进入 judge packet）
+    character_profiles?: ["characters/active/{slug}.md", ...],         # 可选：裁剪后选取（叙述档案；仅 established / 缺失 canon_status）
+    character_contracts?: ["characters/active/{slug}.json", ...],      # 可选：裁剪后选取（L2 结构化契约；仅 established / 缺失 canon_status；planned / deprecated 不进入 judge packet）
     storyline_spec: "storylines/storyline-spec.json",                  # 可选
     storyline_schedule: "volumes/vol-{V:02d}/storyline-schedule.json", # 可选
     cross_references: "staging/state/chapter-{C:03d}-crossref.json",

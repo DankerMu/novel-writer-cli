@@ -56,7 +56,7 @@ test("issue 169 prompts and skill docs describe split planned character context"
   assert.match(qualityJudge, /planned \/ deprecated 不会进入 judge packet/);
   assert.match(continueSkill, /planned_character_contracts/);
   assert.match(contextContracts, /planned_character_contracts\?:/);
-  assert.match(contextContracts, /character_contracts: .*仅 established \/ 缺失 canon_status/);
+  assert.match(contextContracts, /character_contracts\?: .*仅 established \/ 缺失 canon_status/);
 });
 
 test("buildInstructionPacket splits active and planned character context by canon_status", async () => {
@@ -171,7 +171,7 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
 
     for (let index = 1; index <= 18; index += 1) {
       const slug = `char-${String(index).padStart(2, "0")}`;
-      const canonStatus = index === 5 ? "planned" : index === 18 ? "deprecated" : "established";
+      const canonStatus = index === 17 ? "planned" : index === 18 ? "deprecated" : "established";
       await writeJson(join(rootDir, `characters/active/${slug}.json`), {
         id: slug,
         display_name: `角色${index}`,
@@ -199,6 +199,7 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
       "characters/active/char-02.json",
       "characters/active/char-03.json",
       "characters/active/char-04.json",
+      "characters/active/char-05.json",
       "characters/active/char-06.json",
       "characters/active/char-07.json",
       "characters/active/char-08.json",
@@ -207,14 +208,14 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
       "characters/active/char-11.json",
       "characters/active/char-12.json",
       "characters/active/char-13.json",
-      "characters/active/char-14.json",
-      "characters/active/char-15.json"
+      "characters/active/char-14.json"
     ]);
     assert.deepEqual(draftPacket.packet.manifest.paths.character_profiles, [
       "characters/active/char-01.md",
       "characters/active/char-02.md",
       "characters/active/char-03.md",
       "characters/active/char-04.md",
+      "characters/active/char-05.md",
       "characters/active/char-06.md",
       "characters/active/char-07.md",
       "characters/active/char-08.md",
@@ -223,12 +224,22 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
       "characters/active/char-11.md",
       "characters/active/char-12.md",
       "characters/active/char-13.md",
-      "characters/active/char-14.md",
-      "characters/active/char-15.md"
+      "characters/active/char-14.md"
     ]);
-    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_contracts, ["characters/active/char-05.json"]);
-    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_profiles, ["characters/active/char-05.md"]);
-    assert.equal((draftPacket.packet.manifest.paths.character_contracts as string[]).includes("characters/active/char-18.json"), false);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_contracts, ["characters/active/char-17.json"]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_profiles, ["characters/active/char-17.md"]);
+    assert.equal((draftPacket.packet.manifest.paths.character_contracts as string[]).includes("characters/active/char-15.json"), false);
+
+    await writeJson(join(rootDir, "volumes/vol-01/chapter-contracts/chapter-001.json"), {
+      chapter: 1,
+      storyline_id: "main-arc",
+      preconditions: {
+        character_states: {
+          "角色17": { location: "city" }
+        }
+      },
+      objectives: [{ id: "OBJ-1", required: true, description: "x" }]
+    });
 
     const judgePacket = (await buildInstructionPacket({
       rootDir,
@@ -244,6 +255,7 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
       "characters/active/char-02.json",
       "characters/active/char-03.json",
       "characters/active/char-04.json",
+      "characters/active/char-05.json",
       "characters/active/char-06.json",
       "characters/active/char-07.json",
       "characters/active/char-08.json",
@@ -253,14 +265,14 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
       "characters/active/char-12.json",
       "characters/active/char-13.json",
       "characters/active/char-14.json",
-      "characters/active/char-15.json",
-      "characters/active/char-16.json"
+      "characters/active/char-15.json"
     ]);
     assert.deepEqual(judgePacket.packet.manifest.paths.character_profiles, [
       "characters/active/char-01.md",
       "characters/active/char-02.md",
       "characters/active/char-03.md",
       "characters/active/char-04.md",
+      "characters/active/char-05.md",
       "characters/active/char-06.md",
       "characters/active/char-07.md",
       "characters/active/char-08.md",
@@ -270,9 +282,9 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
       "characters/active/char-12.md",
       "characters/active/char-13.md",
       "characters/active/char-14.md",
-      "characters/active/char-15.md",
-      "characters/active/char-16.md"
+      "characters/active/char-15.md"
     ]);
+    assert.equal((judgePacket.packet.manifest.paths.character_contracts as string[]).includes("characters/active/char-17.json"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_contracts"), false);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
