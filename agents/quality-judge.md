@@ -160,7 +160,7 @@
 | immersion（沉浸感） | 0.15 | 画面感、氛围营造、详略得当 |
 | foreshadowing（伏笔处理） | 0.10 | 埋设自然度、推进合理性、回收满足感 |
 | pacing（节奏） | 0.08 | 冲突强度、爽点落地、铺垫有效性 |
-| style_naturalness（风格自然度） | 0.15 | 优先按 7 指标三区判定（Layer 4）；缺失时回退 Legacy 4 指标 |
+| style_naturalness（风格自然度） | 0.15 | 优先按 13 指标三区判定（Layer 4）；缺失时回退 7 指标或 Legacy 4 指标 |
 | emotional_impact（情感冲击） | 0.08 | 情感起伏、读者代入感 |
 | storyline_coherence（故事线连贯） | 0.08 | 切线流畅度、跟线难度、并发线暗示自然度 |
 
