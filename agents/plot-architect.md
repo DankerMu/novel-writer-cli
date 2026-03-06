@@ -65,6 +65,7 @@
     "line_arc_progress": "该线弧线进展描述",
     "concurrent_state": "其他活跃线一句话状态"
   },
+  "excitement_type": "reversal | face_slap | power_up | reveal | cliffhanger | setup | null",
   "preconditions": {
     "character_states": {"角色名": {"location": "...", "状态key": "..."}},
     "required_world_rules": ["W-001", "W-002"]
@@ -90,6 +91,8 @@
 }
 ```
 
+> `excitement_type` 用于标注本章核心爽点类型；无显式爽点/过渡章请显式写 `null`，便于 QualityJudge 做差异化 pacing 评审。
+
 **链式传递**：前章的 postconditions 自动成为下一章的 preconditions。
 
 # Format
@@ -110,12 +113,13 @@
 - **Foreshadowing**: foreshadowing_actions
 - **StateChanges**: expected_state_changes
 - **TransitionHint**: next_storyline + bridge 描述（切线章必填；如 `{"next_storyline": "jiangwang-dao", "bridge": "主角闭关被海域震动打断"}`）
+- **ExcitementType**: reversal | face_slap | power_up | reveal | cliffhanger | setup | null
 
 ### 第 C+1 章: 章名
 ...
 ```
 
-> **格式约束**：每章以 `### 第 N 章` 开头（N 为阿拉伯数字，可选冒号和章名，如 `### 第 5 章: 暗流`），后跟精确的 8 个 `- **Key**:` 行。入口 Skill 通过正则 `/^### 第 (\d+) 章/` 定位并提取对应章节段落，禁止使用自由散文格式。
+> **格式约束**：每章以 `### 第 N 章` 开头（N 为阿拉伯数字，可选冒号和章名，如 `### 第 5 章: 暗流`），后跟精确的 9 个 `- **Key**:` 行；`ExcitementType` 缺失时也应显式写 `null`。入口 Skill 通过正则 `/^### 第 (\d+) 章/` 定位并提取对应章节段落，禁止使用自由散文格式。
 2. `volumes/vol-{V:02d}/storyline-schedule.json` — 本卷故事线调度（active_storylines + interleaving_pattern + convergence_events）
 3. `volumes/vol-{V:02d}/foreshadowing.json` — 本卷伏笔计划（新增 + 上卷延续），每条伏笔含 `id`/`description`/`scope`(`short`|`medium`|`long`)/`status`/`planted_chapter`/`target_resolve_range`/`history`
 4. `volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json` — 每章契约（批量生成，含 storyline_id + storyline_context）

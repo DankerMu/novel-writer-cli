@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { NovelCliError } from "./errors.js";
 import type { Checkpoint } from "./checkpoint.js";
+import { normalizeExcitementType, type ExcitementType } from "./excitement-type.js";
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import { checkHookPolicy } from "./hook-policy.js";
 import { loadPlatformProfile } from "./platform-profile.js";
@@ -113,7 +114,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     };
 
     const outlineAbs = join(args.rootDir, rels.outlineMd);
-    const parseOutlineStorylineIds = async (): Promise<Map<number, string>> => {
+    const parseOutlineChapterMetadata = async (): Promise<Map<number, { storylineId: string; excitementType: ExcitementType | null }>> => {
       const text = await readTextFile(outlineAbs);
       if (text.trim().length === 0) throw new NovelCliError(`Empty outline file: ${rels.outlineMd}`, 2);
 
@@ -163,13 +164,15 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
         "StateChanges",
         "TransitionHint"
       ] as const;
+      const excitementPrefix = "- **ExcitementType**:";
 
-      const storylinesByChapter = new Map<number, string>();
+      const chapterMetadata = new Map<number, { storylineId: string; excitementType: ExcitementType | null }>();
       for (const c of chapters) {
         if (c.chapter < range.start || c.chapter > range.end) continue;
         const blockLines = lines.slice(c.startLine, c.endLine);
         const keyFound = new Set<string>();
         let storylineId: string | null = null;
+        let excitementType: ExcitementType | null = null;
         for (const line of blockLines) {
           for (const k of requiredKeys) {
             const prefix = `- **${k}**:`;
@@ -179,6 +182,18 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
                 const val = line.slice(prefix.length).trim();
                 if (val.length > 0) storylineId = val;
               }
+            }
+          }
+
+          if (line.startsWith(excitementPrefix)) {
+            const rawExcitementType = line.slice(excitementPrefix.length).trim();
+            const normalizedExcitementType = normalizeExcitementType(rawExcitementType);
+            if (normalizedExcitementType === undefined) {
+              warnings.push(
+                `Outline chapter ${c.chapter} has unknown ExcitementType '${rawExcitementType}' in ${rels.outlineMd}; treating as null.`
+              );
+            } else {
+              excitementType = normalizedExcitementType;
             }
           }
         }
@@ -193,10 +208,10 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
         if (!storylineId) {
           throw new NovelCliError(`Invalid outline: chapter ${c.chapter} missing non-empty Storyline value. File: ${rels.outlineMd}`, 2);
         }
-        storylinesByChapter.set(c.chapter, storylineId);
+        chapterMetadata.set(c.chapter, { storylineId, excitementType });
       }
 
-      return storylinesByChapter;
+      return chapterMetadata;
     };
 
     const validateNewCharacters = (raw: unknown): void => {
@@ -225,7 +240,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       }
     };
 
-    const validateSchedule = (raw: unknown, storylinesByChapter: Map<number, string>): void => {
+    const validateSchedule = (raw: unknown, chapterMetadata: Map<number, { storylineId: string; excitementType: ExcitementType | null }>): void => {
       if (!isPlainObject(raw)) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: must be an object.`, 2);
       const obj = raw as Record<string, unknown>;
       const active = obj.active_storylines;
@@ -243,7 +258,8 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       if (activeIds.length > 4) throw new NovelCliError(`Invalid ${rels.storylineScheduleJson}: active_storylines length must be <= 4.`, 2);
       const activeSet = new Set(activeIds);
 
-      for (const [ch, storylineId] of storylinesByChapter.entries()) {
+      for (const [ch, metadata] of chapterMetadata.entries()) {
+        const storylineId = metadata.storylineId;
         if (!activeSet.has(storylineId)) {
           throw new NovelCliError(
             `Invalid volume plan: outline chapter ${ch} Storyline=${storylineId} not in storyline-schedule.json.active_storylines.`,
@@ -264,7 +280,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
       if (!Array.isArray(items)) throw new NovelCliError(`Invalid ${rels.foreshadowingJson}: items must be an array.`, 2);
     };
 
-    const validateContracts = async (storylinesByChapter: Map<number, string>): Promise<void> => {
+    const validateContracts = async (chapterMetadata: Map<number, { storylineId: string; excitementType: ExcitementType | null }>): Promise<void> => {
       for (let ch = range.start; ch <= range.end; ch++) {
         const rel = rels.chapterContractJson(ch);
         const raw = await readJsonFile(join(args.rootDir, rel));
@@ -273,13 +289,23 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
         const chapter = requireNumberField(obj, "chapter", rel);
         if (!Number.isInteger(chapter) || chapter !== ch) throw new NovelCliError(`Invalid ${rel}: chapter=${chapter} expected ${ch}.`, 2);
         const storylineId = requireStringField(obj, "storyline_id", rel).trim();
-        const expectedStorylineId = storylinesByChapter.get(ch) ?? null;
+        const expectedStorylineId = chapterMetadata.get(ch)?.storylineId ?? null;
         if (!expectedStorylineId || storylineId !== expectedStorylineId) {
           throw new NovelCliError(
             `Invalid ${rel}: storyline_id=${storylineId} expected ${expectedStorylineId ?? "(missing in outline)"}.`,
             2
           );
         }
+
+        if (!Object.prototype.hasOwnProperty.call(obj, "excitement_type")) {
+          warnings.push(`Missing optional excitement_type in ${rel}; treating as null.`);
+        } else {
+          const normalizedExcitementType = normalizeExcitementType(obj.excitement_type);
+          if (normalizedExcitementType === undefined) {
+            warnings.push(`Unknown excitement_type '${String(obj.excitement_type)}' in ${rel}; treating as null.`);
+          }
+        }
+
         const objectivesRaw = obj.objectives;
         if (!Array.isArray(objectivesRaw)) throw new NovelCliError(`Invalid ${rel}: objectives must be an array.`, 2);
         const hasRequired = objectivesRaw.some((it) => isPlainObject(it) && (it as Record<string, unknown>).required === true);
@@ -330,10 +356,10 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
 
     await requireVolumePlanArtifacts();
 
-    const storylinesByChapter = await parseOutlineStorylineIds();
+    const chapterMetadata = await parseOutlineChapterMetadata();
 
     const scheduleRaw = await readJsonFile(join(args.rootDir, rels.storylineScheduleJson));
-    validateSchedule(scheduleRaw, storylinesByChapter);
+    validateSchedule(scheduleRaw, chapterMetadata);
 
     // JSON existence + basic schema.
     const foreshadowingRaw = await readJsonFile(join(args.rootDir, rels.foreshadowingJson));
@@ -341,7 +367,7 @@ export async function validateStep(args: { rootDir: string; checkpoint: Checkpoi
     const newCharsRaw = await readJsonFile(join(args.rootDir, rels.newCharactersJson));
     validateNewCharacters(newCharsRaw);
 
-    await validateContracts(storylinesByChapter);
+    await validateContracts(chapterMetadata);
 
     return { ok: true, step: stepId, warnings };
   }

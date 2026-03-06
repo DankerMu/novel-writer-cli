@@ -36,11 +36,14 @@
 4. 规划产物校验（对 `staging/` 下的产物执行；失败则停止并给出修复建议，禁止"缺文件继续写"导致断链）：
    - `outline.md` 可解析：可用 `/^### 第 (\\d+) 章/` 找到章节区块，且连续覆盖 `plan_start..plan_end`（不允许跳章，否则下游契约缺失会导致流水线崩溃）
    - 每个章节区块包含固定 key 行：`Storyline/POV/Location/Conflict/Arc/Foreshadowing/StateChanges/TransitionHint`
+     - 兼容旧大纲时，`ExcitementType` 可作为可选第 9 行；新生成的大纲应显式输出该行（无显式爽点写 `null`）
+     - 若存在 `ExcitementType`，其值必须是 `reversal | face_slap | power_up | reveal | cliffhanger | setup | null`；未知值仅警告并按 `null` 处理，不阻断流水线
      - 允许 `TransitionHint` 值为空；但 key 行必须存在（便于机器解析）
    - `storyline-schedule.json` 可解析（JSON），`active_storylines` ≤ 4，且本卷 `outline.md` 中出现的 `storyline_id` 均属于 `active_storylines`
    - `chapter-contracts/` 全量存在且可解析（JSON），并满足最小一致性检查：
      - `chapter == C`
      - `storyline_id` 与 outline 中 `- **Storyline**:` 一致
+     - `excitement_type` 缺失仅警告并按 `null` 处理；若存在未知值同样仅警告，不阻断流水线
      - `objectives` 至少 1 条 `required: true`
    - 链式传递检查（最小实现）：若 `chapter-{C-1}.json.postconditions.state_changes` 中出现角色 X，则 `chapter-{C}.json.preconditions.character_states` 必须包含 X（值可不同，代表显式覆盖）。对 `plan_start` 章：若 `chapter-{plan_start-1}.json` 不存在（如首卷试写章无契约），跳过该章的链式传递检查，其 preconditions 由 PlotArchitect 从试写摘要派生
    - `foreshadowing.json` 与 `new-characters.json` 均存在且为合法 JSON

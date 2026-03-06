@@ -5,6 +5,7 @@ import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
 import { ensureDir, pathExists, readJsonFile, readTextFile, writeJsonFile, writeTextFile, writeTextFileIfMissing } from "./fs-utils.js";
 import { loadContinuityLatestSummary, tryResolveVolumeChapterRange } from "./consistency-auditor.js";
+import { normalizeExcitementType, type ExcitementType } from "./excitement-type.js";
 import { loadEngagementLatestSummary } from "./engagement.js";
 import { computeForeshadowVisibilityReport, loadForeshadowGlobalItems } from "./foreshadow-visibility.js";
 import { loadGoldenChapterGates, selectGoldenChapterGatesForPlatform } from "./golden-chapter-gates.js";
@@ -54,6 +55,61 @@ function safeEmbedMode(mode: string | null): "off" | "brief" {
   if (!mode) return "off";
   if (mode === "brief") return "brief";
   throw new NovelCliError(`Unsupported --embed mode: ${mode}. Supported: brief`, 2);
+}
+
+async function loadOutlineExcitementType(args: { rootDir: string; volume: number; chapter: number }): Promise<ExcitementType | null | undefined> {
+  const outlineRel = `volumes/vol-${pad2(args.volume)}/outline.md`;
+  const outlineAbs = join(args.rootDir, outlineRel);
+  if (!(await pathExists(outlineAbs))) return null;
+
+  const lines = (await readTextFile(outlineAbs)).split(/\r?\n/u);
+  const headingRe = /^###\s*第\s*(\d+)\s*章/u;
+  const excitementPrefix = "- **ExcitementType**:";
+
+  let startLine = -1;
+  let endLine = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const match = headingRe.exec(lines[i] ?? "");
+    if (!match) continue;
+    const chapter = Number.parseInt(match[1] ?? "", 10);
+    if (chapter !== args.chapter) {
+      if (startLine >= 0) {
+        endLine = i;
+        break;
+      }
+      continue;
+    }
+    startLine = i;
+  }
+
+  if (startLine < 0) return null;
+
+  for (const line of lines.slice(startLine, endLine)) {
+    if (line.startsWith(excitementPrefix)) {
+      return normalizeExcitementType(line.slice(excitementPrefix.length));
+    }
+  }
+  return null;
+}
+
+async function loadChapterExcitementType(args: { rootDir: string; volume: number; chapter: number }): Promise<ExcitementType | null> {
+  const contractRel = `volumes/vol-${pad2(args.volume)}/chapter-contracts/chapter-${pad3(args.chapter)}.json`;
+  const contractAbs = join(args.rootDir, contractRel);
+
+  if (await pathExists(contractAbs)) {
+    try {
+      const raw = await readJsonFile(contractAbs);
+      if (isPlainObject(raw) && Object.prototype.hasOwnProperty.call(raw, "excitement_type")) {
+        const normalized = normalizeExcitementType((raw as Record<string, unknown>).excitement_type);
+        return normalized === undefined ? null : normalized;
+      }
+    } catch {
+      // Fall through to outline-based backward-compatible parsing.
+    }
+  }
+
+  const outlineExcitementType = await loadOutlineExcitementType(args);
+  return outlineExcitementType === undefined ? null : outlineExcitementType;
 }
 
 async function buildReviewInstructionPacket(args: BuildArgs): Promise<Record<string, unknown>> {
@@ -806,6 +862,7 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
 
     // Optional: inject compact continuity summary for LS-001 evidence (non-blocking).
     inline.continuity_report_summary = await loadContinuityLatestSummary(args.rootDir);
+    inline.excitement_type = await loadChapterExcitementType({ rootDir: args.rootDir, volume, chapter: step.chapter });
 
     // Optional: pre-judge guardrails report (title/readability/naming). Non-blocking here; gate engine decides.
     inline.prejudge_guardrails = null;
