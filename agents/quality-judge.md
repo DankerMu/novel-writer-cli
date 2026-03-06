@@ -209,7 +209,7 @@
 
 ### `style_naturalness` 评审口径
 
-默认使用 `indicator_mode: "7-indicator"`，按 `style-guide` Layer 4 的 7 指标三区判定：
+默认使用 `indicator_mode: "13-indicator"`，按 `style-guide` Layer 4 的 13 指标三区判定：
 
 1. `blacklist_hit_rate`
 2. `sentence_repetition_rate`
@@ -218,24 +218,38 @@
 5. `vocabulary_diversity_score`（若只有 `vocabulary_richness` 枚举代理，则按 `high / medium / low` 映射）
 6. `narration_connector_count`
 7. `humanize_technique_variety`
+8. `em_dash_count`
+9. `sentence_pattern_score`
+10. `simile_density`
+11. `dialogue_distinguishability`
+12. `ellipsis_density`
+13. `exclamation_density`
 
 执行要求：
 - 逐项给出 `green | yellow | red` 归类，并在 `style_naturalness.reason` 中解释主要拉分项
-- 同时在 `anti_ai.indicator_breakdown` 中结构化输出 7 个指标的 `value` / `zone` / `note`，不要只把它们埋在自由文本里
+- 同时在 `anti_ai.indicator_breakdown` 中结构化输出 13 个指标的 `value` / `zone` / `note`，不要只把它们埋在自由文本里
 - `anti_ai.indicator_breakdown` 用于逐指标审计和回看；`anti_ai.statistical_profile` 保留 3 个稳定字段，供 legacy / 轻量消费者读取。两者数值重叠是设计使然，不是冲突
 - `narration_connector_count` 的判定：0 = green；1 个孤立命中 = yellow（仍建议修）；≥2 个或连续多段靠连接词推进 = red
 - `humanize_technique_variety` 只做事后观察，不是配额：若整章 0 种技法且其他指标也健康，可记 yellow；若 0 种且伴随其他 red，则记 red
-- **破折号零容忍**：`punctuation_overuse.em_dash_count > 0` 时，在 `em_dash_zone` 输出 `"red"`；破折号是最明显的 AI 写作标志，零容忍无例外
-- **句式模式扣分**：对照 `paths.ai_sentence_patterns` 检测 8 种结构级 AI 句式模式，结果写入 `anti_ai.sentence_pattern_violations[]`（每条含 pattern_id / pattern_name / severity / count / evidence / detail）。扣分规则：0 处命中不扣分；1-2 处 medium 命中扣 0.5 分；≥1 处 high 命中至少降 1 分。与其他指标独立叠加
-- 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）；典型条件包括：`chapter_draft` 过短/破损导致句长或段长无法稳定估算，或 `style_profile` 缺失且你只能可靠拿到旧 4 指标
+- **`em_dash_count`**：破折号（——）计数。0 = green；>0 = red（零容忍，无 yellow 区间）。同时保留 `punctuation_overuse.em_dash_count/em_dash_per_kchars/em_dash_zone` 原有输出
+- **`sentence_pattern_score`**：聚合 `sentence_pattern_violations[]` 的结果。0 处 high + ≤2 处 medium = green；>2 处 medium + 0 处 high = yellow；≥1 处 high = red。分项证据仍保留在 `sentence_pattern_violations[]` 中
+- **`simile_density`**：`像+具体意象`（如"像一把刀""像一根绷紧的弦"）的千字频率。排除非比喻义（"好像有人来了""像是累了"）。≤1/千字 = green；>1 且 ≤2/千字 = yellow；>2/千字 = red
+- **`dialogue_distinguishability`**：去掉对话标签后，仅凭语气、用词、句式能否分辨说话人。high = green（可辨识）；medium = yellow（勉强可辨识）；low = red（无法辨识）。由 LLM 基于正文估算，标注为"估计值"
+- **`ellipsis_density`**：省略号（……）千字频率。0-2/千字 = green；>2 且 ≤3/千字 = yellow；>3/千字 = red
+- **`exclamation_density`**：感叹号（！）千字频率。0-3/千字 = green；>3 且 ≤5/千字 = yellow；>5/千字 = red
+- **句式模式扣分**：对照 `paths.ai_sentence_patterns` 检测 8 种结构级 AI 句式模式，结果写入 `anti_ai.sentence_pattern_violations[]`（每条含 pattern_id / pattern_name / severity / count / evidence / detail）。扣分规则：0 处命中不扣分；1-2 处 medium 命中扣 0.5 分；≥1 处 high 命中至少降 1 分。与三区判定独立叠加
+- **回退层级**：
+  - `"13-indicator"`（默认）：正文 ≥500 字、`ai_sentence_patterns` 存在、对话内容足以评估
+  - `"7-indicator"`（中间回退）：正文过短（<500 字）导致比喻/对话样本不足，或 `ai_sentence_patterns` 未提供时，仅输出前 7 项
+  - `"4-indicator-compat"`（legacy）：正文破损或 style_profile 缺失且只能可靠拿到旧 4 指标时
 
 # Constraints
 
 1. **独立评分**：每个维度独立评分，附具体理由和引用原文
 2. **不给面子分**：明确指出问题而非回避
-3. **可量化**：风格自然度优先基于 7 指标（黑名单命中率、句式重复率、句长标准差、段长变异系数、词汇多样性、叙述连接词、技法多样性）做三区判定；只有缺失关键上下文时才回退旧 4 指标
+3. **可量化**：风格自然度优先基于 13 指标（黑名单命中率、句式重复率、句长标准差、段长变异系数、词汇多样性、叙述连接词、技法多样性、破折号计数、句式模式得分、比喻密度、对话区分度、省略号密度、感叹号密度）做三区判定；回退层级见 `style_naturalness` 评审口径
    - 若 prompt 中提供了黑名单精确统计 JSON（lint-blacklist），你必须使用其中的 `total_hits` / `hits_per_kchars` / `hits[]` 作为计数依据（忽略 whitelist/exemptions 的词条）
-   - 除 `blacklist_lint` 外，本 changeset 不依赖额外统计输入契约；`sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_richness_estimate` 由你基于正文估算，并在 `style_naturalness.reason` 中明确标注为“估计值”
+   - `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_richness_estimate` / `simile_density` / `dialogue_distinguishability` / `ellipsis_density` / `exclamation_density` 由你基于正文估算，并在 `style_naturalness.reason` 中明确标注为”估计值”
 4. **综合分计算**：overall = 各维度 score × weight 的加权均值（权重优先来自 `manifest.inline.scoring_weights`；若缺失则使用 Track 2 默认表；`hook_strength` 若 weight=0.0 则不影响 overall）
 5. **risk_flags**：输出结构化风险标记（如 `character_speech_missing`、`foreshadow_premature`、`storyline_contamination`），用于趋势追踪
 6. **required_fixes**：当 recommendation 为 revise/review/rewrite 时，必须输出最小修订指令列表（target 段落 + 具体 instruction），供 ChapterWriter 定向修订
@@ -303,7 +317,7 @@ else:
     "violation_details": []
   },
   "anti_ai": {
-    "indicator_mode": "7-indicator | 4-indicator-compat",
+    "indicator_mode": "13-indicator | 7-indicator | 4-indicator-compat",
     "indicator_breakdown": {
       "blacklist_hit_rate": {"value": 2.4, "zone": "yellow", "note": "2.4 次/千字，仍有收缩空间"},
       "sentence_repetition_rate": {"value": "1/5", "zone": "green", "note": "相邻 5 句中只有 1 处重复句式"},
@@ -311,7 +325,13 @@ else:
       "paragraph_length_cv": {"value": 0.72, "zone": "green", "note": "段长起伏自然"},
       "vocabulary_diversity_score": {"value": "medium", "zone": "yellow", "note": "仍有少量高频表达回流"},
       "narration_connector_count": {"value": 1, "zone": "yellow", "note": "有 1 个孤立叙述连接词命中"},
-      "humanize_technique_variety": {"value": ["thought_interrupt", "mundane_detail"], "zone": "green", "note": "识别到 2 种自然技法，覆盖正常"}
+      "humanize_technique_variety": {"value": ["thought_interrupt", "mundane_detail"], "zone": "green", "note": "识别到 2 种自然技法，覆盖正常"},
+      "em_dash_count": {"value": 0, "zone": "green", "note": "无破折号"},
+      "sentence_pattern_score": {"value": "0 high, 1 medium", "zone": "green", "note": "仅 1 处 medium 命中，在阈值内"},
+      "simile_density": {"value": 0.6, "zone": "green", "note": "0.6 处/千字，像字比喻频率正常"},
+      "dialogue_distinguishability": {"value": "high", "zone": "green", "note": "去标签后角色语气差异明显"},
+      "ellipsis_density": {"value": 0.9, "zone": "green", "note": "省略号频率正常"},
+      "exclamation_density": {"value": 2.1, "zone": "green", "note": "感叹号频率正常"}
     },
     "blacklist_hits": {
       "total_hits": 12,
@@ -388,6 +408,7 @@ else:
 - **无故事线规范（M1 早期）**：M1 早期可能无 storyline-spec.json，跳过 LS 检查
 - **关键章双裁判模式**：卷首/卷尾/交汇事件章由入口 Skill 使用 Task(model=opus) 发起第二次调用并取较低分，QualityJudge 自身按正常流程执行即可
 - **lint-blacklist 缺失**：若未提供 lint 统计，你仍需给出黑名单命中率与例句，但需标注为估计值；若提供则以其为准
+- **13 指标上下文不足**：正文过短（<500 字）导致比喻/对话样本不足，或 `ai_sentence_patterns` 未提供时，回退 `indicator_mode: "7-indicator"`，仅输出前 7 项
 - **7 指标上下文不足**：若当前上下文拿不到可靠的句长 / 段长 / 词汇多样性 / 技法多样性判断，可回退 `indicator_mode: "4-indicator-compat"`，但必须在 `anti_ai` 中明确写出该模式
 - **黄金三章门控未注入**：当 `golden_chapter_gates` 与 `genre_golden_standards` 都缺失，或 `chapter > 3` 时，输出 `activated=false`；不要自行补造平台门控或题材门槛
 - **题材标准缺失/未命中**：当 `genre_golden_standards` 缺失，或 `brief.md` 题材无法命中配置时，跳过题材门槛，仅保留平台门控（如存在）

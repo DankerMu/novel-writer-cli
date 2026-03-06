@@ -400,26 +400,36 @@ StyleRefiner 默认按 §2.12 的四步流程执行，并额外遵守：
 
 ## Layer 4: 检测度量（QualityJudge）
 
-### 风格自然度三区判定（7 指标）
+### 风格自然度三区判定（13 指标）
 
-| 指标 | green（人类范围） | yellow（边界） | red（AI 特征） |
-|------|------------------|----------------|----------------|
-| `blacklist_hit_rate` | 0-1 次/千字 | 1-3 次/千字 | >3 次/千字 |
-| `sentence_repetition_rate` | 相邻 5 句中 0-1 个重复句式 | 相邻 5 句中 2 个重复句式 | 相邻 5 句中 ≥3 个重复句式 |
-| `sentence_length_std_dev` | 8-18，或落在 style-profile 目标附近 | 6-8 或 18-24 | <6（过匀） |
-| `paragraph_length_cv` | 0.4-1.2，或落在 style-profile 目标附近 | 0.3-0.4 或 1.2-1.5 | <0.3（过匀） |
-| `vocabulary_diversity_score` | 当前仅有枚举时 `vocabulary_richness=high`；若未来提供数值字段，则 ≥0.45 | 当前仅有枚举时 `medium`；若未来提供数值字段，则 0.35-0.45 | 当前仅有枚举时 `low`；若未来提供数值字段，则 <0.35 |
-| `narration_connector_count` | 0 | 1 个孤立命中（仍应改写） | ≥2 个，或连续多段靠连接词推进 |
-| `humanize_technique_variety` | 单章自然出现 ≥1 种不同技法，且无刷项感 | 0，且其余指标未出现 red（不阻断，但提示检查是否过匀） | 0，且同时伴随至少 1 项句式/连接词等其它 red |
+| # | 指标 | green（人类范围） | yellow（边界） | red（AI 特征） |
+|---|------|------------------|----------------|----------------|
+| 1 | `blacklist_hit_rate` | 0-1 次/千字 | 1-3 次/千字 | >3 次/千字 |
+| 2 | `sentence_repetition_rate` | 相邻 5 句中 0-1 个重复句式 | 相邻 5 句中 2 个重复句式 | 相邻 5 句中 ≥3 个重复句式 |
+| 3 | `sentence_length_std_dev` | 8-18，或落在 style-profile 目标附近 | 6-8 或 18-24 | <6（过匀） |
+| 4 | `paragraph_length_cv` | 0.4-1.2，或落在 style-profile 目标附近 | 0.3-0.4 或 1.2-1.5 | <0.3（过匀） |
+| 5 | `vocabulary_diversity_score` | 当前仅有枚举时 `vocabulary_richness=high`；若未来提供数值字段，则 ≥0.45 | 当前仅有枚举时 `medium`；若未来提供数值字段，则 0.35-0.45 | 当前仅有枚举时 `low`；若未来提供数值字段，则 <0.35 |
+| 6 | `narration_connector_count` | 0 | 1 个孤立命中（仍应改写） | ≥2 个，或连续多段靠连接词推进 |
+| 7 | `humanize_technique_variety` | 单章自然出现 ≥1 种不同技法，且无刷项感 | 0，且其余指标未出现 red（不阻断，但提示检查是否过匀） | 0，且同时伴随至少 1 项句式/连接词等其它 red |
+| 8 | `em_dash_count` | 0 | （无 yellow） | >0（零容忍） |
+| 9 | `sentence_pattern_score` | 0 处 high + ≤2 处 medium | >2 处 medium + 0 处 high | ≥1 处 high 命中 |
+| 10 | `simile_density` | ≤1 处/千字 | >1 且 ≤2 处/千字 | >2 处/千字 |
+| 11 | `dialogue_distinguishability` | high（去标签后可辨识） | medium（勉强可辨识） | low（无法辨识） |
+| 12 | `ellipsis_density` | 0-2 处/千字 | >2 且 ≤3 处/千字 | >3 处/千字 |
+| 13 | `exclamation_density` | 0-3 处/千字 | >3 且 ≤5 处/千字 | >5 处/千字 |
 
 > `vocabulary_diversity` 是方法名，`vocabulary_richness` 是现行 style-profile 字段，`vocabulary_diversity_score` 是 Layer 4 观测指标名；三者指向同一维度的不同层名。
 > `humanize_technique_variety` 是复合条件指标，也是事后观察指标，不是生成配额；不要为了把分数刷到 green，机械往章节里塞技法。
-> green 表示“仍在人类可接受范围”，不等于旧 5 分制的满分；若沿用 Legacy Fallback 或旧 `quality-rubric` 打满分，`blacklist_hit_rate` 仍建议压到 0 次/千字。
+> `em_dash_count` 无 yellow 区间：破折号是最明显的 AI 写作标志，只要出现即为 red。
+> `sentence_pattern_score` 聚合自 `sentence_pattern_violations[]`；分项证据仍保留在独立数组中。
+> `simile_density` 仅计 `像+具体意象`（如”像一把刀”），排除非比喻义（”好像有人来了””像是累了”）。
+> `dialogue_distinguishability` 由 LLM 基于”去掉对话标签后，仅凭语气/用词/句式能否分辨说话人”进行估算。
+> green 表示”仍在人类可接受范围”，不等于旧 5 分制的满分；若沿用 Legacy Fallback 或旧 `quality-rubric` 打满分，`blacklist_hit_rate` 仍建议压到 0 次/千字。
 
 建议映射：
 - 全 green → 5 分
-- 1-2 个 yellow，余下为 green → 4 分
-- 3 个及以上 yellow，或恰好 1 个 red → 3 分
+- 1-3 个 yellow，余下为 green → 4 分
+- 4 个及以上 yellow，或恰好 1 个 red → 3 分
 - 2-3 个 red → 2 分
 - 4 个及以上 red → 1 分
 
@@ -437,9 +447,9 @@ StyleRefiner 默认按 §2.12 的四步流程执行，并额外遵守：
 
 ### 升级提示
 
-- 旧项目若还没有新的统计字段，可先继续使用 `vocabulary_richness` 等枚举代理，并在无法取得 7 指标时回退到 Legacy Fallback
+- 旧项目若还没有新的统计字段，可先继续使用 `vocabulary_richness` 等枚举代理，并在无法取得 13 指标时回退到 7 指标或 Legacy Fallback
+- 回退层级：`13-indicator`（默认）→ `7-indicator`（正文过短或 `ai_sentence_patterns` 缺失时）→ `4-indicator-compat`（正文破损或 style_profile 缺失时）
 - 现有章节不需要立刻整库重评；从下次重跑 StyleAnalyzer、StyleRefiner、QualityJudge 时逐步补齐即可
-- 本次变更只更新方法论基线；`agents/style-refiner.md`、`agents/quality-judge.md` 等消费方定义仍按后续 CS-A3 / CS-A4 changeset 跟进
 
 ### 黑名单维护机制
 
