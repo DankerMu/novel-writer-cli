@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement 1: L3 chapter contracts SHALL support an optional `excitement_type` field
+### Requirement: L3 chapter contracts SHALL support an optional `excitement_type` field
 
 L3 chapter contracts SHALL support an optional `excitement_type` field with enum values: `reversal | face_slap | power_up | reveal | cliffhanger | setup | null`.
 
@@ -22,7 +22,7 @@ When the field is absent, it SHALL be treated as `null`. Unknown values SHALL tr
 
 ---
 
-### Requirement 2: PlotArchitect SHALL assign `excitement_type` when generating chapter outlines
+### Requirement: PlotArchitect SHALL assign `excitement_type` when generating chapter outlines
 
 PlotArchitect SHALL assign an `excitement_type` value for each chapter when generating volume outlines. The outline format SHALL include an `ExcitementType` line as the 9th item.
 
@@ -37,7 +37,7 @@ PlotArchitect SHALL assign an `excitement_type` value for each chapter when gene
 
 ---
 
-### Requirement 3: QualityJudge pacing evaluation SHALL adapt based on `excitement_type`
+### Requirement: QualityJudge pacing evaluation SHALL adapt based on `excitement_type`
 
 QualityJudge Track 2 pacing dimension SHALL use differentiated evaluation criteria based on the chapter's `excitement_type`. The evaluation output SHALL include `excitement_type` and `excitement_landing` fields in the eval JSON.
 
@@ -70,7 +70,7 @@ QualityJudge Track 2 pacing dimension SHALL use differentiated evaluation criter
 
 ---
 
-### Requirement 4: Continue skill SHALL parse and inject excitement_type into QualityJudge manifest
+### Requirement: Continue skill SHALL parse and inject excitement_type into QualityJudge manifest
 
 The continue skill SHALL parse the optional `ExcitementType` line from chapter outlines and inject the value into the QualityJudge evaluation manifest.
 

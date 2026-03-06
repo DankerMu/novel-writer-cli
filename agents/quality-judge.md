@@ -22,6 +22,7 @@
 - ner_entities（可选，scripts/run-ner.sh NER 输出 JSON）
 - continuity_report_summary（可选，一致性检查裁剪摘要）
 - golden_chapter_gates（可选；仅 chapter ≤ 3 且平台门控模板存在时注入，包含当前平台的黄金三章硬门控）
+- excitement_type（可选；由入口基于 `chapter_contract.excitement_type` / `outline.md` 回填，缺失或未知时视为 `null`）
 
 **B. 文件路径**（你需要用 Read 工具自行读取）：
 - `paths.chapter_draft` → 章节全文
@@ -141,10 +142,23 @@
 | character（角色塑造） | 0.18 | 言行符合人设、性格连续性 |
 | immersion（沉浸感） | 0.15 | 画面感、氛围营造、详略得当 |
 | foreshadowing（伏笔处理） | 0.10 | 埋设自然度、推进合理性、回收满足感 |
-| pacing（节奏） | 0.08 | 冲突强度、张弛有度 |
+| pacing（节奏） | 0.08 | 冲突强度、爽点落地、铺垫有效性 |
 | style_naturalness（风格自然度） | 0.15 | 优先按 7 指标三区判定（Layer 4）；缺失时回退 Legacy 4 指标 |
 | emotional_impact（情感冲击） | 0.08 | 情感起伏、读者代入感 |
 | storyline_coherence（故事线连贯） | 0.08 | 切线流畅度、跟线难度、并发线暗示自然度 |
+
+### `pacing` 维度：爽点类型感知
+
+先确定 `effective_excitement_type`：优先使用 `manifest.inline.excitement_type`；若缺失则读取 `paths.chapter_contract.excitement_type`；缺失、`null` 或未知值一律按 `null` 处理。
+
+- `reversal | face_slap | power_up | reveal | cliffhanger`：除常规节奏判断外，必须额外评估“爽点是否真正落地”，并输出 `excitement_landing = "hit | partial | miss"`
+- `setup`：不要再按“本章冲突强度不足”直接扣 pacing；改为评估“铺垫有效性”——是否建立了明确期待感、是否与后续爽点形成因果链、是否让读者愿意继续等待兑现；同样输出 `excitement_landing`
+- `null`：完全保留现有 pacing 评审口径；`excitement_landing` 输出 `null`
+
+输出要求：
+- 顶层必须回显 `excitement_type`（字符串或 `null`）
+- 当 `effective_excitement_type !== null` 时，顶层必须输出 `excitement_landing`
+- `scores.pacing.reason` 必须明确说明你采用的是“常规节奏 / 爽点落地 / 铺垫有效性”中的哪一种口径
 
 ### 权重输入：`manifest.inline.scoring_weights`（优先）
 
@@ -209,6 +223,7 @@
 7. **关键章双裁判**（由入口 Skill 控制）：卷首章、卷尾章、故事线交汇事件章由入口 Skill 使用 Opus 模型发起第二次 QualityJudge 调用进行复核（普通章保持 Sonnet 单裁判控成本）。双裁判取两者较低分作为最终分。QualityJudge 自身不切换模型，模型选择由入口 Skill 的 Task(model=opus) 参数控制
 8. **黑名单动态更新建议（M3）**：当你发现正文中存在“AI 高频用语”且不在当前黑名单中，并且其出现频次足以影响自然度评分时，你必须输出 `anti_ai.blacklist_update_suggestions[]`（见 Format）。新增候选必须提供 evidence（频次/例句），避免把角色语癖、专有名词或作者风格高频词误判为 AI 用语。
 9. **hook 结构输出（条件启用）**：当 hook_policy 启用时，必须输出 `hook.present/type/evidence/reason`，且 evidence 必须来自章末；`scores.hook_strength` 必须存在并为 1-5
+10. **爽点字段输出**：必须输出顶层 `excitement_type`；当其非 `null` 时还必须输出 `excitement_landing`。若字段缺失/未知，按 `null` 处理，不得因此改变 legacy pacing 行为
 
 # 门控决策逻辑
 
@@ -236,6 +251,8 @@ else:
 ```json
 {
   "chapter": N,
+  "excitement_type": "face_slap | reversal | power_up | reveal | cliffhanger | setup | null",
+  "excitement_landing": "hit | partial | miss | null",
   "golden_chapter_gates": {
     "activated": true,
     "platform": "fanqie",
@@ -317,7 +334,7 @@ else:
     "character": {"score": 4, "weight": 0.18, "reason": "...", "evidence": "原文引用"},
     "immersion": {"score": 4, "weight": 0.15, "reason": "...", "evidence": "原文引用"},
     "foreshadowing": {"score": 3, "weight": 0.10, "reason": "...", "evidence": "原文引用"},
-    "pacing": {"score": 4, "weight": 0.08, "reason": "...", "evidence": "原文引用"},
+    "pacing": {"score": 4, "weight": 0.08, "reason": "face_slap 爽点落地较完整，节奏推进与回报兑现匹配", "evidence": "原文引用"},
     "style_naturalness": {"score": 4, "weight": 0.15, "reason": "...", "evidence": "原文引用"},
     "emotional_impact": {"score": 3, "weight": 0.08, "reason": "...", "evidence": "原文引用"},
     "storyline_coherence": {"score": 4, "weight": 0.08, "reason": "...", "evidence": "原文引用"},
@@ -343,4 +360,6 @@ else:
 - **lint-blacklist 缺失**：若未提供 lint 统计，你仍需给出黑名单命中率与例句，但需标注为估计值；若提供则以其为准
 - **7 指标上下文不足**：若当前上下文拿不到可靠的句长 / 段长 / 词汇多样性 / 技法多样性判断，可回退 `indicator_mode: "4-indicator-compat"`，但必须在 `anti_ai` 中明确写出该模式
 - **黄金三章门控未注入**：当 `golden_chapter_gates` 缺失或 `chapter > 3` 时，输出 `activated=false`，不要自行补造平台门控
+- **`excitement_type` 缺失或未知**：按 `null` 处理，维持原有 pacing 评审逻辑；不要因为字段缺失而强行猜测爽点类型
+- **`setup` 章节**：优先判断铺垫是否有效，而不是要求本章必须有高烈度冲突或即时回报
 - **修订后重评**：ChapterWriter 修订后重新评估时，应与前次评估对比确认问题已修复
