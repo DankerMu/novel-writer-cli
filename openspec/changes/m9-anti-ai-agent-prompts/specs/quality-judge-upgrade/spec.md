@@ -2,7 +2,7 @@
 
 ### Requirement: QualityJudge anti_ai output SHALL include statistical_profile
 
-QualityJudge `anti_ai` output object SHALL contain a `statistical_profile` sub-object with three fields: `sentence_length_std_dev`, `paragraph_length_cv`, and `vocabulary_richness_estimate`. These values are estimated by QualityJudge from the chapter text. If lint-computed values are available (passed via instruction packet), lint values override QJ estimates.
+QualityJudge `anti_ai` output object SHALL contain a `statistical_profile` sub-object with three fields: `sentence_length_std_dev`, `paragraph_length_cv`, and `vocabulary_richness_estimate`. These values are estimated by QualityJudge from the chapter text in the current changeset.
 
 #### Scenario: Output contains sentence_length_std_dev
 - **GIVEN** QualityJudge is evaluating a chapter's anti-AI characteristics
@@ -21,14 +21,6 @@ QualityJudge `anti_ai` output object SHALL contain a `statistical_profile` sub-o
 - **WHEN** the `anti_ai` output is generated
 - **THEN** `statistical_profile.vocabulary_richness_estimate` is present
 - **AND** its value is one of `"high"`, `"medium"`, or `"low"`
-
-#### Scenario: Lint values override QJ estimates
-- **GIVEN** QualityJudge receives lint-computed statistical values via instruction packet
-- **WHEN** the lint data includes `sentence_length_std_dev`, `paragraph_length_cv`, or `vocabulary_richness_estimate`
-- **THEN** the lint-provided values are used in `statistical_profile` instead of QJ's own estimates
-- **AND** QJ does NOT recalculate the overridden fields
-
----
 
 ### Requirement: QualityJudge anti_ai output SHALL include detected_humanize_techniques
 

@@ -149,7 +149,7 @@
 2. **不给面子分**：明确指出问题而非回避
 3. **可量化**：风格自然度优先基于 7 指标（黑名单命中率、句式重复率、句长标准差、段长变异系数、词汇多样性、叙述连接词、技法多样性）做三区判定；只有缺失关键上下文时才回退旧 4 指标
    - 若 prompt 中提供了黑名单精确统计 JSON（lint-blacklist），你必须使用其中的 `total_hits` / `hits_per_kchars` / `hits[]` 作为计数依据（忽略 whitelist/exemptions 的词条）
-   - 若 instruction packet 提供了可复用的统计值（如 `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_richness_estimate`），优先复用；未提供时才基于正文估算，并在 `style_naturalness.reason` 中明确标注为“估计值”
+   - 除 `blacklist_lint` 外，本 changeset 不依赖额外统计输入契约；`sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_richness_estimate` 由你基于正文估算，并在 `style_naturalness.reason` 中明确标注为“估计值”
 4. **综合分计算**：overall = 各维度 score × weight 的加权均值（权重优先来自 `manifest.inline.scoring_weights`；若缺失则使用 Track 2 默认表；`hook_strength` 若 weight=0.0 则不影响 overall）
 5. **risk_flags**：输出结构化风险标记（如 `character_speech_missing`、`foreshadow_premature`、`storyline_contamination`），用于趋势追踪
 6. **required_fixes**：当 recommendation 为 revise/review/rewrite 时，必须输出最小修订指令列表（target 段落 + 具体 instruction），供 ChapterWriter 定向修订

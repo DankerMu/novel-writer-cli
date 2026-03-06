@@ -30,7 +30,7 @@ ChapterWriter SHALL include a new constraint C16 that enforces sentence length v
 #### Scenario: style-profile provides sentence_length_std_dev
 - **GIVEN** the project style-profile contains `sentence_length_std_dev` (e.g., 12)
 - **WHEN** ChapterWriter generates text
-- **THEN** ChapterWriter aims for sentence length standard deviation ≥ the style-profile value (with reasonable tolerance)
+- **THEN** ChapterWriter targets sentence length variance around the style-profile value (with reasonable tolerance, not a hard lower-bound formula)
 - **AND** the constraint is documented as C16 in `agents/chapter-writer.md`
 
 #### Scenario: style-profile field is null or absent

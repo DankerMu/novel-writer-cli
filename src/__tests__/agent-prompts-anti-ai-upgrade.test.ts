@@ -99,6 +99,12 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+
+  assert.equal(
+    prompt.includes("若 instruction packet 提供了可复用的统计值"),
+    false,
+    "quality-judge prompt must not mention unsupported external statistical override inputs"
+  );
 });
 
 test("issue 138 OpenSpec artifacts include style-refiner spec and no stale concept.md reference", async () => {
@@ -110,6 +116,16 @@ test("issue 138 OpenSpec artifacts include style-refiner spec and no stale conce
 
   assert.equal(tasks.includes("concept.md"), false, "tasks.md must use brief-based type override wording");
   assert.equal(design.includes("不修改 StyleRefiner"), false, "design.md must not contradict StyleRefiner scope");
+  assert.equal(
+    qualityJudgeSpec.includes("lint values override QJ estimates"),
+    false,
+    "quality-judge spec must not promise unsupported statistical override inputs"
+  );
+  assert.equal(
+    chapterWriterSpec.includes("≥ the style-profile value"),
+    false,
+    "chapter-writer spec must not overstate C16 as a hard lower bound"
+  );
   assert.match(styleRefinerSpec, /Step 1 through Step 4 appear in order/);
   assert.match(qualityJudgeSpec, /structural_rule_violations/);
   assert.match(chapterWriterSpec, /ChapterWriter SHALL enforce dialogue-intent constraints/);
