@@ -41,7 +41,7 @@
 ## 5. Genre Override Mechanism (§2.11)
 
 - [x] 5.1 Add new §2.11 section header "类型覆写机制"
-- [x] 5.2 Define genre override source: `concept.md` "类型覆写" section or `brief.md` 题材字段
+- [x] 5.2 Define genre override source: explicit "类型覆写" notes in `brief.md`, or fall back to the `brief.md` 题材字段
 - [x] 5.3 Document override table for 4 genres:
   - 科幻: 单句段15-30%, 每段可到120字, 感叹号≤5/章, 抽象空词"难以形容/不可名状"每章≤2处
   - 悬疑: 单句段20-35%, 更强调断点, 省略号可到≤8/章
@@ -52,9 +52,9 @@
 ## 6. Polish Execution Flow (§2.12) + Quick Checklist (§2.13)
 
 - [x] 6.1 Add new §2.12 section header "润色执行流程"
-- [x] 6.2 Document Step 1: 黑名单扫描 — cross-reference 10 categories, decision criteria (角色对话中合理使用→保留 / 首次出现不可替代→保留 / 其他→替换)
+- [x] 6.2 Document Step 1: 黑名单扫描 — cross-reference all 14 categories in `ai-blacklist.json`, decision criteria (角色对话中合理使用→保留 / 首次出现不可替代→保留 / 其他→替换)
 - [x] 6.3 Document Step 2: 结构规则检查 — 6-layer checklist (模板句式 / 形容词密度 / 四字词组 / 对话意图 / 段落长短 / 标点频次)
-- [x] 6.4 Document Step 3: 抽象→具体转换 — "感到XX"→身体反应 / "非常/极其"→具体程度 / "难以形容"→努力形容 / 通用比喻→专属意象
+- [x] 6.4 Document Step 3: 抽象转具体 — "感到XX"→身体反应 / "非常/极其"→具体程度 / "难以形容"→努力形容 / 通用比喻→专属意象
 - [x] 6.5 Document Step 4: 节奏朗读测试 — check 3+ consecutive same-rhythm sentences / logic connector pileup / overlong descriptions
 - [x] 6.6 Add new §2.13 section header "快速检查清单"
 - [x] 6.7 Document 5-item minimum checklist: 四字词组连用 / 情绪直述("感到XX") / 微微系列 / 缓缓系列 / 标点过度
