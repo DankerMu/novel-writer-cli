@@ -22,7 +22,7 @@ Style guide（`skills/novel-writing/references/style-guide.md`）是整个反 AI
 - 提供 12 种人性化技法工具箱，覆盖认知/感官/语言/情感/结构 5 个维度，使用随机采样而非固定数量
 - 引入 6 层结构规则体系（from `anti-ai-polish.md`）：反模板句式、形容词密度、四字词组密度、对话意图、段落结构、标点节奏，含具体量化阈值
 - 引入类型覆写机制：科幻/悬疑/恐怖/言情可覆写段落结构和标点节奏参数（标注 `⚙️ 可覆写` 的规则）
-- 定义 4 步标准化润色执行流程（黑名单扫描→结构检查→抽象→具体→节奏测试）+ 5 项快速检查清单
+- 定义 4 步标准化润色执行流程（黑名单扫描→结构检查→抽象转具体→节奏测试）+ 5 项快速检查清单
 - 将 Layer 4 从 4 指标 5 分制表格扩展为 7 指标三区（green/yellow/red）判定，更直观且与统计范围对齐
 
 **Non-Goals:**
@@ -42,34 +42,36 @@ Style guide（`skills/novel-writing/references/style-guide.md`）是整个反 AI
 3) **6 层结构规则体系（from anti-ai-polish.md）**
    - **为什么需要 6 层**：词汇黑名单（Layer 1-2）只解决"用了什么词"的问题，不解决"如何组织句子和段落"。四字词组连用、段落长度均匀、标点过度使用是 AI 写作最明显的结构性特征，需要独立的规则层来约束。
    - **量化阈值来源**：阈值基于网文平台（番茄为基线）的人类作者统计分布，由 `anti-ai-polish.md` 研究提供。
-   - **可覆写原则**：标注 `⚙️ 可覆写` 的规则支持按体裁调整——科幻允许更长段落（到 120 字），恐怖允许更多单句段（到 50%），悬疑允许更多省略号（到 8 个/章）。覆写值从 `concept.md` 的"类型覆写"节或 `platform-profile.json` 的 genre 字段读取。
+   - **可覆写原则**：标注 `⚙️ 可覆写` 的规则支持按体裁调整——科幻允许更长段落（到 120 字），恐怖允许更多单句段（到 50%），悬疑允许更多省略号（到 8 个/章）。覆写值优先从 `brief.md` 中显式写出的“类型覆写”说明读取，缺失时回退到题材字段。
 
 4) **对话意图系统**
    - 每句对话必须有至少一种意图标签（试探/回避/施压/诱导/挑衅/敷衍/传达信息/请求/承诺/拒绝等）。这不是机械标注——是写作检查项：如果一句对话找不到意图，说明它是填充对话，应删除或重写。
    - 三条硬性禁令：(a) 对话中使用书面表达（除非角色身份要求），(b) 对话与叙述重复（刚描写完的事件角色又口述一遍），(c) 所有角色语气同质化（去掉对话标签应能区分说话人）。
 
 5) **4 步润色执行流程**
-   - 定义 StyleRefiner 的标准化执行顺序：黑名单扫描（按 10 类对照）→ 结构规则检查（6 层逐项）→ 抽象→具体转换（情绪直述→身体反应，通用比喻→专属意象）→ 节奏朗读测试（检测连续同节奏、逻辑词堆砌、描写过长）。
+   - 定义 StyleRefiner 的标准化执行顺序：黑名单扫描（按 `ai-blacklist.json` 全量 14 个 categories 对照）→ 结构规则检查（6 层逐项）→ 抽象转具体（情绪直述→身体反应，通用比喻→专属意象）→ 节奏朗读测试（检测连续同节奏、逻辑词堆砌、描写过长）。
    - 快速检查清单（时间有限时的 5 项最小集）：四字词组连用 / 情绪直述 / 微微系列 / 缓缓系列 / 标点过度。
 
 3) **Layer 4 从 5 分制改为三区判定**
    - 5 分制表格存在两个问题：(a) 阈值固定，不同风格的合理范围不同；(b) 整数评分粒度太粗。三区判定（green=人类范围 / yellow=边界 / red=AI 特征）更直观，且每个区间可以是范围而非精确阈值，与统计分布自然对齐。
 
 4) **style-profile 优先，通用默认兜底**
-   - 6 维度的目标范围优先从 style-profile.json 的统计字段读取（CS-A1 新增的 `sentence_length_std_dev`、`paragraph_length_cv` 等）。当 style-profile 缺失这些字段时（旧项目未跑过 CS-A1 的 StyleAnalyzer），使用基于人类写作语料统计的通用默认范围。
+   - 6 维度的目标范围优先从 style-profile.json 已落地的顶层字段读取（CS-A1 当前使用平铺 schema，而非嵌套 `statistical.*` 对象），例如 `sentence_length_std_dev`、`paragraph_length_cv`、`register_mixing`、`emotional_volatility`。
+   - `narration_connectors` 当前没有独立统计字段，使用 `writing_directives` + 黑名单类别作为代理锚点；`vocabulary_diversity` 在数值字段缺失时使用 `vocabulary_richness` 作为枚举代理。
+   - 当 style-profile 缺失这些字段时（旧项目未跑过 CS-A1 的 StyleAnalyzer），使用基于人类写作语料统计的通用默认范围或枚举目标。
 
 5) **向后兼容：4 指标降级模式**
    - 如果某次检测只能获取旧的 4 个指标（例如检测脚本尚未升级），Layer 4 退回使用旧的 5 分制评分表。新旧表并存于 style-guide 中，明确标注适用条件。
 
 ## Risks / Trade-offs
 
-- [Medium] 去配额化可能导致某些章节完全没有人性化技法 → **Mitigation**: QualityJudge 的 `humanize_technique_variety` 指标检测到 0 时给出 yellow 提示（不阻断生成，但提醒 StyleRefiner 注意）。这在 CS-A4 中实现，本 changeset 仅在方法论层面定义指标含义。
+- [Medium] 去配额化可能导致某些章节完全没有人性化技法 → **Mitigation**: QualityJudge 的 `humanize_technique_variety` 指标检测到 0 时给出 yellow 提示（不阻断生成，但提醒 StyleRefiner 注意）；只有与其他红区指标叠加时才升级为 red。这在 CS-A4 中实现，本 changeset 仅在方法论层面定义指标含义。
 - [Low] 12 种技法可能不够用 → **Mitigation**: 工具箱设计为可扩展列表，未来可追加新技法。当前 12 种已覆盖文学理论中的主流人性化手段。
 - [Low] 三区判定的阈值设定可能需要校准 → **Mitigation**: 初始阈值基于人类写作语料统计（参考文献中的均值 ± 1σ / ± 2σ），后续可通过 `calibrate-quality-judge.sh` 回归运行微调。
 
 ## Migration Plan
 
-`style-guide.md` 直接覆盖更新，无数据迁移需求。Agent prompt 中引用 style-guide section 编号的地方需在 CS-A3 中同步更新（§2.3 语义变化、新增 §2.8 和 §2.9）。
+`style-guide.md` 直接覆盖更新，但旧项目可分阶段升级：没有新统计字段时先使用枚举代理与 Legacy Fallback；无需立即整库重评历史章节；Agent prompt 与 QualityJudge 输出字段仍在后续 CS-A3 / CS-A4 中同步更新（§2.3 语义变化、新增 §2.8 和 §2.9）。
 
 ## References
 

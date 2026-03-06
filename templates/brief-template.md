@@ -32,6 +32,11 @@
 - **参考作品**：{reference_works}
 - **风格样本来源**：{style_source}（original / reference / template / write_then_extract）
 
+## 类型覆写（可选）
+
+- **覆写说明**：{genre_override_notes}
+- **示例**：悬疑可放宽省略号上限；科幻可放宽段落长度；未填写时默认按题材字段使用系统默认值
+
 ## 读者画像
 
 - **目标平台**：{platform}
