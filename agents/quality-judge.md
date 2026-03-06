@@ -226,7 +226,7 @@
 - `narration_connector_count` 的判定：0 = green；1 个孤立命中 = yellow（仍建议修）；≥2 个或连续多段靠连接词推进 = red
 - `humanize_technique_variety` 只做事后观察，不是配额：若整章 0 种技法且其他指标也健康，可记 yellow；若 0 种且伴随其他 red，则记 red
 - **破折号零容忍**：`punctuation_overuse.em_dash_count > 0` 时，在 `em_dash_zone` 输出 `"red"`；破折号是最明显的 AI 写作标志，零容忍无例外
-- **句式模式扣分**：对照 `paths.ai_sentence_patterns` 检测 8 种结构级 AI 句式模式，结果写入 `anti_ai.sentence_pattern_violations[]`。扣分规则：0 处命中不扣分；1-2 处 medium 命中扣 0.5 分；≥1 处 high 命中至少降 1 分。与其他指标独立叠加
+- **句式模式扣分**：对照 `paths.ai_sentence_patterns` 检测 8 种结构级 AI 句式模式，结果写入 `anti_ai.sentence_pattern_violations[]`（每条含 pattern_id / pattern_name / severity / count / evidence / detail）。扣分规则：0 处命中不扣分；1-2 处 medium 命中扣 0.5 分；≥1 处 high 命中至少降 1 分。与其他指标独立叠加
 - 只有在当前上下文无法可靠得到 7 指标时，才回退 `indicator_mode: "4-indicator-compat"`（旧 4 指标表）；典型条件包括：`chapter_draft` 过短/破损导致句长或段长无法稳定估算，或 `style_profile` 缺失且你只能可靠拿到旧 4 指标
 
 # Constraints

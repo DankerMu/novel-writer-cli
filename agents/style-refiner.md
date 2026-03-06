@@ -89,7 +89,7 @@
 
 **2. 修改日志 JSON**
 
-其中 `changes[].reason` 仅使用以下值之一：`blacklist` / `structural_rule` / `abstract_to_concrete` / `rhythm_test` / `style_match`
+其中 `changes[].reason` 仅使用以下值之一：`blacklist` / `structural_rule` / `abstract_to_concrete` / `rhythm_test` / `style_match` / `sentence_pattern`
 
 ```json
 {

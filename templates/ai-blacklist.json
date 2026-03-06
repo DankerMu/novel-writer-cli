@@ -224,7 +224,15 @@
     "让人难以置信",
     "不可思议",
     "难以想象",
-    "各种各样"
+    "各种各样",
+    "像一把刀",
+    "像一根绷紧的弦",
+    "像被什么扼住",
+    "像是要燃烧起来",
+    "像潮水一样涌来",
+    "像针扎一样",
+    "像一块石头",
+    "像触电一样"
   ],
   "categories": {
     "summary_word": [
@@ -539,7 +547,7 @@
         "date": "2026-03-05",
         "version": "2.0.0",
         "description": "扩展黑名单至 200+ 词（对齐 anti-ai-polish 10 类），新增 max_words/replacement_hint/per_chapter_max/category_metadata（narration_only/genre_override）。",
-        "words_count": 221
+        "words_count": 229
       }
     ]
   }
