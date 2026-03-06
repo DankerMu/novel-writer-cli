@@ -237,6 +237,9 @@ function selectFallbackCharacterCandidates(candidates: CharacterCandidate[], opt
 
   const plannedCandidates = nonDeprecatedCandidates.filter((candidate) => candidate.canonStatus === "planned");
   const activeCandidates = nonDeprecatedCandidates.filter((candidate) => candidate.canonStatus !== "planned");
+  // Fallback uses a shared 15-slot budget across active + planned candidates.
+  // Planned entries go first so future-facing foreshadowing survives truncation;
+  // explicit chapter-contract matches bypass this fallback path entirely.
   return [...plannedCandidates, ...activeCandidates].slice(0, 15);
 }
 

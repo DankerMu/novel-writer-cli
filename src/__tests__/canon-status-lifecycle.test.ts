@@ -57,6 +57,7 @@ test("issue 169 prompts and skill docs describe split planned character context"
   assert.match(continueSkill, /planned_character_contracts/);
   assert.match(contextContracts, /planned_character_contracts\?:/);
   assert.match(contextContracts, /character_contracts\?: .*仅 established \/ 缺失 canon_status/);
+  assert.match(contextContracts, /preferred 路径，不受 fallback 的 15 角色上限约束/);
 });
 
 test("buildInstructionPacket splits active and planned character context by canon_status", async () => {
@@ -286,6 +287,132 @@ test("buildInstructionPacket prioritizes planned draft characters on fallback an
     ]);
     assert.equal((judgePacket.packet.manifest.paths.character_contracts as string[]).includes("characters/active/char-17.json"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_contracts"), false);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket fallback uses the shared draft budget to keep planned characters first", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-budget-"));
+  try {
+    await writeJson(join(rootDir, "world/rules.json"), {
+      schema_version: 1,
+      rules: []
+    });
+
+    for (let index = 1; index <= 10; index += 1) {
+      const slug = `active-${String(index).padStart(2, "0")}`;
+      await writeJson(join(rootDir, `characters/active/${slug}.json`), {
+        id: slug,
+        display_name: `已生效角色${index}`,
+        canon_status: "established",
+        contracts: [{ id: `A-${index}`, type: "personality", rule: `active-${index}` }]
+      });
+      await writeText(join(rootDir, `characters/active/${slug}.md`), `# 已生效角色${index}\n`);
+    }
+
+    for (let index = 1; index <= 12; index += 1) {
+      const slug = `planned-${String(index).padStart(2, "0")}`;
+      await writeJson(join(rootDir, `characters/active/${slug}.json`), {
+        id: slug,
+        display_name: `计划角色${index}`,
+        canon_status: "planned",
+        contracts: [{ id: `P-${index}`, type: "personality", rule: `planned-${index}` }]
+      });
+      await writeText(join(rootDir, `characters/active/${slug}.md`), `# 计划角色${index}\n`);
+    }
+
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const draftPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    assert.deepEqual(draftPacket.packet.manifest.paths.character_contracts, [
+      "characters/active/active-01.json",
+      "characters/active/active-02.json",
+      "characters/active/active-03.json"
+    ]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_contracts, [
+      "characters/active/planned-01.json",
+      "characters/active/planned-02.json",
+      "characters/active/planned-03.json",
+      "characters/active/planned-04.json",
+      "characters/active/planned-05.json",
+      "characters/active/planned-06.json",
+      "characters/active/planned-07.json",
+      "characters/active/planned-08.json",
+      "characters/active/planned-09.json",
+      "characters/active/planned-10.json",
+      "characters/active/planned-11.json",
+      "characters/active/planned-12.json"
+    ]);
+    assert.equal((draftPacket.packet.manifest.paths.character_contracts as string[]).includes("characters/active/active-04.json"), false);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket keeps all-planned characters out of judge packets", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-canon-status-all-planned-"));
+  try {
+    await writeJson(join(rootDir, "world/rules.json"), {
+      schema_version: 1,
+      rules: []
+    });
+
+    for (let index = 1; index <= 3; index += 1) {
+      const slug = `planned-${String(index).padStart(2, "0")}`;
+      await writeJson(join(rootDir, `characters/active/${slug}.json`), {
+        id: slug,
+        display_name: `计划角色${index}`,
+        canon_status: "planned",
+        contracts: [{ id: `P-${index}`, type: "personality", rule: `planned-${index}` }]
+      });
+      await writeText(join(rootDir, `characters/active/${slug}.md`), `# 计划角色${index}\n`);
+    }
+
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), "# 第1章\n\n正文\n");
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const draftPacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    assert.equal(Object.prototype.hasOwnProperty.call(draftPacket.packet.manifest.paths, "character_contracts"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(draftPacket.packet.manifest.paths, "character_profiles"), false);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_contracts, [
+      "characters/active/planned-01.json",
+      "characters/active/planned-02.json",
+      "characters/active/planned-03.json"
+    ]);
+    assert.deepEqual(draftPacket.packet.manifest.paths.planned_character_profiles, [
+      "characters/active/planned-01.md",
+      "characters/active/planned-02.md",
+      "characters/active/planned-03.md"
+    ]);
+
+    const judgePacket = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "character_contracts"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "character_profiles"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_contracts"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(judgePacket.packet.manifest.paths, "planned_character_profiles"), false);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
