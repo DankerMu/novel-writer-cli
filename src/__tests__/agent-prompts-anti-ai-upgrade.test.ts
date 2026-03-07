@@ -48,6 +48,7 @@ test("chapter-writer prompt removes quota language and includes C16-C24 + Phase 
     "6.7 **四字词组密度检查**",
     "6.8 **内心活动锚点检查**",
     "6.9 **结构呼吸感检查**",
+    "按“每 1000-1500 字至少一处”的建议频率回看功能性停留是否足够",
     "前后 2-3 句内出现至少一处合法内心活动",
     "连续 5 句纯动作记录流",
     "SP-07 式情绪标签句",
@@ -64,7 +65,9 @@ test("chapter-writer prompt removes quota language and includes C16-C24 + Phase 
     "功能性停留总量宜控制在章节字数的 **≤10%**",
     "高压段之后最好仍留 1-2 句过渡",
     "若是连续高压章节不适合明显停留，也至少检查段尾是否留出 1-2 句过渡",
-    "每 1000-1500 字至少安排一处“功能性停留”"
+    "每 1000-1500 字至少安排一处“功能性停留”",
+    "提供“该在哪里放慢”的结构位置",
+    "功能性停留中的环境闲描仍受 `C13` 的 2 句限制"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -157,6 +160,7 @@ test("issue 177 structural breathing docs stay aligned across prompts and rubric
   const qualityJudge = await readText("agents/quality-judge.md");
   const styleGuide = await readText("skills/novel-writing/references/style-guide.md");
   const qualityRubric = await readText("skills/novel-writing/references/quality-rubric.md");
+  const tasks = await readText("openspec/changes/m12-structural-breathing/tasks.md");
 
   for (const required of [
     "结构呼吸感（C24）",
@@ -164,9 +168,12 @@ test("issue 177 structural breathing docs stay aligned across prompts and rubric
     "环境闲描、角色闲聊、感官片段、回忆碎片或生活细节",
     "章节字数的 **≤10%**",
     "高压场景后是否留出 1-2 句过渡",
+    "按“每 1000-1500 字至少一处”的建议频率回看功能性停留是否足够",
     "“任务执行”式推进",
     "每 1000-1500 字至少安排一处“功能性停留”",
-    "`C12` / `C18`"
+    "`C12` / `C18`",
+    "环境闲描仍受 `C13` 的 2 句限制",
+    "对话闲笔仍要满足 `C19` 的合法意图"
   ]) {
     assert.ok(chapterWriter.includes(required), `chapter-writer must mention: ${required}`);
   }
@@ -188,6 +195,8 @@ test("issue 177 structural breathing docs stay aligned across prompts and rubric
     "每 **1000-1500 字** 至少有一处功能性停留",
     "`C13` 约束，单次环境闲描 **≤2 句**",
     "`C19` 的敷衍 / 缓冲 / 转移等合法意图",
+    "`C12 反直觉细节`",
+    "`C18 人性化技法`",
     "**坏例子（信息效率过高）**",
     "**好例子（有结构呼吸感）**"
   ]) {
@@ -195,10 +204,21 @@ test("issue 177 structural breathing docs stay aligned across prompts and rubric
   }
 
   for (const required of [
+    "- [x] **T4.1**",
+    "- [x] **T4.2**",
+    "- [x] **T4.3**",
+    "每 1000-1500 字至少一处",
+    "留出足够功能性停留"
+  ]) {
+    assert.ok(tasks.includes(required), `tasks must mention: ${required}`);
+  }
+
+  for (const required of [
     "是否具备必要的结构呼吸感",
     "高压段之间是否给读者保留了必要的消化空间",
     "结构过密，缺乏呼吸感",
     "yellow / suggestion",
+    "功能性停留过多导致拖沓",
     "高压场景间缺乏过渡，沉浸感断裂"
   ]) {
     assert.ok(qualityRubric.includes(required), `quality-rubric must mention: ${required}`);
