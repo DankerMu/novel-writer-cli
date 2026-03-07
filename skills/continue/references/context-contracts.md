@@ -57,22 +57,6 @@ chapter_writer_manifest = {
     notes: [str],
   },
   style_drift_directives: [str] | null, # 漂移纠偏指令（active 时注入）
-  statistical_targets: {              # 6 维统计目标（来自 style-profile；null 已按默认人类范围补齐）
-    sentence_length_std_dev: number | [number, number],
-    paragraph_length_cv: number | [number, number],
-    vocabulary_diversity: "high" | "medium" | "low",
-    narration_connectors: 0,
-    register_mixing: "high" | "medium" | "low",
-    emotional_arc: "high" | "medium" | "low",
-    fallback_applied?: [str],
-  },
-  genre_overrides?: {                 # 可选：类型覆写参数（优先 brief 显式覆写，再回退 brief.genre）
-    genre: str,
-    paragraph_structure?: {single_sentence_ratio: [number, number], paragraph_char_max: int},
-    punctuation_rhythm?: {ellipsis_per_chapter_max?: int, exclamation_per_chapter_max?: int, em_dash_per_chapter_max: 0},
-    blacklist_overrides?: {per_chapter_max?: {str: int}},
-    notes?: [str],
-  },
   engagement_report_summary?: obj,     # 可选：爽点/信息密度窗口报告摘要（logs/engagement/latest.json 裁剪）
   promise_ledger_report_summary?: obj, # 可选：承诺台账窗口报告摘要（logs/promises/latest.json 裁剪）
   engagement_report_summary_degraded?: bool,     # 可选：为 true 表示 latest.json 存在但摘要裁剪失败

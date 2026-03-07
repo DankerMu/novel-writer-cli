@@ -225,6 +225,78 @@ test("buildInstructionPacket judge keeps structural lint enabled for default gen
   }
 });
 
+test("buildInstructionPacket judge applies explicit brief overrides to structural lint thresholds", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-judge-explicit-override-"));
+  try {
+    await setupProject(rootDir, {
+      genre: "悬疑",
+      overrideNotes: "感叹号 ≤ 4/章。"
+    });
+    await writeText(
+      join(rootDir, "staging/chapters/chapter-001.md"),
+      [
+        "# 第1章",
+        "",
+        "他先喊了一声！",
+        "",
+        "她回头时又惊了一下！",
+        "",
+        "门外的人再次出声！",
+        "",
+        "走廊尽头还传来一声！",
+        "",
+        "最后那道门后还有人应了一声！",
+        ""
+      ].join("\n")
+    );
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const structural = (inline.structural_rule_violations as Array<Record<string, unknown>>) ?? [];
+    assert.ok(structural.some((item) => item.rule_id === "L6.exclamation_per_chapter"));
+    assert.equal(inline.structural_rule_violations_degraded, undefined);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket marks structural lint degraded when packaged structural script cannot run", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-packaged-degraded-"));
+  const originalPath = process.env.PATH;
+  try {
+    await setupProject(rootDir);
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), ["# 第1章", "", "她推门进来。", "", "然而他还站在门口。", ""].join("\n"));
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    process.env.PATH = "";
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    assert.equal(inline.blacklist_lint, undefined);
+    assert.equal(inline.blacklist_lint_degraded, true);
+    assert.equal(inline.structural_rule_violations, undefined);
+    assert.equal(inline.structural_rule_violations_degraded, true);
+    assert.equal((inline.statistical_profile as Record<string, unknown>).source, "deterministic_lint+heuristic");
+  } finally {
+    process.env.PATH = originalPath;
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("buildInstructionPacket injects deterministic statistical profile and structural violations for judge", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-judge-"));
   try {
@@ -386,6 +458,7 @@ test("lint-structural.sh flags violations and respects sci-fi genre overrides", 
     const cleanChapter = join(rootDir, "clean.md");
     const noisyChapter = join(rootDir, "noisy.md");
     const sciFiChapter = join(rootDir, "scifi.md");
+    const offsetChapter = join(rootDir, "offset.md");
 
     await writeText(cleanChapter, [
       "# 第1章",
@@ -416,6 +489,17 @@ test("lint-structural.sh flags violations and respects sci-fi genre overrides", 
       ""
     ].join("\n"));
 
+    await writeText(offsetChapter, [
+      "# 第1章",
+      "",
+      "他只是站着，没有立刻开口。".repeat(24),
+      "",
+      "她把灯重新拨亮，又把窗帘轻轻掀开。".repeat(20),
+      "",
+      "非常巨大冰冷漆黑荒凉的风猛地灌了进来，十分沉重，无比压抑，极其潮湿，苍白而急促。",
+      ""
+    ].join("\n"));
+
     const clean = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), cleanChapter], { cwd: repoRoot })).stdout) as Record<string, unknown>;
     assert.deepEqual((clean.summary as Record<string, unknown>).total, 0);
 
@@ -429,6 +513,13 @@ test("lint-structural.sh flags violations and respects sci-fi genre overrides", 
     const idiomChain = noisyViolations.find((item) => item.rule_id === "L3.idiom_chain") as Record<string, unknown>;
     assert.equal(((idiomChain.location as Record<string, unknown>).line), 5);
     assert.ok((((idiomChain.location as Record<string, unknown>).char_start) as number) > 0);
+
+    const offset = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), offsetChapter], { cwd: repoRoot })).stdout) as Record<string, unknown>;
+    const offsetViolations = (offset.violations as Array<Record<string, unknown>>) ?? [];
+    const offsetEmphasis = offsetViolations.find((item) => item.rule_id === "L2.emphasis_density") as Record<string, unknown>;
+    assert.ok(offsetEmphasis);
+    assert.ok((((offsetEmphasis.location as Record<string, unknown>).line) as number) > 1);
+    assert.ok((((offsetEmphasis.location as Record<string, unknown>).char_start) as number) > 0);
 
     const sciFi = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), sciFiChapter, "--genre", "科幻"], { cwd: repoRoot })).stdout) as Record<string, unknown>;
     assert.ok(((sciFi.violations as Array<Record<string, unknown>>) ?? []).some((item) => item.rule_id === "L6.exclamation_per_chapter"));
@@ -453,6 +544,9 @@ test("anti-AI docs and style-analyzer prompt describe the new infrastructure", a
   assert.match(contextContracts, /statistical_targets/);
   assert.match(contextContracts, /genre_overrides/);
   assert.match(contextContracts, /structural_rule_violations_degraded/);
+  assert.doesNotMatch(contextContracts, /paragraph_char_max/);
+  assert.doesNotMatch(contextContracts, /ellipsis_per_chapter_max/);
+  assert.doesNotMatch(contextContracts, /blacklist_overrides/);
   assert.match(qualityRubric, /zone → score 映射/);
   assert.match(qualityRubric, /structural_rule_violations/);
   assert.match(periodicMaintenance, /max_words=250/);
@@ -464,6 +558,7 @@ test("labeled chapter schema exposes optional anti-AI fields and keeps existing 
   const properties = schema.properties as Record<string, unknown>;
   assert.equal(typeof properties.anti_ai_statistical_profile, "object");
   assert.equal(typeof properties.structural_rule_violations, "object");
+  assert.equal((properties.anti_ai_statistical_profile as Record<string, unknown>).additionalProperties, false);
 
   const lines = (await readFile(join(repoRoot, "eval/fixtures/labels.demo.jsonl"), "utf8"))
     .trim()

@@ -132,7 +132,7 @@
           ]
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "structural_rule_violations": {
       "type": "array",
