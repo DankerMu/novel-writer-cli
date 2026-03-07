@@ -9,6 +9,7 @@
 
 - 快速上手（Skill 入口）：[快速起步指南](quick-start.md)
 - CLI 手册（最重要）：[`novel` CLI](novel-cli.md)
+- 老项目升级：[M8 迁移指南](migration-guide.md)
 - 常用操作（Skill 入口）：[常用操作](ops.md)
 - 规范体系（文件/契约/平台画像）：[规范体系](spec-system.md)
 - Guardrails（留存/可读性/命名）：[Guardrails](guardrails.md)
