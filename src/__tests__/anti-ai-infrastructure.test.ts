@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
@@ -272,6 +272,65 @@ test("buildInstructionPacket injects deterministic statistical profile and struc
   }
 });
 
+test("buildInstructionPacket degrades anti-AI context when chapter draft resolves outside project root", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-unsafe-"));
+  const externalDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-external-"));
+  try {
+    await setupProject(rootDir);
+    const externalChapter = join(externalDir, "chapter-001.md");
+    await writeText(externalChapter, ["# 第1章", "", "她推门进来。", ""].join("\n"));
+    await mkdir(join(rootDir, "staging/chapters"), { recursive: true });
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+    await symlink(externalChapter, join(rootDir, "staging/chapters/chapter-001.md"));
+
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    assert.equal(inline.blacklist_lint, undefined);
+    assert.equal(inline.blacklist_lint_degraded, true);
+    assert.equal(inline.structural_rule_violations, undefined);
+    assert.equal(inline.structural_rule_violations_degraded, true);
+    assert.equal(inline.statistical_profile, undefined);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+    await rm(externalDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket marks anti-AI lints degraded when project override scripts emit invalid JSON", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-degraded-"));
+  try {
+    await setupProject(rootDir);
+    await writeText(join(rootDir, "staging/chapters/chapter-001.md"), ["# 第1章", "", "她推门进来。", "", "然而他还站在门口。", ""].join("\n"));
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+    await writeText(join(rootDir, "scripts/lint-blacklist.sh"), "#!/usr/bin/env bash\necho 'not-json'\n");
+    await writeText(join(rootDir, "scripts/lint-structural.sh"), "#!/usr/bin/env bash\necho 'not-json'\n");
+
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    assert.equal(inline.blacklist_lint, undefined);
+    assert.equal(inline.blacklist_lint_degraded, true);
+    assert.equal(inline.structural_rule_violations, undefined);
+    assert.equal(inline.structural_rule_violations_degraded, true);
+    assert.equal((inline.statistical_profile as Record<string, unknown>).source, "deterministic_lint+heuristic");
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("lint-blacklist.sh skips narration_only hits in dialogue and reports per_chapter_max warnings", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-lint-blacklist-"));
   try {
@@ -361,14 +420,20 @@ test("lint-structural.sh flags violations and respects sci-fi genre overrides", 
     assert.deepEqual((clean.summary as Record<string, unknown>).total, 0);
 
     const noisy = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), noisyChapter], { cwd: repoRoot })).stdout) as Record<string, unknown>;
-    const noisyRules = new Set(((noisy.violations as Array<Record<string, unknown>>) ?? []).map((item) => item.rule_id));
+    const noisyViolations = (noisy.violations as Array<Record<string, unknown>>) ?? [];
+    const noisyRules = new Set(noisyViolations.map((item) => item.rule_id));
     assert.ok(noisyRules.has("L2.emphasis_density"));
     assert.ok(noisyRules.has("L3.idiom_chain"));
     assert.ok(noisyRules.has("L6.em_dash_per_chapter"));
     assert.ok(noisyRules.has("L6.repeated_exclamation_marks"));
+    const idiomChain = noisyViolations.find((item) => item.rule_id === "L3.idiom_chain") as Record<string, unknown>;
+    assert.equal(((idiomChain.location as Record<string, unknown>).line), 5);
+    assert.ok((((idiomChain.location as Record<string, unknown>).char_start) as number) > 0);
 
     const sciFi = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), sciFiChapter, "--genre", "科幻"], { cwd: repoRoot })).stdout) as Record<string, unknown>;
     assert.ok(((sciFi.violations as Array<Record<string, unknown>>) ?? []).some((item) => item.rule_id === "L6.exclamation_per_chapter"));
+    const xuanhuan = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), cleanChapter, "--genre", "玄幻"], { cwd: repoRoot })).stdout) as Record<string, unknown>;
+    assert.deepEqual((xuanhuan.summary as Record<string, unknown>).total, 0);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

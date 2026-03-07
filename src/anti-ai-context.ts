@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import { resolveProjectRelativePath } from "./safe-path.js";
@@ -273,6 +275,25 @@ function applyExplicitGenreOverrideNotes(base: AntiAiGenreOverridePreset, overri
   return { overrides, applied };
 }
 
+function toStructuralLintConfig(overrides: AntiAiGenreOverrides): Record<string, unknown> {
+  return {
+    thresholds: {
+      l5: {
+        single_sentence_ratio: [
+          overrides.paragraph_structure.single_sentence_ratio.min,
+          overrides.paragraph_structure.single_sentence_ratio.max
+        ],
+        paragraph_char_max: overrides.paragraph_structure.max_paragraph_chars
+      },
+      l6: {
+        ellipsis_per_chapter_max: overrides.punctuation_rhythm.ellipsis_max_per_chapter,
+        exclamation_per_chapter_max: overrides.punctuation_rhythm.exclamation_max_per_chapter,
+        em_dash_per_chapter_max: overrides.punctuation_rhythm.em_dash_max_per_chapter
+      }
+    }
+  };
+}
+
 export async function loadAntiAiStatisticalTargets(rootDir: string): Promise<AntiAiStatisticalTargets | null> {
   const relPath = "style-profile.json";
   const absPath = join(rootDir, relPath);
@@ -467,21 +488,23 @@ function computeHumanizeTechniqueVariety(text: string): number {
   return count;
 }
 
-async function runJsonScript(rootDir: string, scriptRel: string, args: string[]): Promise<Record<string, unknown> | null> {
-  let scriptAbs: string | null = null;
+async function findAvailableScriptPath(rootDir: string, scriptRel: string): Promise<string | null> {
   try {
     const candidate = resolveProjectRelativePath(rootDir, scriptRel, scriptRel);
-    if (await pathExists(candidate)) scriptAbs = candidate;
+    if (await pathExists(candidate)) return candidate;
   } catch {
-    scriptAbs = null;
+    // Fall back to the packaged script path below.
   }
-  if (!scriptAbs) {
-    const packaged = join(cliRootDir, scriptRel);
-    if (await pathExists(packaged)) scriptAbs = packaged;
-  }
+
+  const packaged = join(cliRootDir, scriptRel);
+  return (await pathExists(packaged)) ? packaged : null;
+}
+
+async function runJsonScript(rootDir: string, scriptRel: string, args: string[]): Promise<Record<string, unknown> | null> {
+  const scriptAbs = await findAvailableScriptPath(rootDir, scriptRel);
   if (!scriptAbs) return null;
   try {
-    const { stdout } = await execFileAsync("bash", [scriptAbs, ...args], { cwd: rootDir, maxBuffer: 1024 * 1024 * 8 });
+    const { stdout } = await execFileAsync("bash", [scriptAbs, ...args], { cwd: rootDir, maxBuffer: 1024 * 1024 * 8, timeout: 30_000 });
     const raw = JSON.parse(stdout);
     return isPlainObject(raw) ? (raw as Record<string, unknown>) : null;
   } catch {
@@ -489,11 +512,24 @@ async function runJsonScript(rootDir: string, scriptRel: string, args: string[])
   }
 }
 
+async function resolveProjectFileIfSafe(rootDir: string, relPath: string): Promise<string | null> {
+  try {
+    return resolveProjectRelativePath(rootDir, relPath, relPath);
+  } catch {
+    return null;
+  }
+}
+
+async function markJudgeContextDegraded(rootDir: string, degraded: AntiAiJudgeContext["degraded"]): Promise<void> {
+  if (await pathExists(join(rootDir, "ai-blacklist.json"))) degraded.blacklist_lint = true;
+  if (await findAvailableScriptPath(rootDir, "scripts/lint-structural.sh")) degraded.structural_rule_violations = true;
+}
+
 async function runBlacklistLint(rootDir: string, chapterRel: string): Promise<BlacklistLintReport | null> {
-  const chapterAbs = resolveProjectRelativePath(rootDir, chapterRel, chapterRel);
+  const chapterAbs = await resolveProjectFileIfSafe(rootDir, chapterRel);
   const blacklistRel = "ai-blacklist.json";
   const blacklistAbs = join(rootDir, blacklistRel);
-  if (!(await pathExists(chapterAbs)) || !(await pathExists(blacklistAbs))) return null;
+  if (!chapterAbs || !(await pathExists(chapterAbs)) || !(await pathExists(blacklistAbs))) return null;
   const raw = await runJsonScript(rootDir, "scripts/lint-blacklist.sh", [chapterRel, blacklistRel]);
   if (!raw) return null;
   const hits_per_kchars = typeof raw.hits_per_kchars === "number" ? raw.hits_per_kchars : 0;
@@ -528,37 +564,57 @@ function toStructuralLintGenre(genre: CanonicalGenre | null): string | null {
   }
 }
 
-async function runStructuralLint(rootDir: string, chapterRel: string, genre: CanonicalGenre | null): Promise<StructuralLintReport | null> {
-  const chapterAbs = resolveProjectRelativePath(rootDir, chapterRel, chapterRel);
-  if (!(await pathExists(chapterAbs))) return null;
+async function runStructuralLint(rootDir: string, chapterRel: string, overrides: AntiAiGenreOverrides | null): Promise<StructuralLintReport | null> {
+  const chapterAbs = await resolveProjectFileIfSafe(rootDir, chapterRel);
+  if (!chapterAbs || !(await pathExists(chapterAbs))) return null;
+
   const args = [chapterRel];
-  const structuralGenre = toStructuralLintGenre(genre);
+  const structuralGenre = toStructuralLintGenre(overrides?.genre ?? null);
   if (structuralGenre) args.push("--genre", structuralGenre);
-  const raw = await runJsonScript(rootDir, "scripts/lint-structural.sh", args);
-  if (!raw) return null;
-  return {
-    violations: Array.isArray(raw.violations)
-      ? raw.violations.filter(isPlainObject).map((item) => ({
-          rule_id: typeof item.rule_id === "string" ? item.rule_id : "unknown",
-          severity: item.severity === "error" ? "error" : "warning",
-          location: isPlainObject(item.location)
-            ? {
-                ...(typeof item.location.line === "number" ? { line: item.location.line } : {}),
-                ...(typeof item.location.char_start === "number" ? { char_start: item.location.char_start } : {}),
-                ...(typeof item.location.char_end === "number" ? { char_end: item.location.char_end } : {}),
-                ...(typeof item.location.paragraph_index === "number" ? { paragraph_index: item.location.paragraph_index } : {})
-              }
-            : undefined,
-          description: typeof item.description === "string" ? item.description : "",
-          suggestion: typeof item.suggestion === "string" ? item.suggestion : undefined
-        }))
-      : []
-  };
+
+  let tempDir: string | null = null;
+  try {
+    if (overrides) {
+      tempDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-struct-"));
+      const configPath = join(tempDir, "lint-structural-overrides.json");
+      await writeFile(configPath, `${JSON.stringify(toStructuralLintConfig(overrides), null, 2)}\n`, "utf8");
+      args.push("--config", configPath);
+    }
+
+    const raw = await runJsonScript(rootDir, "scripts/lint-structural.sh", args);
+    if (!raw) return null;
+    return {
+      violations: Array.isArray(raw.violations)
+        ? raw.violations.filter(isPlainObject).map((item) => ({
+            rule_id: typeof item.rule_id === "string" ? item.rule_id : "unknown",
+            severity: item.severity === "error" ? "error" : "warning",
+            location: isPlainObject(item.location)
+              ? {
+                  ...(typeof item.location.line === "number" ? { line: item.location.line } : {}),
+                  ...(typeof item.location.char_start === "number" ? { char_start: item.location.char_start } : {}),
+                  ...(typeof item.location.char_end === "number" ? { char_end: item.location.char_end } : {}),
+                  ...(typeof item.location.paragraph_index === "number" ? { paragraph_index: item.location.paragraph_index } : {})
+                }
+              : undefined,
+            description: typeof item.description === "string" ? item.description : "",
+            suggestion: typeof item.suggestion === "string" ? item.suggestion : undefined
+          }))
+        : []
+    };
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
 }
 
 export async function loadAntiAiJudgeContext(args: { rootDir: string; chapterRel: string }): Promise<AntiAiJudgeContext> {
   const degraded: AntiAiJudgeContext["degraded"] = {};
-  const chapterAbs = join(args.rootDir, args.chapterRel);
+  const chapterAbs = await resolveProjectFileIfSafe(args.rootDir, args.chapterRel);
+  if (!chapterAbs) {
+    await markJudgeContextDegraded(args.rootDir, degraded);
+    return { blacklistLint: null, structuralRuleViolations: null, statisticalProfile: null, degraded };
+  }
   if (!(await pathExists(chapterAbs))) {
     return { blacklistLint: null, structuralRuleViolations: null, statisticalProfile: null, degraded };
   }
@@ -567,16 +623,15 @@ export async function loadAntiAiJudgeContext(args: { rootDir: string; chapterRel
   try {
     chapterText = await readTextFile(chapterAbs);
   } catch {
-    if (await pathExists(join(args.rootDir, "ai-blacklist.json"))) degraded.blacklist_lint = true;
-    if (await pathExists(join(args.rootDir, "scripts/lint-structural.sh"))) degraded.structural_rule_violations = true;
+    await markJudgeContextDegraded(args.rootDir, degraded);
     return { blacklistLint: null, structuralRuleViolations: null, statisticalProfile: null, degraded };
   }
 
-  const brief = await loadBriefMeta(args.rootDir);
+  const genreOverrides = await loadAntiAiGenreOverrides(args.rootDir);
   const blacklistLint = await runBlacklistLint(args.rootDir, args.chapterRel);
   if (!blacklistLint && (await pathExists(join(args.rootDir, "ai-blacklist.json")))) degraded.blacklist_lint = true;
-  const structuralLint = await runStructuralLint(args.rootDir, args.chapterRel, brief.genre);
-  if (!structuralLint && (await pathExists(join(args.rootDir, "scripts/lint-structural.sh")))) degraded.structural_rule_violations = true;
+  const structuralLint = await runStructuralLint(args.rootDir, args.chapterRel, genreOverrides);
+  if (!structuralLint && (await findAvailableScriptPath(args.rootDir, "scripts/lint-structural.sh"))) degraded.structural_rule_violations = true;
 
   const sentences = splitSentences(chapterText);
   const sentenceLengths = sentences.map(coreSentenceLength).filter((value) => value > 0);

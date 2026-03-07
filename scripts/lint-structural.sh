@@ -28,6 +28,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 GENRE_ALIASES = {
+    "玄幻": "xuanhuan",
+    "xuanhuan": "xuanhuan",
+    "都市": "dushi",
+    "dushi": "dushi",
+    "历史": "history",
+    "history": "history",
     "科幻": "sci-fi",
     "sci-fi": "sci-fi",
     "scifi": "sci-fi",
@@ -77,6 +83,9 @@ DEFAULT_THRESHOLDS: Dict[str, Any] = {
 }
 
 GENRE_OVERRIDES: Dict[str, Dict[str, Any]] = {
+    "xuanhuan": {},
+    "dushi": {},
+    "history": {},
     "sci-fi": {
         "l5": {"single_sentence_ratio": [0.15, 0.30], "paragraph_char_max": 120},
         "l6": {"exclamation_per_chapter_max": 5},
@@ -209,9 +218,51 @@ def sentence_count(paragraph: str) -> int:
     return max(len(parts), 1)
 
 
-def chunks(text: str, size: int) -> List[Tuple[int, str]]:
-    compact = re.sub(r"\s+", "", text)
-    return [(idx, compact[idx:idx + size]) for idx in range(0, len(compact), size) if compact[idx:idx + size]]
+def chunks(compact_text: str, size: int) -> List[Tuple[int, str]]:
+    return [(idx, compact_text[idx:idx + size]) for idx in range(0, len(compact_text), size) if compact_text[idx:idx + size]]
+
+
+def build_compact_text_and_map(text: str) -> Tuple[str, List[int]]:
+    compact_chars_list: List[str] = []
+    compact_index_map: List[int] = []
+    for index, char in enumerate(text):
+        if char.isspace():
+            continue
+        compact_chars_list.append(char)
+        compact_index_map.append(index)
+    return "".join(compact_chars_list), compact_index_map
+
+
+def compact_range_to_original(compact_index_map: List[int], start: int, end: int) -> Tuple[int, int]:
+    if not compact_index_map:
+        return 0, 0
+    safe_start = max(0, min(start, len(compact_index_map) - 1))
+    safe_end = max(safe_start, min(max(end - 1, start), len(compact_index_map) - 1))
+    return compact_index_map[safe_start], compact_index_map[safe_end] + 1
+
+
+def add_compact_violation(
+    violations: List[Dict[str, Any]],
+    text: str,
+    compact_index_map: List[int],
+    rule_id: str,
+    severity: str,
+    compact_start: int,
+    compact_end: int,
+    description: str,
+    suggestion: str,
+) -> None:
+    char_start, char_end = compact_range_to_original(compact_index_map, compact_start, compact_end)
+    add_violation(
+        violations,
+        rule_id,
+        severity,
+        line_of(text, char_start),
+        char_start,
+        char_end,
+        description,
+        suggestion,
+    )
 
 
 def add_violation(violations: List[Dict[str, Any]], rule_id: str, severity: str, line: int, char_start: int, char_end: int, description: str, suggestion: str) -> None:
@@ -232,31 +283,33 @@ def main() -> None:
         thresholds = deep_merge(thresholds, config.get("thresholds", config))
 
     text = load_text(chapter_path)
-    compact_text = re.sub(r"\s+", "", text)
+    compact_text, compact_index_map = build_compact_text_and_map(text)
     paragraphs = split_paragraphs(text)
     violations: List[Dict[str, Any]] = []
 
     # L2 adjective/adverb density
-    for offset, chunk_text in chunks(text, int(thresholds["l2"]["window_chars"])):
+    for offset, chunk_text in chunks(compact_text, int(thresholds["l2"]["window_chars"])):
         emphasis = sum(chunk_text.count(word) for word in thresholds["l2"]["emphasis_words"])
         adjectives = sum(chunk_text.count(word) for word in thresholds["l2"]["adjective_words"])
         if emphasis > int(thresholds["l2"]["emphasis_max"]):
-            add_violation(
+            add_compact_violation(
                 violations,
+                text,
+                compact_index_map,
                 "L2.emphasis_density",
                 "warning",
-                1,
                 offset,
                 offset + len(chunk_text),
                 f"300 字窗口内强调词 {emphasis} 个，超过上限 {thresholds['l2']['emphasis_max']}。",
                 "删掉抽象加强词，改为具体动作、程度或感官反馈。",
             )
         if adjectives > int(thresholds["l2"]["adjective_max"]):
-            add_violation(
+            add_compact_violation(
                 violations,
+                text,
+                compact_index_map,
                 "L2.adjective_density",
                 "warning",
-                1,
                 offset,
                 offset + len(chunk_text),
                 f"300 字窗口内描述性修饰词命中 {adjectives} 次，超过上限 {thresholds['l2']['adjective_max']}。",
@@ -266,22 +319,24 @@ def main() -> None:
     adjective_pattern = "|".join(sorted(thresholds["l2"]["adjective_words"], key=len, reverse=True))
     if adjective_pattern:
         for match in re.finditer(rf"(?:{adjective_pattern}){{2,}}的", compact_text):
-            add_violation(
+            add_compact_violation(
                 violations,
+                text,
+                compact_index_map,
                 "L2.consecutive_adjectives",
                 "error",
-                1,
                 match.start(),
                 match.end(),
                 "检测到连续两个以上形容词修饰同一名词。",
                 "保留最有力的 1 个修饰词，其余改写成动作或结果。",
             )
     for match in re.finditer(r"[\u4e00-\u9fff]{1,6}的[\u4e00-\u9fff]{1,6}的[\u4e00-\u9fff]{1,6}", compact_text):
-        add_violation(
+        add_compact_violation(
             violations,
+            text,
+            compact_index_map,
             "L2.de_chain",
             "warning",
-            1,
             match.start(),
             match.end(),
             "检测到连续三段“的”字链。",
@@ -290,14 +345,15 @@ def main() -> None:
 
     # L3 four-character idiom density
     idioms = thresholds["l3"]["idioms"]
-    for offset, chunk_text in chunks(text, int(thresholds["l3"]["window_chars"])):
+    for offset, chunk_text in chunks(compact_text, int(thresholds["l3"]["window_chars"])):
         idiom_count = sum(chunk_text.count(idiom) for idiom in idioms)
         if idiom_count > int(thresholds["l3"]["idiom_max"]):
-            add_violation(
+            add_compact_violation(
                 violations,
+                text,
+                compact_index_map,
                 "L3.idiom_density",
                 "warning",
-                1,
                 offset,
                 offset + len(chunk_text),
                 f"500 字窗口内四字词组命中 {idiom_count} 个，超过上限 {thresholds['l3']['idiom_max']}。",
