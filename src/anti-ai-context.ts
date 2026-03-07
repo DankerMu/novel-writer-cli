@@ -95,6 +95,8 @@ export type AntiAiGenreOverrides = {
   notes: string[];
 };
 
+type AntiAiGenreOverridePreset = Omit<AntiAiGenreOverrides, "source" | "explicit_notes">;
+
 export type AntiAiStatisticalProfile = {
   source: "deterministic_lint+heuristic";
   chapter_path: string;
@@ -140,7 +142,7 @@ const DEFAULT_MAX_PARAGRAPH_CHARS = 100;
 const DEFAULT_ELLIPSIS_MAX = 5;
 const DEFAULT_EXCLAMATION_MAX = 8;
 
-const GENRE_OVERRIDE_PRESETS: Record<CanonicalGenre, Omit<AntiAiGenreOverrides, "source" | "explicit_notes">> = {
+const GENRE_OVERRIDE_PRESETS: Record<CanonicalGenre, AntiAiGenreOverridePreset> = {
   xuanhuan: {
     genre: "xuanhuan",
     paragraph_structure: { single_sentence_ratio: { ...DEFAULT_SINGLE_SENTENCE_RATIO }, max_paragraph_chars: DEFAULT_MAX_PARAGRAPH_CHARS },
@@ -223,6 +225,54 @@ function asStatisticalLevel(value: unknown): StatisticalLevel | null {
   return value === "high" || value === "medium" || value === "low" ? value : null;
 }
 
+function parsePercentRange(note: string, labelPattern: RegExp): { min: number; max: number } | null {
+  const match = new RegExp(`${labelPattern.source}[^0-9]*(\\d{1,3})\\s*%\\s*(?:-|–|—|~|～|至|到)\\s*(\\d{1,3})\\s*%`, "u").exec(note);
+  if (!match) return null;
+  const min = Number(match[1]) / 100;
+  const max = Number(match[2]) / 100;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return null;
+  return { min, max };
+}
+
+function parseBoundedInt(note: string, labelPattern: RegExp): number | null {
+  const match = new RegExp(`${labelPattern.source}[^0-9]*(?:≤|<=|不超过|最多)?\\s*(\\d{1,3})\\s*(?:/章|／章|字|个|次)?`, "u").exec(note);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function applyExplicitGenreOverrideNotes(base: AntiAiGenreOverridePreset, overrideNotes: string | null): { overrides: AntiAiGenreOverridePreset; applied: boolean } {
+  if (!overrideNotes) return { overrides: base, applied: false };
+
+  const singleSentenceRatio = parsePercentRange(overrideNotes, /单句段(?:落)?(?:占比)?/u);
+  const paragraphCharMax = parseBoundedInt(overrideNotes, /(?:段长(?:上限)?|段落(?:长度|字数)?(?:上限)?|单段(?:可放宽到)?)/u);
+  const ellipsisMax = parseBoundedInt(overrideNotes, /省略号(?:上限)?/u);
+  const exclamationMax = parseBoundedInt(overrideNotes, /感叹号(?:上限)?/u);
+
+  let applied = false;
+  const overrides: AntiAiGenreOverridePreset = {
+    ...base,
+    paragraph_structure: {
+      ...base.paragraph_structure,
+      ...(singleSentenceRatio
+        ? { single_sentence_ratio: singleSentenceRatio }
+        : {}),
+      ...(paragraphCharMax !== null ? { max_paragraph_chars: paragraphCharMax } : {})
+    },
+    punctuation_rhythm: {
+      ...base.punctuation_rhythm,
+      ...(ellipsisMax !== null ? { ellipsis_max_per_chapter: ellipsisMax } : {}),
+      ...(exclamationMax !== null ? { exclamation_max_per_chapter: exclamationMax } : {})
+    }
+  };
+
+  if (singleSentenceRatio || paragraphCharMax !== null || ellipsisMax !== null || exclamationMax !== null) {
+    applied = true;
+  }
+
+  return { overrides, applied };
+}
+
 export async function loadAntiAiStatisticalTargets(rootDir: string): Promise<AntiAiStatisticalTargets | null> {
   const relPath = "style-profile.json";
   const absPath = join(rootDir, relPath);
@@ -285,11 +335,12 @@ export async function loadAntiAiGenreOverrides(rootDir: string): Promise<AntiAiG
   const brief = await loadBriefMeta(rootDir);
   if (!brief.genre) return null;
   const preset = GENRE_OVERRIDE_PRESETS[brief.genre];
+  const { overrides, applied } = applyExplicitGenreOverrideNotes(preset, brief.overrideNotes);
   return {
-    ...preset,
+    ...overrides,
     source: {
       brief: "brief.md",
-      mode: brief.overrideNotes ? "brief_override_notes" : "brief_genre_fallback"
+      mode: applied ? "brief_override_notes" : "brief_genre_fallback"
     },
     explicit_notes: brief.overrideNotes
   };
@@ -462,11 +513,27 @@ async function runBlacklistLint(rootDir: string, chapterRel: string): Promise<Bl
   return { hits_per_kchars, hits, statistical_profile };
 }
 
+function toStructuralLintGenre(genre: CanonicalGenre | null): string | null {
+  switch (genre) {
+    case "scifi":
+      return "sci-fi";
+    case "suspense":
+      return "mystery";
+    case "horror":
+      return "horror";
+    case "romance":
+      return "romance";
+    default:
+      return null;
+  }
+}
+
 async function runStructuralLint(rootDir: string, chapterRel: string, genre: CanonicalGenre | null): Promise<StructuralLintReport | null> {
   const chapterAbs = resolveProjectRelativePath(rootDir, chapterRel, chapterRel);
   if (!(await pathExists(chapterAbs))) return null;
   const args = [chapterRel];
-  if (genre) args.push("--genre", genre);
+  const structuralGenre = toStructuralLintGenre(genre);
+  if (structuralGenre) args.push("--genre", structuralGenre);
   const raw = await runJsonScript(rootDir, "scripts/lint-structural.sh", args);
   if (!raw) return null;
   return {

@@ -37,14 +37,17 @@ function makeCheckpoint(stage: Checkpoint["pipeline_stage"]): Checkpoint {
   };
 }
 
-async function setupProject(rootDir: string): Promise<void> {
+async function setupProject(rootDir: string, options: { genre?: string; overrideNotes?: string | null } = {}): Promise<void> {
+  const genre = options.genre ?? "科幻";
+  const overrideNotes = options.overrideNotes ?? "单句段 15%-30%；段长上限 120 字；感叹号 ≤ 5/章。";
+
   await writeText(
     join(rootDir, "brief.md"),
     [
       "# brief",
       "",
-      "- **题材**：科幻",
-      "- **覆写说明**：科幻段落可更长，感叹号应更克制。",
+      `- **题材**：${genre}`,
+      ...(overrideNotes !== null ? [`- **覆写说明**：${overrideNotes}`] : []),
       ""
     ].join("\n")
   );
@@ -155,6 +158,68 @@ test("buildInstructionPacket injects anti-AI statistical targets and genre overr
     assert.equal((overrides.source as Record<string, unknown>).mode, "brief_override_notes");
     assert.equal((overrides.punctuation_rhythm as Record<string, unknown>).exclamation_max_per_chapter, 5);
     assert.equal((overrides.paragraph_structure as Record<string, unknown>).max_paragraph_chars, 120);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket parses explicit brief overrides into genre overrides", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-draft-explicit-"));
+  try {
+    await setupProject(rootDir, {
+      genre: "悬疑",
+      overrideNotes: "单句段 18%-28%；段长上限 140 字；省略号 ≤ 6/章；感叹号 ≤ 4/章。"
+    });
+
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const overrides = inline.genre_overrides as Record<string, unknown>;
+    assert.equal(overrides.genre, "suspense");
+    assert.equal((overrides.source as Record<string, unknown>).mode, "brief_override_notes");
+    assert.deepEqual((overrides.paragraph_structure as Record<string, unknown>).single_sentence_ratio, { min: 0.18, max: 0.28 });
+    assert.equal((overrides.paragraph_structure as Record<string, unknown>).max_paragraph_chars, 140);
+    assert.equal((overrides.punctuation_rhythm as Record<string, unknown>).ellipsis_max_per_chapter, 6);
+    assert.equal((overrides.punctuation_rhythm as Record<string, unknown>).exclamation_max_per_chapter, 4);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket judge keeps structural lint enabled for default genres without special overrides", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-judge-default-genre-"));
+  try {
+    await setupProject(rootDir, { genre: "玄幻", overrideNotes: null });
+    await writeText(
+      join(rootDir, "staging/chapters/chapter-001.md"),
+      [
+        "# 第1章",
+        "",
+        "他心潮澎湃、热血沸腾，抬头看见天门洞开！！",
+        ""
+      ].join("\n")
+    );
+    await writeText(join(rootDir, "staging/state/chapter-001-crossref.json"), "{}\n");
+
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("refined"),
+      step: { kind: "chapter", chapter: 1, stage: "judge" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const structural = inline.structural_rule_violations as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(structural));
+    assert.ok(structural.length > 0);
+    assert.equal(inline.structural_rule_violations_degraded, undefined);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
