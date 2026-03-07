@@ -20,7 +20,7 @@ import { summarizeReadabilityIssues } from "./readability-lint.js";
 import { computeTitlePolicyReport } from "./title-policy.js";
 import { QUICKSTART_PHASES, chapterRelPaths, formatStepId, type QuickStartPhase } from "./steps.js";
 import { isPlainObject } from "./type-guards.js";
-import { computeVolumeNextStep } from "./volume-planning.js";
+import { computeVolumeNextStep, hasQuickstartMiniPlanningArtifacts, volumeFinalRelPaths } from "./volume-planning.js";
 
 export type NextStepResult = {
   step: string;
@@ -709,6 +709,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
   const rulesExists = await pathExists(rulesAbs);
   const contracts = await countContractArtifacts(projectRootDir);
   const styleExists = await pathExists(styleAbs);
+  const miniPlanningExists = await hasQuickstartMiniPlanningArtifacts(projectRootDir);
   const trialExists = await pathExists(trialAbs);
   const evalExists = await pathExists(evalAbs);
 
@@ -780,6 +781,7 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
       styleExists,
       styleOk,
       ...(styleError ? { styleError } : {}),
+      miniPlanningExists,
       trialExists,
       trialOk,
       ...(trialError ? { trialError } : {}),
@@ -813,6 +815,14 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
     selected = {
       step: formatStepId({ kind: "quickstart", phase: "style" }),
       reason: "quickstart:style",
+      inflight: { chapter: null, pipeline_stage: null },
+      evidence
+    };
+  } else if (!miniPlanningExists) {
+    selectedPhase = "f0";
+    selected = {
+      step: formatStepId({ kind: "quickstart", phase: "f0" }),
+      reason: "quickstart:f0",
       inflight: { chapter: null, pipeline_stage: null },
       evidence
     };
@@ -859,6 +869,8 @@ async function computeQuickStartNextStep(projectRootDir: string, checkpoint: Che
             return QUICKSTART_STAGING_RELS.contractsDir;
           case "style":
             return QUICKSTART_STAGING_RELS.styleProfileJson;
+          case "f0":
+            return volumeFinalRelPaths(1).outlineMd;
           case "trial":
             return QUICKSTART_STAGING_RELS.trialChapterMd;
           case "results":

@@ -53,5 +53,9 @@
 ## 常见断点策略（建议）
 
 - 遇到 `${NOVEL} commit ...`：执行前用 AskUserQuestion 让用户确认（commit 会移动 staging → final）；commit 后运行 `${NOVEL} next --json` 继续
+- QUICK_START 顺序固定为 `world → characters → style → f0 → trial → results`；不要跳步，也不要凭经验跳过 `novel validate` / `novel advance`
+- 遇到 `quickstart:f0` / PlotArchitect packet 时，把它当成 `vol-01` 的迷你规划：生成 chapters `1..3` 的 `outline.md`、3 个 L3 契约、`storyline-schedule.json`、`foreshadowing.json`（以及 `new-characters.json`），先写到 `staging/volumes/vol-01/`，经 `novel validate quickstart:f0` 校验后，再由 `novel advance quickstart:f0` 提交到 `volumes/vol-01/`
+- Quick Start resume 语义：`quickstart_phase=style` 的下一步是 `f0`；`quickstart_phase=f0` 且 `volumes/vol-01/` 种子已提交时，下一步是 `trial`
+- 遇到 `quickstart:trial` / `quickstart:results` 且 packet manifest 中存在 `paths.chapter_contract` / `paths.volume_outline` / `paths.volume_foreshadowing` 时，原样透传给 ChapterWriter / QualityJudge；这些都是来自 `volumes/vol-01/` 的黄金三章规划产物。若缺失，则保持 legacy free-writing fallback
 - 遇到 `volume:outline` / PlotArchitect packet 时，若 `packet.manifest.inline.genre_excitement_map` 存在，原样透传给 `plot-architect`；这是 CLI 按 `brief.md` 题材匹配后的 Ch1-3 默认爽点映射，skill 层不要重算或改写
 - 遇到 `review:*`（卷末回顾）：按 packet.next_actions 执行；必要时暂停让用户阅读 `volumes/vol-XX/review.md`

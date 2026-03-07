@@ -1,14 +1,17 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Checkpoint } from "./checkpoint.js";
 import { NovelCliError } from "./errors.js";
-import { pathExists } from "./fs-utils.js";
+import { pathExists, readJsonFile, readTextFile } from "./fs-utils.js";
 import type { NextStepResult } from "./next-step.js";
+import { QUICKSTART_MINI_PLANNING_RANGE as SHARED_QUICKSTART_MINI_PLANNING_RANGE, extractOutlineChapterNumbers, matchesQuickstartMiniPlanningSeedSequence, quickstartMiniPlanningChapters, startsWithQuickstartMiniPlanningSeedSequence } from "./quickstart-mini-planning.js";
 import { formatStepId, pad2, pad3 } from "./steps.js";
 
 export type VolumeChapterRange = { start: number; end: number };
 
 export const CHAPTERS_PER_VOLUME = 30;
+export const QUICKSTART_MINI_PLANNING_RANGE = SHARED_QUICKSTART_MINI_PLANNING_RANGE;
 
 export function volumeForChapter(chapter: number): number {
   if (!Number.isInteger(chapter) || chapter < 1) {
@@ -72,6 +75,85 @@ export function volumeFinalRelPaths(volume: number): {
     chapterContractsDir,
     chapterContractJson: (chapter: number) => `${chapterContractsDir}/chapter-${pad3(chapter)}.json`
   };
+}
+
+export async function hasQuickstartMiniPlanningSeedBase(rootDir: string): Promise<boolean> {
+  const final = volumeFinalRelPaths(1);
+  const seedChapters = quickstartMiniPlanningChapters();
+  const requiredPaths = [
+    final.outlineMd,
+    final.storylineScheduleJson,
+    final.foreshadowingJson,
+    final.newCharactersJson,
+    final.chapterContractsDir,
+    ...seedChapters.map((chapter) => final.chapterContractJson(chapter))
+  ];
+
+  try {
+    for (const relPath of requiredPaths) {
+      if (!(await pathExists(join(rootDir, relPath)))) return false;
+    }
+
+    const outline = await readTextFile(join(rootDir, final.outlineMd));
+    if (!startsWithQuickstartMiniPlanningSeedSequence(extractOutlineChapterNumbers(outline))) return false;
+
+    await readJsonFile(join(rootDir, final.storylineScheduleJson));
+    await readJsonFile(join(rootDir, final.foreshadowingJson));
+    await readJsonFile(join(rootDir, final.newCharactersJson));
+
+    for (const chapter of seedChapters) {
+      const raw = await readJsonFile(join(rootDir, final.chapterContractJson(chapter)));
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+      if ((raw as Record<string, unknown>).chapter !== chapter) return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function hasQuickstartMiniPlanningArtifacts(rootDir: string): Promise<boolean> {
+  if (!(await hasQuickstartMiniPlanningSeedBase(rootDir))) return false;
+
+  const final = volumeFinalRelPaths(1);
+  try {
+    const outline = await readTextFile(join(rootDir, final.outlineMd));
+    if (!matchesQuickstartMiniPlanningSeedSequence(extractOutlineChapterNumbers(outline))) return false;
+
+    const visibleContractEntries = (await readdir(join(rootDir, final.chapterContractsDir), { withFileTypes: true }))
+      .filter((entry) => !entry.name.startsWith("."));
+    if (visibleContractEntries.some((entry) => !entry.isFile())) return false;
+
+    const contractFiles = visibleContractEntries.map((entry) => entry.name).sort();
+    const expectedContractFiles = quickstartMiniPlanningChapters().map((chapter) => `chapter-${pad3(chapter)}.json`);
+    return (
+      contractFiles.length === expectedContractFiles.length
+      && !contractFiles.some((fileName, index) => fileName !== expectedContractFiles[index])
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveVolumeChapterRange(args: { rootDir: string; current_volume: number; last_completed_chapter: number }): Promise<VolumeChapterRange> {
+  const range = computeVolumeChapterRange({ current_volume: args.current_volume, last_completed_chapter: args.last_completed_chapter });
+  if (
+    args.current_volume !== 1
+    || range.start !== QUICKSTART_MINI_PLANNING_RANGE.start
+    || range.end <= QUICKSTART_MINI_PLANNING_RANGE.end
+  ) {
+    return range;
+  }
+
+  if (await hasQuickstartMiniPlanningArtifacts(args.rootDir)) {
+    return { start: QUICKSTART_MINI_PLANNING_RANGE.end + 1, end: range.end };
+  }
+
+  const stagingExists = await pathExists(join(args.rootDir, volumeStagingRelPaths(1).dir));
+  if (!stagingExists) return range;
+  if (!(await hasQuickstartMiniPlanningSeedBase(args.rootDir))) return range;
+  return { start: QUICKSTART_MINI_PLANNING_RANGE.end + 1, end: range.end };
 }
 
 function normalizeVolumePipelineStage(value: unknown): "outline" | "validate" | "commit" | null {
@@ -138,7 +220,7 @@ export async function computeVolumeNextStep(rootDir: string, checkpoint: Checkpo
   }
 
   const volume = checkpoint.current_volume;
-  const range = computeVolumeChapterRange({ current_volume: volume, last_completed_chapter: checkpoint.last_completed_chapter });
+  const range = await resolveVolumeChapterRange({ rootDir, current_volume: volume, last_completed_chapter: checkpoint.last_completed_chapter });
 
   const artifacts = await hasAllPlanningArtifacts({ rootDir, volume, range });
 
@@ -185,6 +267,5 @@ export async function computeVolumeNextStep(rootDir: string, checkpoint: Checkpo
     };
   }
 
-  // normalizeVolumePipelineStage() ensures the above is exhaustive.
   throw new NovelCliError(`Unsupported volume_pipeline_stage: ${String(checkpoint.volume_pipeline_stage)}`, 2);
 }

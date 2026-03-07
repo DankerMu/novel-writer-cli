@@ -1,4 +1,4 @@
-import { copyFile, readdir } from "node:fs/promises";
+import { copyFile, readdir, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { Checkpoint, PipelineStage } from "./checkpoint.js";
@@ -9,6 +9,7 @@ import { withWriteLock } from "./lock.js";
 import { QUICKSTART_FINAL_RELS, QUICKSTART_STAGING_RELS } from "./quickstart.js";
 import { chapterRelPaths, formatStepId, titleFixSnapshotRel, type ChapterStep, type QuickStartStep, type ReviewStep, type Step } from "./steps.js";
 import { validateStep } from "./validate.js";
+import { volumeFinalRelPaths, volumeStagingRelPaths } from "./volume-planning.js";
 import { VOL_REVIEW_RELS } from "./volume-review.js";
 
 function stageForStep(step: ChapterStep): PipelineStage {
@@ -171,6 +172,28 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       }
     };
 
+    const commitQuickStartMiniPlanning = async (): Promise<void> => {
+      const staging = volumeStagingRelPaths(1);
+      const final = volumeFinalRelPaths(1);
+      const stagingAbs = join(args.rootDir, staging.dir);
+      if (!(await pathExists(stagingAbs))) {
+        throw new NovelCliError(`Missing staging volume directory: ${staging.dir}`, 2);
+      }
+
+      const finalAbs = join(args.rootDir, final.dir);
+      if (await pathExists(finalAbs)) {
+        throw new NovelCliError(`Refusing to overwrite existing destination: ${final.dir}`, 2);
+      }
+
+      await ensureDir(join(args.rootDir, "volumes"));
+      try {
+        await rename(stagingAbs, finalAbs);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new NovelCliError(`Failed to move '${staging.dir}' to '${final.dir}': ${message}`, 2);
+      }
+    };
+
     return await withWriteLock(args.rootDir, {}, async () => {
       const checkpoint = await readCheckpoint(args.rootDir);
 
@@ -204,7 +227,10 @@ export async function advanceCheckpointForStep(args: { rootDir: string; step: St
       updated.pipeline_stage = null;
       updated.quickstart_phase = qsStep.phase;
 
-      if (qsStep.phase === "results") {
+      if (qsStep.phase === "f0") {
+        await commitQuickStartMiniPlanning();
+        updated.orchestrator_state = "QUICK_START";
+      } else if (qsStep.phase === "results") {
         await commitQuickStartArtifacts();
         updated.orchestrator_state = "VOL_PLANNING";
         updated.volume_pipeline_stage = null;

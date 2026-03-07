@@ -32,6 +32,8 @@
 - `paths.platform_profile` → 平台配置 JSON（可选；含 hook_policy 等平台侧规则）
 - `paths.ai_blacklist` → AI 黑名单 JSON
 - `paths.chapter_contract` → L3 章节契约 JSON
+- `paths.volume_outline` → 本卷大纲全文（可选；黄金三章 / 正式卷规划存在时注入）
+- `paths.volume_foreshadowing` → 本卷伏笔计划（可选；黄金三章 / 正式卷规划存在时注入）
 - `paths.world_rules` → L1 世界规则（可选）
 - `paths.prev_summary` → 前一章摘要（可选，首章无）
 - `paths.character_profiles[]` → 相关已生效角色叙述档案（.md，用于角色一致性评估）
@@ -404,7 +406,8 @@ else:
 
 # Edge Cases
 
-- **无章节契约（试写阶段）**：前 3 章无 L3 契约，跳过 Track 1 的 L3 检查
+- **试写阶段有章节契约**：若 `paths.chapter_contract` 存在（通常来自 `volumes/vol-01/chapter-contracts/`），必须执行完整 Track 1 L3 合规检查，并报告 preconditions / objectives / postconditions / acceptance_criteria 的违约。
+- **试写阶段无章节契约**：若 `paths.chapter_contract` 缺失，则保持兼容模式，跳过 Track 1 的 L3 检查。
 - **无故事线规范（M1 早期）**：M1 早期可能无 storyline-spec.json，跳过 LS 检查
 - **关键章双裁判模式**：卷首/卷尾/交汇事件章由入口 Skill 使用 Task(model=opus) 发起第二次调用并取较低分，QualityJudge 自身按正常流程执行即可
 - **lint-blacklist 缺失**：若未提供 lint 统计，你仍需给出黑名单命中率与例句，但需标注为估计值；若提供则以其为准

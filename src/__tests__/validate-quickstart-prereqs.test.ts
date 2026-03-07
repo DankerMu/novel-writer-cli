@@ -6,6 +6,8 @@ import test from "node:test";
 
 import { validateStep } from "../validate.js";
 
+import { writeCommittedMiniPlanning } from "./helpers/quickstart-mini-planning.js";
+
 async function writeText(absPath: string, contents: string): Promise<void> {
   await mkdir(dirname(absPath), { recursive: true });
   await writeFile(absPath, contents, "utf8");
@@ -14,6 +16,8 @@ async function writeText(absPath: string, contents: string): Promise<void> {
 async function writeJson(absPath: string, payload: unknown): Promise<void> {
   await writeText(absPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
+
+
 
 test("validateStep(quickstart:characters) requires rules.json", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "novel-validate-quickstart-characters-"));
@@ -98,6 +102,7 @@ test("validateStep(quickstart:trial) rejects empty trial chapter", async () => {
   await writeJson(join(rootDir, "staging/quickstart/rules.json"), { rules: [] });
   await writeJson(join(rootDir, "staging/quickstart/contracts/hero.json"), { id: "hero", display_name: "阿宁", contracts: [] });
   await writeJson(join(rootDir, "staging/quickstart/style-profile.json"), { source_type: "template" });
+  await writeCommittedMiniPlanning(rootDir);
   await writeText(join(rootDir, "staging/quickstart/trial-chapter.md"), "");
 
   await assert.rejects(

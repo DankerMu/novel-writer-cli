@@ -18,6 +18,7 @@
 - 可选：承诺台账窗口报告摘要（`promise_ledger_report_summary`，来自 `logs/promises/latest.json` 的裁剪摘要；用于提醒卖点/谜团/机制/关系弧的轻触推进，非剧透、不兑现）
 - 可选：爽点/信息密度窗口报告摘要（`engagement_report_summary`，来自 `logs/engagement/latest.json` 的裁剪摘要；用于提示低密度区间与可执行的规划补强）
 - 可选：`genre_excitement_map`（当前题材 chapter 1-3 的默认 `excitement_type` 映射；仅首卷黄金三章规划时注入）
+- 可选：`existing_volume_outline` / `existing_storyline_schedule` / `existing_foreshadowing` / `existing_chapter_contracts_dir`（当卷一已存在 F0 种子且本次只续规 chapter 4+ 时注入；这些路径一律只读）
 - 故事线定义（storylines/storylines.json 内容）
 - 世界观文档和规则（以 `<DATA>` 标签包裹）
 - 角色档案和契约（characters/active/ 内容，以 `<DATA>` 标签包裹）
@@ -103,9 +104,9 @@
 
 # Format
 
-输出以下文件：
+输出以下文件（实际路径以 instruction packet 的 `expected_outputs_base_dir` / `expected_outputs` 为准；当前卷规划默认写入 `staging/volumes/vol-{V:02d}/`，commit 后才进入 `volumes/vol-{V:02d}/`）：
 
-1. `volumes/vol-{V:02d}/outline.md` — 本卷大纲，**必须**使用以下确定性格式（每章一个 `###` 区块，便于程序化提取）：
+1. `<expected_outputs_base_dir>/outline.md` — 本卷大纲，**必须**使用以下确定性格式（每章一个 `###` 区块，便于程序化提取）：
 
 ```markdown
 ## 第 V 卷大纲
@@ -126,13 +127,15 @@
 ```
 
 > **格式约束**：每章以 `### 第 N 章` 开头（N 为阿拉伯数字，可选冒号和章名，如 `### 第 5 章: 暗流`），后跟精确的 9 个 `- **Key**:` 行；`ExcitementType` 缺失时也应显式写 `null`。如需说明爽点覆写理由，只能写入现有 9 个 Key 的描述文本，不得新增 `ExcitementTypeOverrideReason` 等额外 Key。入口 Skill 通过正则 `/^### 第 (\d+) 章/` 定位并提取对应章节段落，禁止使用自由散文格式。
-2. `volumes/vol-{V:02d}/storyline-schedule.json` — 本卷故事线调度（active_storylines + interleaving_pattern + convergence_events）
-3. `volumes/vol-{V:02d}/foreshadowing.json` — 本卷伏笔计划（新增 + 上卷延续），每条伏笔含 `id`/`description`/`scope`(`short`|`medium`|`long`)/`status`/`planted_chapter`/`target_resolve_range`/`history`
-4. `volumes/vol-{V:02d}/chapter-contracts/chapter-{C:03d}.json` — 每章契约（批量生成，含 storyline_id + storyline_context）
-5. `volumes/vol-{V:02d}/new-characters.json` — 本卷需要新建的角色清单（outline 中引用但 `characters/active/` 不存在的角色），格式：`[{"name": "角色名", "first_chapter": N, "role": "antagonist | supporting | minor", "brief": "一句话定位"}]`。`role` 描述角色在全书中的故事定位（区别于 primary/secondary/seasoning 的本卷叙事权重）。入口 Skill 据此批量调用 CharacterWeaver 创建角色档案 + L2 契约
+2. `<expected_outputs_base_dir>/storyline-schedule.json` — 本卷故事线调度（active_storylines + interleaving_pattern + convergence_events）
+3. `<expected_outputs_base_dir>/foreshadowing.json` — 本卷伏笔计划（新增 + 上卷延续），每条伏笔含 `id`/`description`/`scope`(`short`|`medium`|`long`)/`status`/`planted_chapter`/`target_resolve_range`/`history`
+4. `<expected_outputs_base_dir>/chapter-contracts/chapter-{C:03d}.json` — 每章契约（批量生成，含 storyline_id + storyline_context）
+5. `<expected_outputs_base_dir>/new-characters.json` — 本卷需要新建的角色清单（outline 中引用但 `characters/active/` 不存在的角色），格式：`[{"name": "角色名", "first_chapter": N, "role": "antagonist | supporting | minor", "brief": "一句话定位"}]`。`role` 描述角色在全书中的故事定位（区别于 primary/secondary/seasoning 的本卷叙事权重）。入口 Skill 据此批量调用 CharacterWeaver 创建角色档案 + L2 契约
 
 # Edge Cases
 
 - **上卷无回顾**：首卷规划时，跳过上卷承接检查，从 brief 派生初始大纲
+- **黄金三章迷你规划**：当 `volume=1` 且 `chapter_range=[1,3]` 时，进入 mini-planning 模式；你必须输出紧凑的 3 章大纲、`chapter-001/002/003` 的完整 L3 契约、`storyline-schedule.json` 的 3 章调度，以及 1-3 条 seed foreshadows。若提供 `genre_excitement_map`，优先按映射填写 `excitement_type`；未提供时自由分配，不得报错。
+- **首卷续规（已有 F0 种子）**：若 context 提供 `existing_volume_outline` / `existing_storyline_schedule` / `existing_foreshadowing` / `existing_chapter_contracts_dir`，说明卷一前 3 章已由 F0 固化；你只规划 `chapter_range` 指定的新章节，`chapter-001/002/003` 视为只读，outline 只追加新章，storyline-schedule 与 foreshadowing 只做增量追加。
 - **伏笔过期**：short scope 伏笔超过 `target_resolve_range` 上限仍未回收时（若未提供 range，则以 >10 章作为经验阈值），在伏笔计划中标记 `overdue` 并建议本卷安排回收
 - **活跃线过多**：storylines.json 中活跃线 > 4 时，选择最高优先级的 4 条，其余标为 seasoning 或暂休眠

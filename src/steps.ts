@@ -17,7 +17,7 @@ export type ChapterStage = (typeof CHAPTER_STAGES)[number];
 export const VOLUME_PHASES = ["outline", "validate", "commit"] as const;
 export type VolumePhase = (typeof VOLUME_PHASES)[number];
 
-export const QUICKSTART_PHASES = ["world", "characters", "style", "trial", "results"] as const;
+export const QUICKSTART_PHASES = ["world", "characters", "style", "f0", "trial", "results"] as const;
 export type QuickStartPhase = (typeof QUICKSTART_PHASES)[number];
 
 export const REVIEW_PHASES = ["collect", "audit", "report", "cleanup", "transition"] as const;

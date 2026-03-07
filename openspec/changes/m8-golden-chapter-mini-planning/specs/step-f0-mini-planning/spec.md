@@ -13,12 +13,12 @@ Quick Start workflow SHALL insert a Step F0 (mini volume planning) between Step 
 - **WHEN** Step F0 completes successfully and all outputs are validated
 - **THEN** the system proceeds to Step F (trial writing)
 
-#### Scenario: Checkpoint resume with quick_start_step="E" enters F0
-- **WHEN** a project resumes with checkpoint `quick_start_step="E"`
+#### Scenario: Checkpoint resume with quickstart_phase="style" enters F0
+- **WHEN** a project resumes with checkpoint `quickstart_phase="style"`
 - **THEN** the system enters Step F0 (not Step F)
 
-#### Scenario: Checkpoint resume with quick_start_step="F0" enters F
-- **WHEN** a project resumes with checkpoint `quick_start_step="F0"`
+#### Scenario: Checkpoint resume with quickstart_phase="f0" enters F
+- **WHEN** a project resumes with checkpoint `quickstart_phase="f0"`
 - **THEN** the system enters Step F
 
 ---
@@ -34,18 +34,19 @@ Step F0 SHALL dispatch PlotArchitect with `volume=1, chapter_range=[1,3]` to gen
 
 #### Scenario: PlotArchitect produces outline.md with 3 chapters
 - **WHEN** PlotArchitect completes mini-planning
-- **THEN** `volumes/vol-01/outline.md` contains exactly 3 chapter entries
+- **THEN** `staging/volumes/vol-01/outline.md` contains exactly 3 chapter entries
 - **AND** each chapter entry follows the standard outline format (including ExcitementType line per CS2)
 
 #### Scenario: PlotArchitect produces 3 L3 chapter contracts
 - **WHEN** PlotArchitect completes mini-planning
-- **THEN** `volumes/vol-01/chapter-contracts/` contains 3 L3 contracts (chapter-001, chapter-002, chapter-003)
+- **THEN** `staging/volumes/vol-01/chapter-contracts/` contains 3 L3 contracts (chapter-001, chapter-002, chapter-003)
 - **AND** each contract follows the full L3 schema (including `excitement_type` field per CS2)
 
-#### Scenario: PlotArchitect produces storyline-schedule.json and foreshadowing.json
+#### Scenario: PlotArchitect produces storyline-schedule.json, foreshadowing.json, and new-characters.json
 - **WHEN** PlotArchitect completes mini-planning
-- **THEN** `volumes/vol-01/storyline-schedule.json` is generated with schedule entries for chapters 1-3
-- **AND** `volumes/vol-01/foreshadowing.json` is generated with 1-3 seed foreshadows
+- **THEN** `staging/volumes/vol-01/storyline-schedule.json` is generated with schedule entries for chapters 1-3
+- **AND** `staging/volumes/vol-01/foreshadowing.json` is generated with 1-3 seed foreshadows
+- **AND** `staging/volumes/vol-01/new-characters.json` is generated (empty array allowed)
 
 #### Scenario: genre_excitement_map template exists
 - **WHEN** PlotArchitect runs mini-planning
@@ -60,23 +61,24 @@ Step F0 SHALL dispatch PlotArchitect with `volume=1, chapter_range=[1,3]` to gen
 
 ---
 
-### Requirement 3: Step F0 outputs SHALL be stored in `volumes/vol-01/`
+### Requirement 3: Step F0 outputs SHALL stage under `staging/volumes/vol-01/` before commit
 
-All Step F0 outputs SHALL be written to the `volumes/vol-01/` directory. The directory SHALL be created if it does not exist. A checkpoint SHALL be recorded upon completion.
+Step F0 SHALL first write outline, storyline-schedule, foreshadowing, new-characters, and chapter contracts to `staging/volumes/vol-01/`. After validation succeeds, advancing F0 SHALL commit those artifacts into `volumes/vol-01/`.
 
-#### Scenario: vol-01 directory created if not exists
+#### Scenario: staging vol-01 directory created if not exists
 - **WHEN** Step F0 begins execution
-- **AND** `volumes/vol-01/` does not exist
-- **THEN** the directory is created along with necessary subdirectories (`chapter-contracts/`)
+- **AND** `staging/volumes/vol-01/` does not exist
+- **THEN** the staging directory is created along with necessary subdirectories (`chapter-contracts/`)
 
-#### Scenario: L3 contracts written to vol-01/chapter-contracts/
-- **WHEN** Step F0 completes
-- **THEN** L3 contracts are written to `volumes/vol-01/chapter-contracts/chapter-001.json`, `chapter-002.json`, `chapter-003.json`
+#### Scenario: validated staging outputs commit into vol-01
+- **WHEN** Step F0 completes and passes validation
+- **THEN** `staging/volumes/vol-01/chapter-contracts/chapter-001.json`, `chapter-002.json`, `chapter-003.json` are committed into `volumes/vol-01/chapter-contracts/`
+- **AND** `staging/volumes/vol-01/new-characters.json` is committed into `volumes/vol-01/new-characters.json`
 
-#### Scenario: Checkpoint updated to quick_start_step="F0"
+#### Scenario: Checkpoint updated to quickstart_phase="f0"
 - **WHEN** Step F0 completes and all outputs pass validation
-- **THEN** the project checkpoint is updated to `quick_start_step="F0"`
-- **AND** staging commit includes all F0 outputs
+- **THEN** the project checkpoint is updated to `quickstart_phase="f0"`
+- **AND** the staging commit includes outline, schedule, foreshadowing, new-characters, and chapter contracts for chapters 1-3
 
 ---
 
@@ -125,6 +127,18 @@ When PlotArchitect performs formal volume planning on vol-01 and Ch1-3 contracts
 - **AND** contracts `chapter-001.json`, `chapter-002.json`, `chapter-003.json` already exist
 - **THEN** those contracts are treated as read-only
 - **AND** no modifications are made to Ch1-3 contracts
+
+#### Scenario: Formal planning incrementally merges schedule, foreshadowing, and new characters
+- **WHEN** formal volume planning for vol-01 commits after F0 seed exists
+- **THEN** `storyline-schedule.json` preserves existing seed entries and appends new active lines / events without duplicating identical entries
+- **AND** `foreshadowing.json` merges by `id`, preserving existing seed items and extending `history` when the same id reappears
+- **AND** `new-characters.json` merges by `name + first_chapter`, preserving seed-side declarations while appending genuinely new characters
+
+#### Scenario: Partial merge can be resumed safely
+- **WHEN** formal volume planning commit is interrupted after some non-seed artifacts already landed in `volumes/vol-01/`
+- **AND** staging artifacts are still present
+- **THEN** rerunning commit resumes the merge instead of overwriting F0 seed artifacts
+- **AND** conflicting outline blocks or chapter contracts still fail closed with an explicit error
 
 ---
 
