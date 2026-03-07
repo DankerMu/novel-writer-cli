@@ -14,7 +14,7 @@ async function readText(relPath: string): Promise<string> {
   return readFile(repoPath(relPath), "utf8");
 }
 
-test("chapter-writer prompt removes quota language and includes C16-C20 + Phase 2 checks", async () => {
+test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 2 checks", async () => {
   const prompt = await readText("agents/chapter-writer.md");
 
   for (const legacy of ["每角色至少 1 个口头禅", "每章至少 1 处"]) {
@@ -41,9 +41,14 @@ test("chapter-writer prompt removes quota language and includes C16-C20 + Phase 
     "人性化技法抽样（C18）",
     "对话意图约束（C19）",
     "结构密度约束（C20）",
+    "内心活动锚点（C23）",
     "6.5 **叙述连接词清扫**",
     "6.6 **修饰词去重**",
     "6.7 **四字词组密度检查**",
+    "6.8 **内心活动锚点检查**",
+    "前后 2-3 句内出现至少一处内心活动",
+    "连续 5 句纯动作记录流",
+    "SP-07 式情绪标签句",
     "去掉标签后仍能大致分辨说话人",
     "8-18 的人类常见波动控制",
     "3 句及以上连续句长都落在 ±5 字内",
@@ -83,7 +88,11 @@ test("style-refiner prompt follows four-step flow and brief-first genre override
     "读取文件并建立锚点",
     "结构规则优先",
     "只有在入口 Skill 或 user 明确要求 quick-check / 时间受限时才启用",
-    "再回退到 brief 的题材字段"
+    "再回退到 brief 的题材字段",
+    "纯动作流超长检测",
+    "连续 5+ 句只有外显动作 / 对话记录",
+    "插入 1-2 句最小必要的感知片段",
+    "累计修改量仍需 ≤15%"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -114,7 +123,14 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
     "\"severity\": \"yellow\"",
     "\"evidence\": \"原文片段\"",
     "\"detected_humanize_techniques\": [\"thought_interrupt\", \"mundane_detail\"]",
-    "legacy / 轻量消费者读取"
+    "legacy / 轻量消费者读取",
+    "关键节点缺失",
+    "扣 **0.5 分/处**",
+    "纯动作流过长",
+    "额外扣 **1 分**",
+    "scores.emotional_impact.reason",
+    "不要只写抽象评价",
+    "不要另起第 14 个独立评分维度"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -122,6 +138,39 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
   assert.match(prompt, /manifest\.inline\.statistical_profile/);
   assert.match(prompt, /manifest\.inline\.structural_rule_violations/);
   assert.match(prompt, /deterministic 观测值/);
+});
+
+test("issue 176 inner-activity docs stay aligned across style-guide and rubric", async () => {
+  const styleGuide = await readText("skills/novel-writing/references/style-guide.md");
+  const qualityRubric = await readText("skills/novel-writing/references/quality-rubric.md");
+
+  for (const required of [
+    "C23 内心活动锚点",
+    "纯动作记录流",
+    "SP-07",
+    "感官侵入",
+    "碎片思绪",
+    "生理反应",
+    "思维中断",
+    "自我纠正",
+    "节点前后 **2-3 句**",
+    "连续 **≤5 句**",
+    "合法内心活动",
+    "非法情绪标签"
+  ]) {
+    assert.ok(styleGuide.includes(required), `style-guide must mention: ${required}`);
+  }
+
+  for (const required of [
+    "内心活动锚点",
+    "关键决策 / 重大信息 / 高压节点前后 3 句无内心活动",
+    "至少扣 **0.5 分/处**",
+    "连续 5 句纯动作流",
+    "额外扣 **1 分**",
+    "生理反应、感官侵入、碎片思绪属于合法内心活动"
+  ]) {
+    assert.ok(qualityRubric.includes(required), `quality-rubric must mention: ${required}`);
+  }
 });
 
 test("issue 138 OpenSpec artifacts include style-refiner spec and no stale concept.md reference", async () => {
