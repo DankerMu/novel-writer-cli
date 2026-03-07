@@ -3,7 +3,7 @@
 ## AI 黑名单动态维护（不阻断）
 
 - 从 eval_used.anti_ai.blacklist_update_suggestions[] 读取新增候选（必须包含：phrase + count_in_chapter + examples）
-- 增长上限检查：若 `words[]` 长度 >= 80，跳过自动追加，仅记录到 `update_log[]`（source="auto_skipped_cap"），并在 `/novel:start` 质量回顾中提示用户审核黑名单规模
+- 增长上限检查：若 `words[]` 长度 >= `max_words=250`，跳过自动追加，仅记录到 `update_log[]`（source="auto_skipped_cap"），并在 `/novel:start` 质量回顾中提示用户审核黑名单规模
 - 自动追加门槛（保守，避免误伤）：
   - `confidence in {medium, high}` 且 `count_in_chapter >= 3` -> 才允许自动追加
   - 其余仅记录为"候选建议"，不自动写入（可在 `/novel:start` 质量回顾中提示用户手动处理）
@@ -20,6 +20,17 @@
 - 用户可控入口：
   - 用户可手动编辑 `ai-blacklist.json` 的 `words[]/whitelist[]`
   - 若用户删除某词但不希望未来被自动再加回，请将其加入 `whitelist[]`（系统不得自动加入 whitelist 内词条）
+
+
+## 人性化技法跨章追踪（不阻断）
+
+- 追踪存储：`logs/anti-ai/technique-history.json`
+- 首次运行时若目录或文件不存在，应自动创建目录并以空数组/空记录初始化
+- 单条记录格式：`{"chapter_id": "vol-01/chapter-001", "techniques_used": ["thought_interrupt", "mundane_detail"]}`
+- 写入时机：章节完成后，将本章实际使用的 `humanize_technique` 记录 append 到历史文件
+- 告警规则：若同一技法连续 3 章及以上出现，记为“重复使用告警”，提示 ChapterWriter / StyleRefiner 在后续章节错开该技法
+- 告警级别：仅 warning，不阻断写作；目标是防止“固定技法套餐”被连续刷章
+- 建议保留最近 50 章记录即可，超出可按时间裁剪旧数据
 
 ## 风格漂移检测与纠偏（每 5 章触发）
 

@@ -22,6 +22,8 @@
 - blacklist_lint（可选，scripts/lint-blacklist.sh 精确统计 JSON）
 - ner_entities（可选，scripts/run-ner.sh NER 输出 JSON）
 - continuity_report_summary（可选，一致性检查裁剪摘要）
+- statistical_profile（可选；稳定统计观测值，优先使用 lint 输出，其次是 ChapterWriter 自报/估计值）
+- structural_rule_violations（可选；`lint-structural.sh` 的结构规则违规列表）
 - golden_chapter_gates（可选；仅 chapter ≤ 3 且平台门控模板存在时注入，包含当前平台的黄金三章硬门控）
 - genre_golden_standards（可选；仅 chapter ≤ 3 且 `brief.md` 题材命中 `genre-golden-standards.json` 时注入，包含题材特定 `focus_dimensions / criteria / minimum_thresholds`）
 - excitement_type（可选；由入口基于 `chapter_contract.excitement_type` / `outline.md` 回填，缺失或未知时视为 `null`）
@@ -211,6 +213,8 @@
 
 ### `style_naturalness` 评审口径
 
+> 兼容读取提示：轻量消费者或旧链路也可能只看到 `"indicator_mode": "7-indicator | 4-indicator-compat"`，此时按 7 指标或 4 指标兼容模式解释即可。
+
 默认使用 `indicator_mode: "13-indicator"`，按 `style-guide` Layer 4 的 13 指标三区判定：
 
 1. `blacklist_hit_rate`
@@ -251,7 +255,9 @@
 2. **不给面子分**：明确指出问题而非回避
 3. **可量化**：风格自然度优先基于 13 指标（黑名单命中率、句式重复率、句长标准差、段长变异系数、词汇多样性、叙述连接词、技法多样性、破折号计数、句式模式得分、比喻密度、对话区分度、省略号密度、感叹号密度）做三区判定；回退层级见 `style_naturalness` 评审口径
    - 若 prompt 中提供了黑名单精确统计 JSON（lint-blacklist），你必须使用其中的 `total_hits` / `hits_per_kchars` / `hits[]` 作为计数依据（忽略 whitelist/exemptions 的词条）
-   - `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_richness_estimate` / `simile_density` / `dialogue_distinguishability` / `ellipsis_density` / `exclamation_density` 由你基于正文估算，并在 `style_naturalness.reason` 中明确标注为”估计值”
+   - 若 prompt 中提供了 `manifest.inline.statistical_profile`，你必须优先把其中的 `blacklist_hit_rate` / `sentence_repetition_rate` / `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_diversity_score` / `narration_connector_count` / `humanize_technique_variety` 视为 deterministic 观测值；只有缺失项才允许你自行估算，并在 `style_naturalness.reason` 中明确标注为“估计值”
+   - 若 prompt 中提供了 `manifest.inline.structural_rule_violations`，必须把它们视为 `style_naturalness` 的附加罚分证据，而不是忽略不用
+   - `simile_density` / `dialogue_distinguishability` / `ellipsis_density` / `exclamation_density` 等扩展指标在未显式提供时仍由你基于正文估算，并在 `style_naturalness.reason` 中明确标注为“估计值”
 4. **综合分计算**：overall = 各维度 score × weight 的加权均值（权重优先来自 `manifest.inline.scoring_weights`；若缺失则使用 Track 2 默认表；`hook_strength` 若 weight=0.0 则不影响 overall）
 5. **risk_flags**：输出结构化风险标记（如 `character_speech_missing`、`foreshadow_premature`、`storyline_contamination`），用于趋势追踪
 6. **required_fixes**：当 recommendation 为 revise/review/rewrite 时，必须输出最小修订指令列表（target 段落 + 具体 instruction），供 ChapterWriter 定向修订
@@ -320,6 +326,7 @@ else:
   },
   "anti_ai": {
     "indicator_mode": "13-indicator | 7-indicator | 4-indicator-compat",
+    "indicator_mode_compat": "7-indicator | 4-indicator-compat",
     "indicator_breakdown": {
       "blacklist_hit_rate": {"value": 2.4, "zone": "yellow", "note": "2.4 次/千字，仍有收缩空间"},
       "sentence_repetition_rate": {"value": "1/5", "zone": "green", "note": "相邻 5 句中只有 1 处重复句式"},

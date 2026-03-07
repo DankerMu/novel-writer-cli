@@ -3,100 +3,350 @@
   "schema_version": 1,
   "title": "LabeledChapterRecord",
   "type": "object",
-  "required": ["schema_version", "chapter", "labels", "human_scores"],
+  "required": [
+    "schema_version",
+    "chapter",
+    "labels",
+    "human_scores"
+  ],
   "additionalProperties": true,
   "properties": {
-    "schema_version": { "type": "integer", "enum": [1] },
-    "chapter": { "type": "integer", "minimum": 1 },
+    "schema_version": {
+      "type": "integer",
+      "enum": [
+        1
+      ]
+    },
+    "chapter": {
+      "type": "integer",
+      "minimum": 1
+    },
     "labels": {
       "type": "object",
-      "required": ["continuity_errors", "spec_violations", "storyline_issues"],
+      "required": [
+        "continuity_errors",
+        "spec_violations",
+        "storyline_issues"
+      ],
       "properties": {
         "continuity_errors": {
           "type": "array",
-          "items": { "$ref": "#/$defs/continuity_error" }
+          "items": {
+            "$ref": "#/$defs/continuity_error"
+          }
         },
         "spec_violations": {
           "type": "array",
-          "items": { "$ref": "#/$defs/spec_violation" }
+          "items": {
+            "$ref": "#/$defs/spec_violation"
+          }
         },
         "storyline_issues": {
           "type": "array",
-          "items": { "$ref": "#/$defs/storyline_issue" }
+          "items": {
+            "$ref": "#/$defs/storyline_issue"
+          }
         }
       },
       "additionalProperties": true
     },
     "human_scores": {
       "type": "object",
-      "required": ["overall"],
+      "required": [
+        "overall"
+      ],
       "properties": {
-        "overall": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "plot_logic": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "character": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "immersion": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "foreshadowing": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "pacing": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "style_naturalness": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "emotional_impact": { "type": "number", "minimum": 1.0, "maximum": 5.0 },
-        "storyline_coherence": { "type": "number", "minimum": 1.0, "maximum": 5.0 }
+        "overall": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "plot_logic": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "character": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "immersion": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "foreshadowing": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "pacing": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "style_naturalness": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "emotional_impact": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        },
+        "storyline_coherence": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0
+        }
       },
       "additionalProperties": true
     },
-    "notes": { "type": "string" }
+    "notes": {
+      "type": "string"
+    },
+    "anti_ai_statistical_profile": {
+      "type": "object",
+      "required": [
+        "sentence_length_std_dev",
+        "paragraph_length_cv",
+        "vocabulary_richness_estimate"
+      ],
+      "properties": {
+        "sentence_length_std_dev": {
+          "type": "number",
+          "minimum": 0
+        },
+        "paragraph_length_cv": {
+          "type": "number",
+          "minimum": 0
+        },
+        "vocabulary_richness_estimate": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "structural_rule_violations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/structural_rule_violation"
+      }
+    }
   },
   "$defs": {
-    "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
-    "severity": { "type": "string", "enum": ["high", "medium", "low"] },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "diagnostic_severity": {
+      "type": "string",
+      "enum": [
+        "warning",
+        "error"
+      ]
+    },
     "evidence_item": {
       "type": "object",
-      "required": ["source", "snippet"],
+      "required": [
+        "source",
+        "snippet"
+      ],
       "properties": {
-        "source": { "type": "string", "enum": ["chapter", "summary", "contract", "log", "other"] },
-        "chapter": { "type": "integer", "minimum": 1 },
-        "path": { "type": "string" },
-        "line": { "type": "integer", "minimum": 1 },
-        "snippet": { "type": "string" }
+        "source": {
+          "type": "string",
+          "enum": [
+            "chapter",
+            "summary",
+            "contract",
+            "log",
+            "other"
+          ]
+        },
+        "chapter": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "snippet": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
     "continuity_error": {
       "type": "object",
-      "required": ["type", "detail"],
+      "required": [
+        "type",
+        "detail"
+      ],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["character_mapping", "relationship_jump", "location_contradiction", "timeline_contradiction", "other"]
+          "enum": [
+            "character_mapping",
+            "relationship_jump",
+            "location_contradiction",
+            "timeline_contradiction",
+            "other"
+          ]
         },
-        "severity": { "$ref": "#/$defs/severity" },
-        "confidence": { "$ref": "#/$defs/confidence" },
-        "entities": { "type": "object", "additionalProperties": true },
-        "detail": { "type": "string" },
-        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_item" } }
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "entities": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "detail": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_item"
+          }
+        }
       },
       "additionalProperties": true
     },
     "spec_violation": {
       "type": "object",
-      "required": ["layer", "rule_id", "detail"],
+      "required": [
+        "layer",
+        "rule_id",
+        "detail"
+      ],
       "properties": {
-        "layer": { "type": "string", "enum": ["L1", "L2", "L3", "LS"] },
-        "rule_id": { "type": "string" },
-        "constraint_type": { "type": "string", "enum": ["hard", "soft"] },
-        "confidence": { "$ref": "#/$defs/confidence" },
-        "detail": { "type": "string" },
-        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_item" } }
+        "layer": {
+          "type": "string",
+          "enum": [
+            "L1",
+            "L2",
+            "L3",
+            "LS"
+          ]
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "constraint_type": {
+          "type": "string",
+          "enum": [
+            "hard",
+            "soft"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_item"
+          }
+        }
       },
       "additionalProperties": true
     },
     "storyline_issue": {
       "type": "object",
-      "required": ["rule_id", "detail"],
+      "required": [
+        "rule_id",
+        "detail"
+      ],
       "properties": {
-        "rule_id": { "type": "string" },
-        "severity": { "$ref": "#/$defs/severity" },
-        "detail": { "type": "string" },
-        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_item" } }
+        "rule_id": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_item"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "structural_rule_violation": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "severity",
+        "description"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/diagnostic_severity"
+        },
+        "description": {
+          "type": "string"
+        },
+        "suggestion": {
+          "type": "string"
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "char_start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "char_end": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "paragraph_index": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": true
+        }
       },
       "additionalProperties": true
     }

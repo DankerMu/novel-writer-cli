@@ -12,14 +12,6 @@
 #   0 = success (valid JSON emitted to stdout)
 #   1 = validation failure (bad args, missing files, invalid JSON/schema)
 #   2 = script exception (unexpected runtime error)
-#
-# Notes:
-# - Treats optional whitelist/exemptions as "do not count as hits":
-#     - ai-blacklist.json.whitelist (list[str])
-#     - ai-blacklist.json.whitelist.words (list[str])
-#     - ai-blacklist.json.exemptions.words (list[str])
-#
-# - Hit rate is computed as "hits per 1000 non-whitespace characters" (次/千字).
 
 set -euo pipefail
 
@@ -50,7 +42,17 @@ python3 - "$chapter_path" "$blacklist_path" <<'PY'
 import json
 import re
 import sys
-from typing import Any, Dict, List, Set
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+
+@dataclass
+class WordEntry:
+    word: str
+    category: Optional[str]
+    replacement_hint: Optional[str]
+    per_chapter_max: Optional[int]
+    context: Optional[str]
 
 
 def _die(msg: str, exit_code: int = 1) -> None:
@@ -60,15 +62,13 @@ def _die(msg: str, exit_code: int = 1) -> None:
 
 def _load_json(path: str) -> Any:
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        _die(f"lint-blacklist.sh: invalid JSON at {path}: {e}", 1)
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            return json.load(handle)
+    except Exception as exc:
+        _die(f"lint-blacklist.sh: invalid JSON at {path}: {exc}", 1)
 
 
 def _as_str_list(value: Any) -> List[str]:
-    if value is None:
-        return []
     if not isinstance(value, list):
         return []
     out: List[str] = []
@@ -80,7 +80,6 @@ def _as_str_list(value: Any) -> List[str]:
 
 def _get_whitelist_words(blacklist: Dict[str, Any]) -> Set[str]:
     words: List[str] = []
-
     whitelist = blacklist.get("whitelist")
     if isinstance(whitelist, list):
         words.extend(_as_str_list(whitelist))
@@ -94,15 +93,114 @@ def _get_whitelist_words(blacklist: Dict[str, Any]) -> Set[str]:
     return set(words)
 
 
-def _unique_preserve_order(items: List[str]) -> List[str]:
-    seen: Set[str] = set()
-    out: List[str] = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        out.append(item)
-    return out
+def _collect_entries(blacklist: Dict[str, Any], whitelist: Set[str]) -> List[WordEntry]:
+    category_metadata = blacklist.get("category_metadata") if isinstance(blacklist.get("category_metadata"), dict) else {}
+    entries_by_word: Dict[str, WordEntry] = {}
+
+    def register(entry: WordEntry) -> None:
+        if not entry.word or entry.word in whitelist:
+            return
+        existing = entries_by_word.get(entry.word)
+        if existing is None:
+            entries_by_word[entry.word] = entry
+            return
+        # Prefer categorized entries because they carry richer metadata.
+        if existing.category is None and entry.category is not None:
+            entries_by_word[entry.word] = entry
+            return
+        replacement_hint = existing.replacement_hint or entry.replacement_hint
+        per_chapter_max = existing.per_chapter_max if existing.per_chapter_max is not None else entry.per_chapter_max
+        context = existing.context or entry.context
+        entries_by_word[entry.word] = WordEntry(
+            word=entry.word,
+            category=existing.category or entry.category,
+            replacement_hint=replacement_hint,
+            per_chapter_max=per_chapter_max,
+            context=context,
+        )
+
+    for word in _as_str_list(blacklist.get("words")):
+        register(WordEntry(word=word, category=None, replacement_hint=None, per_chapter_max=None, context=None))
+
+    categories = blacklist.get("categories")
+    if isinstance(categories, dict):
+        for category, raw_items in categories.items():
+            metadata = category_metadata.get(category) if isinstance(category_metadata, dict) else None
+            context = metadata.get("context") if isinstance(metadata, dict) and isinstance(metadata.get("context"), str) else None
+            if not isinstance(raw_items, list):
+                continue
+            for raw_item in raw_items:
+                if isinstance(raw_item, str):
+                    word = raw_item.strip()
+                    if not word:
+                        continue
+                    register(WordEntry(word=word, category=category, replacement_hint=None, per_chapter_max=None, context=context))
+                    continue
+                if not isinstance(raw_item, dict):
+                    continue
+                word = raw_item.get("word")
+                if not isinstance(word, str) or not word.strip():
+                    continue
+                per_chapter_max = raw_item.get("per_chapter_max")
+                if not isinstance(per_chapter_max, int) or per_chapter_max < 0:
+                    per_chapter_max = None
+                replacement_hint = raw_item.get("replacement_hint") if isinstance(raw_item.get("replacement_hint"), str) else None
+                register(
+                    WordEntry(
+                        word=word.strip(),
+                        category=category,
+                        replacement_hint=replacement_hint,
+                        per_chapter_max=per_chapter_max,
+                        context=context,
+                    )
+                )
+
+    entries = list(entries_by_word.values())
+    entries.sort(key=lambda item: (-len(item.word), item.word))
+    return entries
+
+
+def _line_number_at(text: str, index: int) -> int:
+    return text.count("\n", 0, index) + 1
+
+
+def _line_snippet(text: str, index: int) -> str:
+    start = text.rfind("\n", 0, index) + 1
+    end = text.find("\n", index)
+    if end < 0:
+        end = len(text)
+    snippet = text[start:end].strip()
+    return f"{snippet[:160]}…" if len(snippet) > 160 else snippet
+
+
+def _build_dialogue_ranges(text: str) -> Tuple[List[Tuple[int, int]], int, int]:
+    ranges: List[Tuple[int, int]] = []
+    in_dialogue = False
+    start = -1
+    open_count = 0
+    close_count = 0
+    for index, char in enumerate(text):
+        if char == "“":
+            open_count += 1
+            if not in_dialogue:
+                in_dialogue = True
+                start = index
+        elif char == "”":
+            close_count += 1
+            if in_dialogue:
+                ranges.append((start, index + 1))
+                in_dialogue = False
+                start = -1
+    if in_dialogue and start >= 0:
+        ranges.append((start, len(text)))
+    return ranges, open_count, close_count
+
+
+def _in_dialogue(index: int, ranges: List[Tuple[int, int]]) -> bool:
+    for start, end in ranges:
+        if start <= index < end:
+            return True
+    return False
 
 
 def main() -> None:
@@ -113,89 +211,136 @@ def main() -> None:
     if not isinstance(blacklist, dict):
         _die("lint-blacklist.sh: ai-blacklist.json must be a JSON object", 1)
 
-    words = blacklist.get("words")
-    if not isinstance(words, list) or not all(isinstance(w, str) for w in words):
-        _die("lint-blacklist.sh: ai-blacklist.json.words must be a list of strings", 1)
-
     whitelist = _get_whitelist_words(blacklist)
-
-    effective_words = [w.strip() for w in words if isinstance(w, str) and w.strip() and w.strip() not in whitelist]
-    effective_words = list(dict.fromkeys(effective_words))  # dedup preserving order
-
-    # Sort by length descending to match longest phrases first
-    effective_words.sort(key=lambda w: -len(w))
+    entries = _collect_entries(blacklist, whitelist)
 
     try:
-        with open(chapter_path, "r", encoding="utf-8") as f:
-            text = f.read()
-    except Exception as e:
-        _die(f"lint-blacklist.sh: failed to read chapter: {e}", 1)
+        with open(chapter_path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read().replace("\r\n", "\n").replace("\r", "\n")
+    except Exception as exc:
+        _die(f"lint-blacklist.sh: failed to read chapter: {exc}", 1)
 
-    lines = text.splitlines()
+    dialogue_ranges, open_count, close_count = _build_dialogue_ranges(text)
     non_ws_chars = len(re.sub(r"\s+", "", text))
 
-    # Use a working copy for masking matched phrases
-    masked_text = text
-
-    hits: List[Dict[str, Any]] = []
-    total_hits = 0
-
-    for word in effective_words:
-        count = masked_text.count(word)
-        if count <= 0:
-            continue
-        total_hits += count
-
-        # Collect line numbers and snippets from ORIGINAL text
-        line_numbers: List[int] = []
-        snippets: List[str] = []
-        for idx, line in enumerate(lines, start=1):
-            if word in line:
-                line_numbers.append(idx)
-                if len(snippets) < 5:
-                    snippet = line.strip()
-                    if len(snippet) > 160:
-                        snippet = snippet[:160] + "…"
-                    snippets.append(snippet)
-
-        hits.append(
+    warnings: List[Dict[str, Any]] = []
+    total_quotes = open_count + close_count
+    if total_quotes % 2 != 0 or open_count != close_count:
+        warnings.append(
             {
-                "word": word,
-                "count": count,
-                "lines": line_numbers[:20],
-                "snippets": snippets,
+                "code": "quote_parity_mismatch",
+                "message": f"Chinese quote parity mismatch: “={open_count}, ”={close_count}, total={total_quotes}.",
             }
         )
 
-        # Mask matched word in working copy to prevent substring double-counting
-        masked_text = masked_text.replace(word, "\x00" * len(word))
+    masked = text
+    hits: List[Dict[str, Any]] = []
+    total_hits = 0
+    narration_connector_count = 0
+    per_limit_hits: List[Dict[str, Any]] = []
 
-    hits.sort(key=lambda x: (-int(x["count"]), str(x["word"])))
+    for entry in entries:
+        occurrences: List[int] = []
+        search_from = 0
+        while True:
+            index = masked.find(entry.word, search_from)
+            if index < 0:
+                break
+            search_from = index + len(entry.word)
+            in_dialogue = _in_dialogue(index, dialogue_ranges)
+            if entry.context == "narration_only" and in_dialogue:
+                continue
+            occurrences.append(index)
+            masked = masked[:index] + ("\x00" * len(entry.word)) + masked[index + len(entry.word):]
+
+        count = len(occurrences)
+        if count == 0:
+            continue
+
+        total_hits += count
+        if entry.category == "narration_connector":
+            narration_connector_count += count
+
+        lines: List[int] = []
+        snippets: List[str] = []
+        contexts: List[str] = []
+        for index in occurrences:
+            lines.append(_line_number_at(text, index))
+            if len(snippets) < 5:
+                snippets.append(_line_snippet(text, index))
+            contexts.append("dialogue" if _in_dialogue(index, dialogue_ranges) else "narration")
+
+        hit_obj: Dict[str, Any] = {
+            "word": entry.word,
+            "count": count,
+            "lines": lines[:20],
+            "snippets": snippets,
+            "contexts": sorted(set(contexts)),
+        }
+        if entry.category is not None:
+            hit_obj["category"] = entry.category
+        if entry.replacement_hint:
+            hit_obj["replacement_hint"] = entry.replacement_hint
+        if entry.per_chapter_max is not None:
+            hit_obj["per_chapter_max"] = entry.per_chapter_max
+            if count > entry.per_chapter_max:
+                per_limit_hits.append(
+                    {
+                        "word": entry.word,
+                        "count": count,
+                        "per_chapter_max": entry.per_chapter_max,
+                        "category": entry.category,
+                        "replacement_hint": entry.replacement_hint,
+                    }
+                )
+                warnings.append(
+                    {
+                        "code": "per_chapter_max_exceeded",
+                        "message": f"{entry.word} appeared {count} times (limit {entry.per_chapter_max}).",
+                        "word": entry.word,
+                        "count": count,
+                        "per_chapter_max": entry.per_chapter_max,
+                    }
+                )
+        hits.append(hit_obj)
+
+    hits.sort(key=lambda item: (-int(item["count"]), str(item["word"])))
+    per_limit_hits.sort(key=lambda item: (-int(item["count"]), str(item["word"])))
 
     hits_per_kchars = 0.0
     if non_ws_chars > 0:
         hits_per_kchars = total_hits / (non_ws_chars / 1000.0)
 
-    out: Dict[str, Any] = {
+    unique_words_count = len(entries)
+    words_flat_count = len(_as_str_list(blacklist.get("words")))
+
+    output: Dict[str, Any] = {
         "chapter_path": chapter_path,
         "blacklist_path": blacklist_path,
         "chars": non_ws_chars,
-        "blacklist_words_count": len(words),
+        "blacklist_words_count": unique_words_count,
+        "flat_words_count": words_flat_count,
         "whitelist_words_count": len(whitelist),
-        "effective_words_count": len(effective_words),
+        "effective_words_count": unique_words_count,
         "total_hits": total_hits,
         "hits_per_kchars": round(hits_per_kchars, 3),
         "hits": hits,
+        "warnings": warnings,
+        "per_chapter_limit_hits": per_limit_hits,
+        "statistical_profile": {
+            "blacklist_hit_rate": round(hits_per_kchars, 3),
+            "narration_connector_count": narration_connector_count,
+        },
     }
 
-    sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
+    sys.stdout.write(json.dumps(output, ensure_ascii=False) + "\n")
 
 
 try:
     main()
 except SystemExit:
     raise
-except Exception as e:
-    sys.stderr.write(f"lint-blacklist.sh: unexpected error: {e}\n")
+except Exception as exc:
+    sys.stderr.write(f"lint-blacklist.sh: unexpected error: {exc}\n")
     raise SystemExit(2)
 PY

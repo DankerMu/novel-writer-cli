@@ -66,23 +66,53 @@
 
 ## 6. 风格自然度（style_naturalness）— 权重 0.15
 
-评估去 AI 化效果，基于可量化指标。默认使用 13 项三区判定（`indicator_mode: "13-indicator"`）；正文过短或 `ai_sentence_patterns` 缺失时回退到 7 项；正文破损或 style_profile 缺失时回退到 4 项 legacy 模式。
+评估去 AI 化效果。**主评分表使用 7 个稳定指标的三区判定（green / yellow / red）**；当上下文额外提供 `em_dash_count` / `sentence_pattern_score` / `simile_density` / `dialogue_distinguishability` / `ellipsis_density` / `exclamation_density` 等扩展信号时，可在 `reason` 中加重说明，但 `score` 仍先按下表与 `structural_rule_violations` 罚分规则落地。若连这 7 项都拿不齐，则回退到 legacy 4 指标兼容表。
 
-13 项指标：`blacklist_hit_rate` / `sentence_repetition_rate` / `sentence_length_std_dev` / `paragraph_length_cv` / `vocabulary_diversity_score` / `narration_connector_count` / `humanize_technique_variety` / `em_dash_count` / `sentence_pattern_score` / `simile_density` / `dialogue_distinguishability` / `ellipsis_density` / `exclamation_density`。详见 style-guide Layer 4 三区判定表。
+### 6.1 七指标三区
 
-| 分数 | AI 黑名单命中率 | 句式重复率（相邻 5 句） | style-profile 匹配度 | 句式模式命中 |
-|------|----------------|----------------------|---------------------|-------------|
-| 5 | 0 次/千字 | 0 个重复句式 | 句长、对话比、修辞完全匹配 | 0 处命中 |
-| 4 | 1-2 次/千字 | ≤ 1 个重复句式 | 大部分匹配，轻微偏差 | ≤2 处 medium 命中，0 处 high |
-| 3 | 3-4 次/千字 | 2 个重复句式 | 部分匹配，有偏移 | ≤4 处 medium 命中，或 1 处 high |
-| 2 | 5-7 次/千字 | ≥ 3 个重复句式 | 明显不匹配 | ≥1 处 high 命中 |
-| 1 | > 7 次/千字 | 频繁重复 | 完全不匹配 | 多处 high 命中 |
+| # | 指标 | green（人类范围） | yellow（边界） | red（AI 特征） |
+|---|------|------------------|----------------|----------------|
+| 1 | `blacklist_hit_rate` | 0-1 次/千字 | 1-3 次/千字 | >3 次/千字 |
+| 2 | `sentence_repetition_rate` | 相邻 5 句中 0-1 个重复句式 | 相邻 5 句中 2 个重复句式 | 相邻 5 句中 ≥3 个重复句式 |
+| 3 | `sentence_length_std_dev` | 8-18，或落在 style-profile 目标附近 | 6-8 或 18-24 | <6（过匀） |
+| 4 | `paragraph_length_cv` | 0.4-1.2，或落在 style-profile 目标附近 | 0.3-0.4 或 1.2-1.5 | <0.3（过匀） |
+| 5 | `vocabulary_diversity_score` | 当前仅有枚举时 `vocabulary_richness=high`；若提供数值则 ≥0.45 | 当前仅有枚举时 `medium`；若提供数值则 0.35-0.45 | 当前仅有枚举时 `low`；若提供数值则 <0.35 |
+| 6 | `narration_connector_count` | 0 | 1 个孤立命中（仍建议改写） | ≥2 个，或连续多段靠连接词推进 |
+| 7 | `humanize_technique_variety` | 单章自然出现 ≥1 种不同技法，且无刷项感 | 0，且其余指标未出现 red | 0，且同时伴随至少 1 项句式 / 连接词等其它 red |
 
-**句式模式扣分规则**（参考 `templates/ai-sentence-patterns.json`）：
-- 0 处命中：不扣分
-- 1-2 处 severity=medium 命中：扣 0.5 分
-- ≥1 处 severity=high 命中：至少降 1 分（high 模式零容忍，命中即严重扣分）
-- 句式模式扣分与其他指标独立叠加
+### 6.2 zone → score 映射
+
+| 区域分布 | 分数 |
+|----------|------|
+| 全部 green | 5 |
+| 1-2 个 yellow，且无 red | 4 |
+| ≥3 个 yellow，或恰有 1 个 red | 3 |
+| 2-3 个 red | 2 |
+| ≥4 个 red | 1 |
+
+### 6.3 `structural_rule_violations` 子分数
+
+`structural_rule_violations` 来自确定性 lint（L2/L3/L5/L6）。它**不是独立维度**，而是对 `style_naturalness` 的附加罚分锚点：
+
+| 违规数 | 区域 | 使用方式 |
+|--------|------|----------|
+| 0 | green | 不额外扣分 |
+| 1-2 | yellow | 按“额外 +1 个 yellow”处理，再回到 zone → score 主映射表 |
+| ≥3 | red | 按“额外 +1 个 red”处理；若违规集中在 `error` 级规则，可进一步降到 2 分 |
+
+### 6.4 Legacy Fallback（向后兼容）
+
+当正文破损、style-profile 缺失，或当前上下文只能稳定拿到旧 4 指标时，允许退回旧表：
+
+| 分数 | AI 黑名单命中率 | 句式重复率（相邻 5 句） | 破折号频率 | style-profile 匹配度 |
+|------|----------------|----------------------|------------|---------------------|
+| 5 | 0 次/千字 | 0 个重复句式 | 0 处 | 句长、对话比、修辞完全匹配 |
+| 4 | 1-2 次/千字 | ≤1 个重复句式 | 0 处 | 大部分匹配，轻微偏差 |
+| 3 | 3-4 次/千字 | 2 个重复句式 | 0 处 | 部分匹配，有偏移 |
+| 2 | 5-7 次/千字 | ≥3 个重复句式 | ≥1 处 | 明显不匹配 |
+| 1 | >7 次/千字 | 频繁重复 | 多处出现 | 完全不匹配 |
+
+> 说明：legacy 4 指标只用于兼容旧项目；新项目优先使用七指标三区 + `structural_rule_violations`。
 
 ## 7. 情感冲击（emotional_impact）— 权重 0.08
 
