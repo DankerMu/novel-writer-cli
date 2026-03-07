@@ -46,9 +46,11 @@ test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 
     "6.6 **修饰词去重**",
     "6.7 **四字词组密度检查**",
     "6.8 **内心活动锚点检查**",
-    "前后 2-3 句内出现至少一处内心活动",
+    "前后 2-3 句内出现至少一处合法内心活动",
     "连续 5 句纯动作记录流",
     "SP-07 式情绪标签句",
+    "一旦触发，就必须补任一合法锚点",
+    "角色感知或内心锚点",
     "去掉标签后仍能大致分辨说话人",
     "8-18 的人类常见波动控制",
     "3 句及以上连续句长都落在 ±5 字内",
@@ -91,6 +93,7 @@ test("style-refiner prompt follows four-step flow and brief-first genre override
     "再回退到 brief 的题材字段",
     "纯动作流超长检测",
     "连续 5+ 句只有外显动作 / 对话记录",
+    "没有合法内心活动（感官侵入 / 碎片思绪 / 生理反应 / 思维中断 / 自我纠正）",
     "插入 1-2 句最小必要的感知片段",
     "累计修改量仍需 ≤15%"
   ]) {
@@ -130,7 +133,8 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
     "额外扣 **1 分**",
     "scores.emotional_impact.reason",
     "不要只写抽象评价",
-    "不要另起第 14 个独立评分维度"
+    "不要另起第 14 个独立评分维度",
+    "思维中断、自我纠正都属于合法内心活动"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
