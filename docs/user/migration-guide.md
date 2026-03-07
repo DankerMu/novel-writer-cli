@@ -104,6 +104,10 @@
    - 新建一个临时目录执行 `novel init --platform <platform>`；
    - 从新目录拷贝对应平台文件到老项目；
    - 检查后再继续写作。
+4. 补齐后会生效的主要变化是：
+   - ChapterWriter 会读取 `platform-writing-guide.md`，按平台偏好的节奏密度、对白比例、钩子策略与情绪回报节奏来写；
+   - QualityJudge 会读取 `platform-profile.json.scoring` + `genre-weight-profiles.json`，给出平台化的动态权重评分；
+   - 如果当前处于开局三章，`golden-chapter-gates.json` 也会参与黄金门控。
 
 > 注意：`platform-profile.json.platform` 与 `scoring.genre_drive_type` 会被视为不可变绑定。老项目如果此前没有平台画像，第一次补齐时要尽量一次选准；不要在同一项目里频繁切平台。
 
