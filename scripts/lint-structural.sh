@@ -34,13 +34,13 @@ GENRE_ALIASES = {
     "dushi": "dushi",
     "历史": "history",
     "history": "history",
-    "科幻": "sci-fi",
-    "sci-fi": "sci-fi",
-    "scifi": "sci-fi",
-    "science-fiction": "sci-fi",
-    "悬疑": "mystery",
-    "mystery": "mystery",
-    "suspense": "mystery",
+    "科幻": "scifi",
+    "sci-fi": "scifi",
+    "scifi": "scifi",
+    "science-fiction": "scifi",
+    "悬疑": "suspense",
+    "mystery": "suspense",
+    "suspense": "suspense",
     "恐怖": "horror",
     "horror": "horror",
     "言情": "romance",
@@ -86,11 +86,11 @@ GENRE_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "xuanhuan": {},
     "dushi": {},
     "history": {},
-    "sci-fi": {
+    "scifi": {
         "l5": {"single_sentence_ratio": [0.15, 0.30], "paragraph_char_max": 120},
         "l6": {"exclamation_per_chapter_max": 5},
     },
-    "mystery": {
+    "suspense": {
         "l5": {"single_sentence_ratio": [0.20, 0.35], "paragraph_char_max": 100},
         "l6": {"ellipsis_per_chapter_max": 8},
     },
@@ -151,8 +151,8 @@ def parse_args(argv: List[str]) -> Tuple[str, Optional[str], Optional[str]]:
 
 def load_text(path: str) -> str:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            return handle.read()
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            return handle.read().replace("\r\n", "\n").replace("\r", "\n")
     except FileNotFoundError:
         die(f"lint-structural.sh: chapter file not found: {path}", 1)
     except Exception as exc:
@@ -161,7 +161,7 @@ def load_text(path: str) -> str:
 
 def load_config(path: str) -> Dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, "r", encoding="utf-8-sig") as handle:
             data = json.load(handle)
     except FileNotFoundError:
         die(f"lint-structural.sh: config file not found: {path}", 1)

@@ -37,9 +37,23 @@ function makeCheckpoint(stage: Checkpoint["pipeline_stage"]): Checkpoint {
   };
 }
 
+function extractInline(result: PacketResult): Record<string, unknown> {
+  const packet = result as PacketResult & {
+    packet?: {
+      manifest?: {
+        inline?: Record<string, unknown>;
+      };
+    };
+  };
+  assert.equal(typeof packet.packet?.manifest?.inline, "object");
+  return (packet.packet?.manifest?.inline ?? {}) as Record<string, unknown>;
+}
+
 async function setupProject(rootDir: string, options: { genre?: string; overrideNotes?: string | null } = {}): Promise<void> {
   const genre = options.genre ?? "科幻";
-  const overrideNotes = options.overrideNotes ?? "单句段 15%-30%；段长上限 120 字；感叹号 ≤ 5/章。";
+  const overrideNotes = Object.prototype.hasOwnProperty.call(options, "overrideNotes")
+    ? (options.overrideNotes ?? null)
+    : "单句段 15%-30%；段长上限 120 字；感叹号 ≤ 5/章。";
 
   await writeText(
     join(rootDir, "brief.md"),
@@ -143,7 +157,7 @@ test("buildInstructionPacket injects anti-AI statistical targets and genre overr
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     const targets = inline.statistical_targets as Record<string, unknown>;
     assert.equal(typeof targets, "object");
     assert.equal((targets.sentence_length_std_dev as Record<string, unknown>).target, 11.2);
@@ -158,6 +172,28 @@ test("buildInstructionPacket injects anti-AI statistical targets and genre overr
     assert.equal((overrides.source as Record<string, unknown>).mode, "brief_override_notes");
     assert.equal((overrides.punctuation_rhythm as Record<string, unknown>).exclamation_max_per_chapter, 5);
     assert.equal((overrides.paragraph_structure as Record<string, unknown>).max_paragraph_chars, 120);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("buildInstructionPacket accepts science-fiction alias for anti-AI genre overrides", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "novel-anti-ai-draft-science-fiction-"));
+  try {
+    await setupProject(rootDir, { genre: "science-fiction", overrideNotes: null });
+
+    const built = (await buildInstructionPacket({
+      rootDir,
+      checkpoint: makeCheckpoint("committed"),
+      step: { kind: "chapter", chapter: 1, stage: "draft" },
+      embedMode: null,
+      writeManifest: false
+    })) as PacketResult;
+
+    const inline = extractInline(built);
+    const overrides = inline.genre_overrides as Record<string, unknown>;
+    assert.equal(overrides.genre, "scifi");
+    assert.equal((overrides.source as Record<string, unknown>).mode, "brief_genre_fallback");
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -179,7 +215,7 @@ test("buildInstructionPacket parses explicit brief overrides into genre override
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     const overrides = inline.genre_overrides as Record<string, unknown>;
     assert.equal(overrides.genre, "suspense");
     assert.equal((overrides.source as Record<string, unknown>).mode, "brief_override_notes");
@@ -215,7 +251,7 @@ test("buildInstructionPacket judge keeps structural lint enabled for default gen
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     const structural = inline.structural_rule_violations as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(structural));
     assert.ok(structural.length > 0);
@@ -259,7 +295,7 @@ test("buildInstructionPacket judge applies explicit brief overrides to structura
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     const structural = (inline.structural_rule_violations as Array<Record<string, unknown>>) ?? [];
     assert.ok(structural.some((item) => item.rule_id === "L6.exclamation_per_chapter"));
     assert.equal(inline.structural_rule_violations_degraded, undefined);
@@ -285,7 +321,7 @@ test("buildInstructionPacket marks structural lint degraded when packaged struct
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     assert.equal(inline.blacklist_lint, undefined);
     assert.equal(inline.blacklist_lint_degraded, true);
     assert.equal(inline.structural_rule_violations, undefined);
@@ -324,7 +360,7 @@ test("buildInstructionPacket injects deterministic statistical profile and struc
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     const blacklistLint = inline.blacklist_lint as Record<string, unknown>;
     assert.equal(typeof blacklistLint, "object");
     const profile = inline.statistical_profile as Record<string, unknown>;
@@ -363,7 +399,7 @@ test("buildInstructionPacket degrades anti-AI context when chapter draft resolve
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     assert.equal(inline.blacklist_lint, undefined);
     assert.equal(inline.blacklist_lint_degraded, true);
     assert.equal(inline.structural_rule_violations, undefined);
@@ -392,7 +428,7 @@ test("buildInstructionPacket marks anti-AI lints degraded when project override 
       writeManifest: false
     })) as PacketResult;
 
-    const inline = ((built as any).packet.manifest.inline) as Record<string, unknown>;
+    const inline = extractInline(built);
     assert.equal(inline.blacklist_lint, undefined);
     assert.equal(inline.blacklist_lint_degraded, true);
     assert.equal(inline.structural_rule_violations, undefined);
@@ -523,6 +559,8 @@ test("lint-structural.sh flags violations and respects sci-fi genre overrides", 
 
     const sciFi = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), sciFiChapter, "--genre", "科幻"], { cwd: repoRoot })).stdout) as Record<string, unknown>;
     assert.ok(((sciFi.violations as Array<Record<string, unknown>>) ?? []).some((item) => item.rule_id === "L6.exclamation_per_chapter"));
+    const scienceFiction = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), sciFiChapter, "--genre", "science-fiction"], { cwd: repoRoot })).stdout) as Record<string, unknown>;
+    assert.ok(((scienceFiction.violations as Array<Record<string, unknown>>) ?? []).some((item) => item.rule_id === "L6.exclamation_per_chapter"));
     const xuanhuan = JSON.parse((await execFileAsync("bash", [join(repoRoot, "scripts/lint-structural.sh"), cleanChapter, "--genre", "玄幻"], { cwd: repoRoot })).stdout) as Record<string, unknown>;
     assert.deepEqual((xuanhuan.summary as Record<string, unknown>).total, 0);
   } finally {
@@ -556,9 +594,14 @@ test("anti-AI docs and style-analyzer prompt describe the new infrastructure", a
 test("labeled chapter schema exposes optional anti-AI fields and keeps existing samples compatible", async () => {
   const schema = JSON.parse(await readFile(join(repoRoot, "eval/schema/labeled-chapter.schema.json"), "utf8")) as Record<string, unknown>;
   const properties = schema.properties as Record<string, unknown>;
+  const defs = schema.$defs as Record<string, unknown>;
   assert.equal(typeof properties.anti_ai_statistical_profile, "object");
   assert.equal(typeof properties.structural_rule_violations, "object");
-  assert.equal((properties.anti_ai_statistical_profile as Record<string, unknown>).additionalProperties, false);
+  assert.equal((properties.anti_ai_statistical_profile as Record<string, unknown>).additionalProperties, true);
+  assert.equal(
+    (((defs.structural_rule_violation as Record<string, unknown>).properties as Record<string, unknown>).severity as Record<string, unknown>).$ref,
+    "#/$defs/diagnostic_severity"
+  );
 
   const lines = (await readFile(join(repoRoot, "eval/fixtures/labels.demo.jsonl"), "utf8"))
     .trim()

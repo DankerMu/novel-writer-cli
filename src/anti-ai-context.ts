@@ -113,7 +113,7 @@ export type AntiAiStatisticalProfile = {
 };
 
 export type AntiAiJudgeContext = {
-  blacklistLint: Record<string, unknown> | null;
+  blacklistLint: BlacklistLintReport | null;
   structuralRuleViolations: StructuralLintViolation[] | null;
   statisticalProfile: AntiAiStatisticalProfile | null;
   degraded: { blacklist_lint?: boolean; structural_rule_violations?: boolean };
@@ -127,6 +127,7 @@ const GENRE_ALIASES: Record<string, CanonicalGenre> = {
   scifi: "scifi",
   sci_fi: "scifi",
   "sci-fi": "scifi",
+  "science-fiction": "scifi",
   "科幻": "scifi",
   history: "history",
   "历史": "history",
@@ -399,6 +400,7 @@ function coreSentenceLength(sentence: string): number {
 }
 
 function mean(values: number[]): number {
+  if (values.length === 0) return 0;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
@@ -550,18 +552,7 @@ async function runBlacklistLint(rootDir: string, chapterRel: string): Promise<Bl
 }
 
 function toStructuralLintGenre(genre: CanonicalGenre | null): string | null {
-  switch (genre) {
-    case "scifi":
-      return "sci-fi";
-    case "suspense":
-      return "mystery";
-    case "horror":
-      return "horror";
-    case "romance":
-      return "romance";
-    default:
-      return null;
-  }
+  return genre;
 }
 
 async function runStructuralLint(rootDir: string, chapterRel: string, overrides: AntiAiGenreOverrides | null): Promise<StructuralLintReport | null> {
@@ -654,7 +645,7 @@ export async function loadAntiAiJudgeContext(args: { rootDir: string; chapterRel
   };
 
   return {
-    blacklistLint: blacklistLint ? (blacklistLint as unknown as Record<string, unknown>) : null,
+    blacklistLint,
     structuralRuleViolations: structuralLint?.violations ?? null,
     statisticalProfile,
     degraded

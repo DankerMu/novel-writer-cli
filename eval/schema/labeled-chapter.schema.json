@@ -132,7 +132,7 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "structural_rule_violations": {
       "type": "array",
@@ -156,6 +156,13 @@
         "high",
         "medium",
         "low"
+      ]
+    },
+    "diagnostic_severity": {
+      "type": "string",
+      "enum": [
+        "warning",
+        "error"
       ]
     },
     "evidence_item": {
@@ -310,11 +317,7 @@
           "type": "string"
         },
         "severity": {
-          "type": "string",
-          "enum": [
-            "warning",
-            "error"
-          ]
+          "$ref": "#/$defs/diagnostic_severity"
         },
         "description": {
           "type": "string"

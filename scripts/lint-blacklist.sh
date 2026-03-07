@@ -62,7 +62,7 @@ def _die(msg: str, exit_code: int = 1) -> None:
 
 def _load_json(path: str) -> Any:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, "r", encoding="utf-8-sig") as handle:
             return json.load(handle)
     except Exception as exc:
         _die(f"lint-blacklist.sh: invalid JSON at {path}: {exc}", 1)
@@ -215,8 +215,8 @@ def main() -> None:
     entries = _collect_entries(blacklist, whitelist)
 
     try:
-        with open(chapter_path, "r", encoding="utf-8") as handle:
-            text = handle.read()
+        with open(chapter_path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read().replace("\r\n", "\n").replace("\r", "\n")
     except Exception as exc:
         _die(f"lint-blacklist.sh: failed to read chapter: {exc}", 1)
 
