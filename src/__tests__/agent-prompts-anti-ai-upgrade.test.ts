@@ -62,7 +62,9 @@ test("chapter-writer prompt removes quota language and includes C16-C24 + Phase 
     "当一段对话超过 5 个来回时，允许 1-2 句不直接服务冲突推进的“废话”",
     "环境闲描 / 角色闲聊 / 感官片段 / 回忆碎片 / 生活细节",
     "功能性停留总量宜控制在章节字数的 **≤10%**",
-    "高压段之后最好仍留 1-2 句过渡"
+    "高压段之后最好仍留 1-2 句过渡",
+    "若是连续高压章节不适合明显停留，也至少检查段尾是否留出 1-2 句过渡",
+    "每 1000-1500 字至少安排一处“功能性停留”"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -162,7 +164,9 @@ test("issue 177 structural breathing docs stay aligned across prompts and rubric
     "环境闲描、角色闲聊、感官片段、回忆碎片或生活细节",
     "章节字数的 **≤10%**",
     "高压场景后是否留出 1-2 句过渡",
-    "任务执行”式推进"
+    "“任务执行”式推进",
+    "每 1000-1500 字至少安排一处“功能性停留”",
+    "`C12` / `C18`"
   ]) {
     assert.ok(chapterWriter.includes(required), `chapter-writer must mention: ${required}`);
   }
@@ -181,6 +185,7 @@ test("issue 177 structural breathing docs stay aligned across prompts and rubric
     "### 2.14 结构呼吸感",
     "信息效率过高",
     "功能性停留 = 不直接服务于主线推进",
+    "每 **1000-1500 字** 至少有一处功能性停留",
     "`C13` 约束，单次环境闲描 **≤2 句**",
     "`C19` 的敷衍 / 缓冲 / 转移等合法意图",
     "**坏例子（信息效率过高）**",
