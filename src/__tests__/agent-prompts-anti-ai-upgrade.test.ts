@@ -14,7 +14,7 @@ async function readText(relPath: string): Promise<string> {
   return readFile(repoPath(relPath), "utf8");
 }
 
-test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 2 checks", async () => {
+test("chapter-writer prompt removes quota language and includes C16-C24 + Phase 2 checks", async () => {
   const prompt = await readText("agents/chapter-writer.md");
 
   for (const legacy of ["每角色至少 1 个口头禅", "每章至少 1 处"]) {
@@ -42,10 +42,12 @@ test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 
     "对话意图约束（C19）",
     "结构密度约束（C20）",
     "内心活动锚点（C23）",
+    "结构呼吸感（C24）",
     "6.5 **叙述连接词清扫**",
     "6.6 **修饰词去重**",
     "6.7 **四字词组密度检查**",
     "6.8 **内心活动锚点检查**",
+    "6.9 **结构呼吸感检查**",
     "前后 2-3 句内出现至少一处合法内心活动",
     "连续 5 句纯动作记录流",
     "SP-07 式情绪标签句",
@@ -56,7 +58,11 @@ test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 
     "3 句及以上连续句长都落在 ±5 字内",
     "中文引号内的角色对白可以按人物口吻保留",
     "我认为",
-    "我觉得我们应该"
+    "我觉得我们应该",
+    "当一段对话超过 5 个来回时，允许 1-2 句不直接服务冲突推进的“废话”",
+    "环境闲描 / 角色闲聊 / 感官片段 / 回忆碎片 / 生活细节",
+    "功能性停留总量宜控制在章节字数的 **≤10%**",
+    "高压段之后最好仍留 1-2 句过渡"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -142,6 +148,56 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
   assert.match(prompt, /manifest\.inline\.statistical_profile/);
   assert.match(prompt, /manifest\.inline\.structural_rule_violations/);
   assert.match(prompt, /deterministic 观测值/);
+});
+
+test("issue 177 structural breathing docs stay aligned across prompts and rubric", async () => {
+  const chapterWriter = await readText("agents/chapter-writer.md");
+  const qualityJudge = await readText("agents/quality-judge.md");
+  const styleGuide = await readText("skills/novel-writing/references/style-guide.md");
+  const qualityRubric = await readText("skills/novel-writing/references/quality-rubric.md");
+
+  for (const required of [
+    "结构呼吸感（C24）",
+    "功能性停留",
+    "环境闲描、角色闲聊、感官片段、回忆碎片或生活细节",
+    "章节字数的 **≤10%**",
+    "高压场景后是否留出 1-2 句过渡",
+    "任务执行”式推进"
+  ]) {
+    assert.ok(chapterWriter.includes(required), `chapter-writer must mention: ${required}`);
+  }
+
+  for (const required of [
+    "结构过密，缺乏呼吸感",
+    "建议性扣 **0.5 分**",
+    "yellow / suggestion",
+    "高压场景间缺乏过渡，沉浸感断裂",
+    "不要仅凭这一项触发 `revise` / `review` / `rewrite`"
+  ]) {
+    assert.ok(qualityJudge.includes(required), `quality-judge must mention: ${required}`);
+  }
+
+  for (const required of [
+    "### 2.14 结构呼吸感",
+    "信息效率过高",
+    "功能性停留 = 不直接服务于主线推进",
+    "`C13` 约束，单次环境闲描 **≤2 句**",
+    "`C19` 的敷衍 / 缓冲 / 转移等合法意图",
+    "**坏例子（信息效率过高）**",
+    "**好例子（有结构呼吸感）**"
+  ]) {
+    assert.ok(styleGuide.includes(required), `style-guide must mention: ${required}`);
+  }
+
+  for (const required of [
+    "是否具备必要的结构呼吸感",
+    "高压段之间是否给读者保留了必要的消化空间",
+    "结构过密，缺乏呼吸感",
+    "yellow / suggestion",
+    "高压场景间缺乏过渡，沉浸感断裂"
+  ]) {
+    assert.ok(qualityRubric.includes(required), `quality-rubric must mention: ${required}`);
+  }
 });
 
 test("issue 176 inner-activity docs stay aligned across style-guide and rubric", async () => {
