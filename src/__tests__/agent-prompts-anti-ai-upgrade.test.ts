@@ -145,8 +145,25 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
 });
 
 test("issue 176 inner-activity docs stay aligned across style-guide and rubric", async () => {
+  const chapterWriter = await readText("agents/chapter-writer.md");
+  const qualityJudge = await readText("agents/quality-judge.md");
   const styleGuide = await readText("skills/novel-writing/references/style-guide.md");
   const qualityRubric = await readText("skills/novel-writing/references/quality-rubric.md");
+
+  for (const required of [
+    "前后 2-3 句内出现至少一处合法内心活动",
+    "第 6 句必须补一处最小必要的角色感知或内心锚点"
+  ]) {
+    assert.ok(chapterWriter.includes(required), `chapter-writer must mention: ${required}`);
+  }
+
+  for (const required of [
+    "ChapterWriter 的生成目标是关键节点前后 2-3 句内尽早落锚",
+    "每个应触发却缺失锚点的关键节点",
+    "scores.emotional_impact.score` 最低为 **1 分**"
+  ]) {
+    assert.ok(qualityJudge.includes(required), `quality-judge must mention: ${required}`);
+  }
 
   for (const required of [
     "C23 内心活动锚点",
@@ -158,9 +175,14 @@ test("issue 176 inner-activity docs stay aligned across style-guide and rubric",
     "思维中断",
     "自我纠正",
     "节点前后 **2-3 句**",
+    "QualityJudge 以“前后 3 句仍为空”作为扣分阈值",
     "连续 **≤5 句**",
     "合法内心活动",
-    "非法情绪标签"
+    "非法情绪标签",
+    "**边界案例**",
+    "**应触发**",
+    "**不应触发**",
+    "高速场景写法"
   ]) {
     assert.ok(styleGuide.includes(required), `style-guide must mention: ${required}`);
   }
@@ -169,9 +191,11 @@ test("issue 176 inner-activity docs stay aligned across style-guide and rubric",
     "内心活动锚点",
     "关键决策 / 重大信息 / 高压节点前后 3 句无内心活动",
     "至少扣 **0.5 分/处**",
+    "每个应触发却缺失锚点的关键节点",
     "连续 5 句纯动作流",
     "额外扣 **1 分**",
-    "生理反应、感官侵入、碎片思绪属于合法内心活动"
+    "最低只降到 **1 分**",
+    "生理反应、感官侵入、碎片思绪、思维中断、自我纠正都属于合法内心活动"
   ]) {
     assert.ok(qualityRubric.includes(required), `quality-rubric must mention: ${required}`);
   }
