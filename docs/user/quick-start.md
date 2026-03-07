@@ -67,8 +67,9 @@
 | `jinjiang` | 人物关系张力、情绪基调、CP 存在感、角色个性落地 |
 
 2. **题材**：如玄幻、都市、科幻、历史、悬疑、言情。
-   - 这里的选择会影响 `genre-excitement-map.json` 与 `genre-golden-standards.json` 的命中结果。
-   - 后续填写 `brief.md` 时，`- **题材**：` 最好保持一致，否则题材映射可能不稳定。
+   - 启动阶段这里的选择主要用于兼容性提醒，并帮助你后续把 `brief.md` 填对。
+   - 真正决定 `genre-excitement-map.json` 与 `genre-golden-standards.json` 是否命中的，是 `brief.md` 里的 `- **题材**：` 字段。
+   - 因此后续填写 `brief.md` 时，题材字段最好与这里保持一致，否则题材映射可能不稳定。
 3. **创作纲领（brief）**：至少把书名、核心冲突、主角概念、目标平台、目标读者写清楚。最少可以先填成这样：
 
    ```md
@@ -101,9 +102,9 @@ novel init --platform fanqie
 | `ai-blacklist.json` | AI 痕迹规避词库 |
 | `web-novel-cliche-lint.json` | 可选的套路词 / 模板腔 lint 词库 |
 | `platform-profile.json` | 平台画像，只有你指定 `--platform` 或在启动时确认平台后才会生成 |
-| `genre-weight-profiles.json` | 动态评分权重配置，平台/题材感知评分会用到 |
-| `golden-chapter-gates.json` | 平台特定的黄金三章硬门控 |
-| `platform-writing-guide.md` | 平台写作指南，会透传给写作 Agent |
+| `genre-weight-profiles.json` | 动态评分权重配置；同样只会在已选择平台时一并生成 |
+| `golden-chapter-gates.json` | 平台特定的黄金三章硬门控；同样只会在已选择平台时生成 |
+| `platform-writing-guide.md` | 平台写作指南；同样只会在已选择平台时生成并透传给写作 Agent |
 
 ## 选择风格来源
 
