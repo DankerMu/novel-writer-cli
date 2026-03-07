@@ -95,16 +95,17 @@
 建议按“先决定平台，再一次性补齐文件”的方式做：
 
 1. 确认你的项目主要面向哪个平台：`qidian` / `fanqie` / `jinjiang`；
-2. 确保项目根目录具备这些文件：
+2. 显式设置或更新项目绑定：把 `platform-profile.json.platform` 设为你选定的平台；如果项目里已经存在旧值（例如 `tomato`），就在这里统一改成目标值。
+3. 确保项目根目录具备这些文件：
    - `platform-profile.json`
    - `genre-weight-profiles.json`
    - `golden-chapter-gates.json`
    - `platform-writing-guide.md`
-3. 如果老项目还没有这些文件，最稳妥的方法是：
+4. 如果老项目还没有这些文件，最稳妥的方法是：
    - 新建一个临时目录执行 `novel init --platform <platform>`；
    - 从新目录拷贝对应平台文件到老项目；
    - 检查后再继续写作。
-4. 补齐后会生效的主要变化是：
+5. 补齐后会生效的主要变化是：
    - ChapterWriter 会读取 `platform-writing-guide.md`，按平台偏好的节奏密度、对白比例、钩子策略与情绪回报节奏来写；
    - QualityJudge 会读取 `platform-profile.json.scoring` + `genre-weight-profiles.json`，给出平台化的动态权重评分；
    - 如果当前处于开局三章，`golden-chapter-gates.json` 也会参与黄金门控。

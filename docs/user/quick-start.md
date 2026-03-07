@@ -69,7 +69,15 @@
 2. **题材**：如玄幻、都市、科幻、历史、悬疑、言情。
    - 这里的选择会影响 `genre-excitement-map.json` 与 `genre-golden-standards.json` 的命中结果。
    - 后续填写 `brief.md` 时，`- **题材**：` 最好保持一致，否则题材映射可能不稳定。
-3. **创作纲领（brief）**：至少把书名、核心冲突、主角概念、目标平台、目标读者写清楚。
+3. **创作纲领（brief）**：至少把书名、核心冲突、主角概念、目标平台、目标读者写清楚。最少可以先填成这样：
+
+   ```md
+   - **书名**：待定
+   - **题材**：玄幻
+   - **核心冲突**：主角必须在失控的力量体系里活下来
+   - **目标平台**：fanqie
+   - **目标读者**：喜欢快节奏升级与反转的读者
+   ```
 4. **平台绑定提醒**：`platform-profile.json.platform` 与 `platform-profile.json.scoring.genre_drive_type` 一旦写入，就视为项目的**不可变绑定**。如果你想从起点切到晋江，最稳妥的方式是新建项目目录重新初始化。
 
 ### 备选方式：直接使用 CLI
@@ -260,7 +268,7 @@ ChapterWriter → Summarizer → StyleRefiner → QualityJudge
 每章至少会留下这些正式产物：
 
 - `chapters/chapter-XXX.md`：章节正文
-- `summaries/chapter-XXX.md`：章节摘要
+- `summaries/chapter-XXX-summary.md`：章节摘要
 - `evaluations/chapter-XXX-eval.json`：质量评估
 - `state/current-state.json`：世界状态快照（提交后更新）
 
