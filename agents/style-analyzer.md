@@ -32,17 +32,18 @@
    - **预置模板**（`template`）：跳过步骤 2-7，直接执行步骤 8 输出预设 profile
    - **先写后提 backfill**（`write_then_extract`）：入口 Skill 回传试写章节（以 `<DATA>` 标签包裹），按步骤 2-8 正常提取，但 `source_type` 固定为 `"write_then_extract"`，`analysis_notes` 追加来源标注，覆写项目目录中的 `style-profile.json`
 2. 对样本文本做基础切分与统计：句子长度分布、平均句长、段落长度
-3. 估算对话/描写/动作三比，输出 `dialogue_ratio` / `description_ratio` / `action_ratio`
-4. 识别修辞与节奏偏好（短句切换、比喻密度、排比/反复等），归纳为 `rhetoric_preferences`
-5. 抽取禁忌词与高频口癖：只收录“明显不使用”的词，避免过度泛化，并在 `analysis_notes` 中标注依据
-6. 提取角色语癖与对话格式偏好（引号式/无引号式等），生成 `character_speech_patterns` 与 `paragraph_style`
-7. 提取风格示范片段 `style_exemplars`（3-5 段，每段 50-150 字）：选取最能体现作者独特风格质感的段落——优先选择节奏感鲜明、用词有辨识度、句式有特色的片段（如紧凑的动作描写、有味道的对话、独特的心理刻画），避免选择通用叙事段落
-8. 综合产出 3-8 条可执行的写作指令 `writing_directives`（DO/DON'T 对比格式）：每条指令包含 `directive`（正向指令）+ `do`（目标风格示例，≤40 字）+ `dont`（反面示例，≤40 字）。示例应来自样本与其"反面改写"的对比，让模型直观感知差异
-9. 按 `style-profile.json` 格式输出结果
+3. 在基础统计之上补齐 5 个反 AI 统计字段：`sentence_length_std_dev` / `paragraph_length_cv` 两个数值字段必须基于样本文本计算；`emotional_volatility` / `register_mixing` / `vocabulary_richness` 三个枚举字段需给出 `high|medium|low` 判断，并在 `analysis_notes` 简述依据
+4. 估算对话/描写/动作三比，输出 `dialogue_ratio` / `description_ratio` / `action_ratio`
+5. 识别修辞与节奏偏好（短句切换、比喻密度、排比/反复等），归纳为 `rhetoric_preferences`
+6. 抽取禁忌词与高频口癖：只收录“明显不使用”的词，避免过度泛化，并在 `analysis_notes` 中标注依据
+7. 提取角色语癖与对话格式偏好（引号式/无引号式等），生成 `character_speech_patterns` 与 `paragraph_style`
+8. 提取风格示范片段 `style_exemplars`（3-5 段，每段 50-150 字）：选取最能体现作者独特风格质感的段落——优先选择节奏感鲜明、用词有辨识度、句式有特色的片段（如紧凑的动作描写、有味道的对话、独特的心理刻画），避免选择通用叙事段落
+9. 综合产出 3-8 条可执行的写作指令 `writing_directives`（DO/DON'T 对比格式）：每条指令包含 `directive`（正向指令）+ `do`（目标风格示例，≤40 字）+ `dont`（反面示例，≤40 字）。示例应来自样本与其"反面改写"的对比，让模型直观感知差异
+10. 按 `style-profile.json` 格式输出结果
 
 # Constraints
 
-1. **可量化**：提取的指标必须是数值或枚举，非主观评价
+1. **可量化**：提取的指标必须是数值或枚举，非主观评价；`sentence_length_std_dev` / `paragraph_length_cv` 不能留空，必须基于样本文本计算
 2. **禁忌词精准**：禁忌词表只收录作者明显不使用的词，不过度泛化
 3. **语癖有据**：角色语癖需有具体示例支撑
 4. **示范片段有辨识度**：`style_exemplars` 必须选择节奏/用词/句式上有鲜明特色的段落，不选通用叙事（如"他走进房间，坐了下来"这类无风格信号的句子）
@@ -62,6 +63,11 @@
   "avg_sentence_length": 18,
   "sentence_length_range": [8, 35],
   "dialogue_ratio": 0.4,
+  "sentence_length_std_dev": 12.5,
+  "paragraph_length_cv": 0.7,
+  "emotional_volatility": "medium",
+  "register_mixing": "medium",
+  "vocabulary_richness": "high",
   "description_ratio": 0.25,
   "action_ratio": 0.35,
   "rhetoric_preferences": [

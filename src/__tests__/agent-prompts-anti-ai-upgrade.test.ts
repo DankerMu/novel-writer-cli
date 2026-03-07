@@ -95,7 +95,7 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
   const prompt = await readText("agents/quality-judge.md");
 
   for (const required of [
-    "\"indicator_mode\": \"7-indicator | 4-indicator-compat\"",
+    "\"indicator_mode\": \"13-indicator | 7-indicator | 4-indicator-compat\"",
     "\"indicator_breakdown\"",
     "\"statistical_profile\"",
     "\"detected_humanize_techniques\"",
@@ -119,11 +119,9 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 
-  assert.equal(
-    prompt.includes("若 instruction packet 提供了可复用的统计值"),
-    false,
-    "quality-judge prompt must not mention unsupported external statistical override inputs"
-  );
+  assert.match(prompt, /manifest\.inline\.statistical_profile/);
+  assert.match(prompt, /manifest\.inline\.structural_rule_violations/);
+  assert.match(prompt, /deterministic 观测值/);
 });
 
 test("issue 138 OpenSpec artifacts include style-refiner spec and no stale concept.md reference", async () => {

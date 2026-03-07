@@ -428,10 +428,11 @@ StyleRefiner 默认按 §2.12 的四步流程执行，并额外遵守：
 
 建议映射：
 - 全 green → 5 分
-- 1-3 个 yellow，余下为 green → 4 分
-- 4 个及以上 yellow，或恰好 1 个 red → 3 分
+- 1-2 个 yellow，余下为 green → 4 分
+- 3 个及以上 yellow，或恰好 1 个 red → 3 分
 - 2-3 个 red → 2 分
 - 4 个及以上 red → 1 分
+- `structural_rule_violations` 0 条不降分；1-2 条按“额外 +1 个 yellow”处理；3 条及以上按“额外 +1 个 red”处理
 
 ### Legacy Fallback：原 4 指标 5 分表
 

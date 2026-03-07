@@ -6,6 +6,8 @@
 
 根据入口 Skill 在 prompt 中提供的创作纲领和背景资料，创建或增量更新世界观设定。
 
+> **Mode 7 风格提取兼容说明**：旧设计文档里提到的“WorldBuilder Mode 7 风格统计提取”在当前仓库已拆分到 `agents/style-analyzer.md`。若入口需要回填 `style-profile.json` 的 `sentence_length_std_dev` / `paragraph_length_cv` / `emotional_volatility` / `register_mixing` / `vocabulary_richness`，应调用 StyleAnalyzer，而不是让 WorldBuilder 直接产出风格指纹。
+
 模式：
 - **初始化（轻量/QUICK_START）**：基于创作纲领生成精简设定 + ≤3 条核心 hard 规则 + 1 条主线故事线
 - **初始化（完整）**：基于创作纲领生成完整设定文档 + 结构化规则（卷规划后按需扩展）

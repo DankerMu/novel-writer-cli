@@ -13,11 +13,11 @@
 
 **Goals:**
 - quality-rubric §6 与 style-guide Layer 4 的 7 指标三区判定完全对齐，新增 structural_rule_violations 影响评分
-- context-contracts 传递统计目标（style-profile → CW）、统计结果（CW/lint → QJ）和类型覆写参数（platform-profile → CW）
+- context-contracts 传递统计目标（style-profile → CW）、统计结果（CW/lint → QJ）和类型覆写参数（style-profile/brief → CW）
 - lint-blacklist.sh 支持 narration_only 上下文感知，减少对话段落的误报；支持 replacement_hint 输出和 per_chapter_max 频次检测
 - 新增 lint-structural.sh 确定性检测 §2.10 六层结构规则中可量化的 4 层（L2 形容词密度 / L3 四字词组密度 / L5 段落结构 / L6 标点频次），支持类型覆写参数输入
 - periodic-maintenance 增加黑名单增长控制和技法跨章追踪
-- world-builder Mode 7 提取统计字段填充 style-profile
+- StyleAnalyzer 提取统计字段填充 style-profile（兼容旧 “StyleAnalyzer statistical extraction” 说法）
 - eval schema 可记录统计特征用于回归测试
 
 **Non-Goals:**
@@ -43,7 +43,7 @@
    - 格式：`{ "chapter_id": "vol-01/chapter-001", "techniques_used": ["register_shift", "rhythm_break", ...] }`。periodic-maintenance 读取最近 N 章记录，检查是否同一技法连续 3+ 章出现。
    - 存储在 logs/ 而非 state/ 或 context/，因为这是辅助分析数据而非核心状态。
 
-5) **world-builder Mode 7 step 2.5 的统计字段提取**
+5) **StyleAnalyzer step 2.5 的统计字段提取（兼容旧 “StyleAnalyzer statistical extraction” 说法）**
    - 数值字段（std_dev, cv）通过对样本文本的句子/段落长度进行统计计算获得——这是确定性计算，LLM 可执行。
    - 枚举字段（volatility, mixing, richness）通过 LLM 定性评估——阅读样本文本后给出 high/medium/low 判断。
    - 所有值为初始估计，后续可由人工微调。
@@ -63,7 +63,7 @@
 - **context-contracts**: 新增字段均为可选，orchestrator 在 style-profile 字段为 null 时使用人类写作默认范围
 - **lint-blacklist.sh**: narration_only 是新增行为，不影响现有 category 的检测逻辑；引号校验是 warning 不阻断
 - **periodic-maintenance**: 新增规则，不修改现有规则
-- **world-builder**: Mode 7 step 2.5 是新增步骤，不影响现有步骤
+- **style-analyzer**: step 2.5 是新增步骤，不影响现有步骤；`world-builder.md` 仅保留兼容说明
 - **eval schema**: 新增字段为 optional，现有 labeled data 无需修改
 
 ## References
@@ -73,7 +73,8 @@
 - `scripts/lint-blacklist.sh`（黑名单 lint 脚本）
 - `scripts/lint-structural.sh`（新增 — 结构规则 lint 脚本）
 - `skills/novel-writing/references/periodic-maintenance.md`（定期维护规则）
-- `agents/world-builder.md`（WorldBuilder Agent — Mode 7 风格提取）
+- `agents/style-analyzer.md`（StyleAnalyzer Agent — 风格统计提取）
+- `agents/style-analyzer.md`（兼容说明：旧设计中的 Mode 7 已迁移到 StyleAnalyzer）
 - `eval/schema/labeled-chapter.schema.json`（标注数据 schema）
 - `docs/anti-ai-polish.md`（反 AI 润色指南 — lint-structural.sh 的规则来源）
 - `skills/novel-writing/references/style-guide.md`（去 AI 化方法论 — Layer 4 七指标 + §2.10 六层规则）

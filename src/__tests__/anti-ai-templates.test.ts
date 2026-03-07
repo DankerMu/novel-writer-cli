@@ -46,7 +46,7 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   const raw = await readJson("templates/ai-blacklist.json");
   assertPlainObject(raw, "ai-blacklist.json");
 
-  assert.equal(raw.version, "2.0.0");
+  assert.match(String(raw.version), /^2\./, "ai-blacklist.json.version must remain in v2.x series");
   assert.equal(raw.max_words, 250);
   assert.equal(typeof raw.last_updated, "string");
 
@@ -186,6 +186,6 @@ test("templates/ai-blacklist.json v2 expands entries and supports metadata", asy
   assert.ok(updateLog.length >= 1, "update_log should have at least one entry");
   const latest = updateLog[updateLog.length - 1];
   assertPlainObject(latest, "update_log[-1]");
-  assert.equal(latest.version, "2.0.0");
+  assert.equal(latest.version, raw.version);
   assert.equal(latest.words_count, words.length);
 });

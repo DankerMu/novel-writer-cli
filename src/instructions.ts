@@ -12,6 +12,7 @@ import { loadGoldenChapterGates, selectGoldenChapterGatesForPlatform } from "./g
 import { computeEffectiveScoringWeights, isKnownScoringDimension, loadGenreWeightProfiles } from "./scoring-weights.js";
 import { parseNovelAskQuestionSpec, type NovelAskQuestionSpec } from "./novel-ask.js";
 import { loadPlatformProfile } from "./platform-profile.js";
+import { loadAntiAiGenreOverrides, loadAntiAiJudgeContext, loadAntiAiStatisticalTargets } from "./anti-ai-context.js";
 import { computePrejudgeGuardrailsReport, writePrejudgeGuardrailsReport } from "./prejudge-guardrails.js";
 import { loadPromiseLedgerLatestSummary } from "./promise-ledger.js";
 import { QUICKSTART_STAGING_RELS } from "./quickstart.js";
@@ -1232,6 +1233,11 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
       }
     });
 
+    const statisticalTargets = await loadAntiAiStatisticalTargets(args.rootDir);
+    if (statisticalTargets) inline.statistical_targets = statisticalTargets;
+    const genreOverrides = await loadAntiAiGenreOverrides(args.rootDir);
+    if (genreOverrides) inline.genre_overrides = genreOverrides;
+
     // Optional: inject non-spoiler light-touch reminders for dormant foreshadowing items (best-effort).
     try {
       const loadedPlatform = await loadPlatformProfile(args.rootDir).catch(() => null);
@@ -1300,6 +1306,15 @@ export async function buildInstructionPacket(args: BuildArgs): Promise<Record<st
     const chapterDraftRel = relIfExists(rel.staging.chapterMd, await pathExists(join(args.rootDir, rel.staging.chapterMd)));
     paths.chapter_draft = chapterDraftRel;
     paths.cross_references = relIfExists(rel.staging.crossrefJson, await pathExists(join(args.rootDir, rel.staging.crossrefJson)));
+
+    if (chapterDraftRel) {
+      const antiAiContext = await loadAntiAiJudgeContext({ rootDir: args.rootDir, chapterRel: chapterDraftRel });
+      if (antiAiContext.blacklistLint) inline.blacklist_lint = antiAiContext.blacklistLint;
+      else if (antiAiContext.degraded.blacklist_lint) inline.blacklist_lint_degraded = true;
+      if (antiAiContext.statisticalProfile) inline.statistical_profile = antiAiContext.statisticalProfile;
+      if (antiAiContext.structuralRuleViolations) inline.structural_rule_violations = antiAiContext.structuralRuleViolations;
+      else if (antiAiContext.degraded.structural_rule_violations) inline.structural_rule_violations_degraded = true;
+    }
 
     await attachCanonStatusContext({
       rootDir: args.rootDir,

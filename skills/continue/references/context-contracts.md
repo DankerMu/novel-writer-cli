@@ -40,7 +40,39 @@ chapter_writer_manifest = {
   ],
   foreshadow_light_touch_degraded?: bool, # 可选：若为 true 表示“轻触提醒”注入降级（如伏笔数据不可读），不等同于“没有需要提醒的条目”
   ai_blacklist_top10: [str],           # 有效黑名单前 10 词
+  statistical_targets?: {              # 可选：6 维统计目标（style-profile → CW 的软约束）
+    sentence_length_std_dev: {target: number | null, fallback_range: [number, number], fallback_applied: bool},
+    paragraph_length_cv: {target: number | null, fallback_range: [number, number], fallback_applied: bool},
+    vocabulary_diversity: {target: "high|medium|low", source_field: "vocabulary_richness", fallback_applied: bool},
+    narration_connectors: {target: 0, source_field: "ai-blacklist.category_metadata.narration_connector", fallback_applied: false, note: str},
+    register_mixing: {target: "high|medium|low", fallback_applied: bool},
+    emotional_arc: {target: "high|medium|low", source_field: "emotional_volatility", fallback_applied: bool},
+  },
+  genre_overrides?: {                  # 可选：按 brief 显式覆写说明 / 题材字段派生的结构阈值
+    genre: str,
+    source: {brief: "brief.md", mode: "brief_override_notes" | "brief_genre_fallback"},
+    explicit_notes: str | null,
+    paragraph_structure: {single_sentence_ratio: {min: number, max: number}, max_paragraph_chars: number},
+    punctuation_rhythm: {ellipsis_max_per_chapter: number, exclamation_max_per_chapter: number, em_dash_max_per_chapter: 0},
+    notes: [str],
+  },
   style_drift_directives: [str] | null, # 漂移纠偏指令（active 时注入）
+  statistical_targets: {              # 6 维统计目标（来自 style-profile；null 已按默认人类范围补齐）
+    sentence_length_std_dev: number | [number, number],
+    paragraph_length_cv: number | [number, number],
+    vocabulary_diversity: "high" | "medium" | "low",
+    narration_connectors: 0,
+    register_mixing: "high" | "medium" | "low",
+    emotional_arc: "high" | "medium" | "low",
+    fallback_applied?: [str],
+  },
+  genre_overrides?: {                 # 可选：类型覆写参数（优先 brief 显式覆写，再回退 brief.genre）
+    genre: str,
+    paragraph_structure?: {single_sentence_ratio: [number, number], paragraph_char_max: int},
+    punctuation_rhythm?: {ellipsis_per_chapter_max?: int, exclamation_per_chapter_max?: int, em_dash_per_chapter_max: 0},
+    blacklist_overrides?: {per_chapter_max?: {str: int}},
+    notes?: [str],
+  },
   engagement_report_summary?: obj,     # 可选：爽点/信息密度窗口报告摘要（logs/engagement/latest.json 裁剪）
   promise_ledger_report_summary?: obj, # 可选：承诺台账窗口报告摘要（logs/promises/latest.json 裁剪）
   engagement_report_summary_degraded?: bool,     # 可选：为 true 表示 latest.json 存在但摘要裁剪失败
@@ -72,6 +104,17 @@ chapter_writer_manifest = {
   }
 }
 ```
+
+**`statistical_targets` 默认值约定：**
+- `sentence_length_std_dev` 缺失 / `null` → `[8, 18]`
+- `paragraph_length_cv` 缺失 / `null` → `[0.4, 1.2]`
+- `vocabulary_diversity` / `register_mixing` / `emotional_arc` 缺失 / `null` → `"medium"`
+- `narration_connectors` 始终为 `0`（叙述连接词目标值）
+
+**`genre_overrides` 来源优先级：**
+1. `brief.md` 中显式写出的类型覆写
+2. `brief.md` 的题材字段（命中 style-guide §2.11 的默认覆写）
+3. 未命中时省略该字段，ChapterWriter 回退到通用阈值
 
 ### 修订模式追加字段
 
@@ -154,6 +197,23 @@ quality_judge_manifest = {
   blacklist_lint: obj | null,                    # scripts/lint-blacklist.sh 输出
   ner_entities: obj | null,                      # scripts/run-ner.sh 输出
   continuity_report_summary: obj | null,         # logs/continuity/latest.json 裁剪
+  statistical_profile?: {                 # 可选：deterministic lint + heuristic 聚合的 7 指标 profile
+    source: "deterministic_lint+heuristic",
+    chapter_path: str,
+    blacklist_hit_rate: number | null,
+    sentence_repetition_rate: number,
+    sentence_length_std_dev: number,
+    paragraph_length_cv: number,
+    vocabulary_diversity_score: number,
+    vocabulary_richness_estimate: "high" | "medium" | "low",
+    narration_connector_count: number | null,
+    humanize_technique_variety: number,
+  },
+  structural_rule_violations?: [          # 可选：lint-structural 输出的结构违规
+    {rule_id: str, severity: "warning" | "error", location?: obj, description: str, suggestion?: str}
+  ],
+  blacklist_lint_degraded?: bool,         # 可选：ai-blacklist 存在但 deterministic lint 运行失败
+  structural_rule_violations_degraded?: bool, # 可选：structural lint 脚本存在但运行失败
   golden_chapter_gates?: obj,                    # 可选：chapter <= 3 时注入的当前平台黄金三章硬门控
   genre_golden_standards?: obj,                  # 可选：chapter <= 3 且 brief.genre 命中时注入的题材特定 minimum_thresholds/focus_dimensions/criteria
 
@@ -176,6 +236,14 @@ quality_judge_manifest = {
   }
 }
 ```
+
+### fallback 约定
+
+- `style-profile.json.sentence_length_std_dev == null` → 使用 fallback range `8-18`
+- `style-profile.json.paragraph_length_cv == null` → 使用 fallback range `0.4-1.2`
+- `style-profile.json.vocabulary_richness / register_mixing / emotional_volatility == null` → 统一回退到 `"medium"`
+- `narration_connectors` 当前没有独立 style-profile 字段，固定按 `0` 命中约束，并由 `ai-blacklist.category_metadata.narration_connector` + `writing_directives` 辅助解释
+- `genre_overrides` 优先读取 `brief.md` 的“覆写说明”；未填写时回退到 `brief.md` 的题材字段默认预设
 
 ---
 
