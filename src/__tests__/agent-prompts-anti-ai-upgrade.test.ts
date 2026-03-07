@@ -14,7 +14,7 @@ async function readText(relPath: string): Promise<string> {
   return readFile(repoPath(relPath), "utf8");
 }
 
-test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 2 checks", async () => {
+test("chapter-writer prompt removes quota language and includes C16-C24 + Phase 2 checks", async () => {
   const prompt = await readText("agents/chapter-writer.md");
 
   for (const legacy of ["每角色至少 1 个口头禅", "每章至少 1 处"]) {
@@ -42,10 +42,13 @@ test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 
     "对话意图约束（C19）",
     "结构密度约束（C20）",
     "内心活动锚点（C23）",
+    "结构呼吸感（C24，建议性约束）",
     "6.5 **叙述连接词清扫**",
     "6.6 **修饰词去重**",
     "6.7 **四字词组密度检查**",
     "6.8 **内心活动锚点检查**",
+    "6.9 **结构呼吸感检查**",
+    "按 `C24` 回看功能性停留的分布与预算",
     "前后 2-3 句内出现至少一处合法内心活动",
     "连续 5 句纯动作记录流",
     "SP-07 式情绪标签句",
@@ -56,7 +59,20 @@ test("chapter-writer prompt removes quota language and includes C16-C23 + Phase 
     "3 句及以上连续句长都落在 ±5 字内",
     "中文引号内的角色对白可以按人物口吻保留",
     "我认为",
-    "我觉得我们应该"
+    "我觉得我们应该",
+    "当一段对话超过 5 个来回时，允许 1-2 句不直接服务冲突推进的“废话”",
+    "这是**上限不是目标**",
+    "短暂避锋式缓冲",
+    "功能性停留总量不超过章节正文字数的 **≤10%**",
+    "若预算与频率冲突，优先缩短或减少停留，不要突破 10% 上限",
+    "删掉后本章主线因果链仍然成立",
+    "高压段之后最好仍留 1-2 句过渡",
+    "若是连续高压章节不适合明显停留，也至少检查段尾是否留出 1-2 句过渡",
+    "详见 `style-guide §2.14`",
+    "提供“该在哪里放慢”的结构位置",
+    "功能性停留中的环境闲描仍受 `C13` 的 2 句限制",
+    "**结构呼吸感（C24，建议性约束）**",
+    "**约束优先级**"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -95,6 +111,13 @@ test("style-refiner prompt follows four-step flow and brief-first genre override
     "连续 5+ 句只有外显动作 / 对话记录",
     "没有合法内心活动（感官侵入 / 碎片思绪 / 生理反应 / 思维中断 / 自我纠正）",
     "插入 1-2 句最小必要的感知片段",
+    "结构呼吸感检测",
+    "高压段之间没有 1-2 句过渡",
+    "已有段落缝隙内补 1 句最小感官 / 环境过渡",
+    "若要解决问题必须新增完整功能性停留段",
+    "留给 ChapterWriter / QualityJudge 处理",
+    "结构呼吸感最小修补",
+    "停止在本层扩写",
     "累计修改量仍需 ≤15%"
   ]) {
     assert.match(prompt, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -142,6 +165,104 @@ test("quality-judge prompt outputs new anti_ai fields and 7-indicator compatibil
   assert.match(prompt, /manifest\.inline\.statistical_profile/);
   assert.match(prompt, /manifest\.inline\.structural_rule_violations/);
   assert.match(prompt, /deterministic 观测值/);
+});
+
+test("issue 177 structural breathing docs stay aligned across prompts and rubric", async () => {
+  const chapterWriter = await readText("agents/chapter-writer.md");
+  const styleRefiner = await readText("agents/style-refiner.md");
+  const qualityJudge = await readText("agents/quality-judge.md");
+  const styleGuide = await readText("skills/novel-writing/references/style-guide.md");
+  const qualityRubric = await readText("skills/novel-writing/references/quality-rubric.md");
+  const tasks = await readText("openspec/changes/m12-structural-breathing/tasks.md");
+
+  for (const required of [
+    "结构呼吸感（C24，建议性约束）",
+    "功能性停留",
+    "环境闲描、角色闲聊、感官片段、回忆碎片或生活细节",
+    "章节**正文字数**达到 1000 字以上时",
+    "功能性停留总量不超过章节正文字数的 **≤10%**",
+    "高压场景后是否留出 1-2 句过渡",
+    "按 `C24` 回看功能性停留的分布与预算",
+    "“任务执行”式推进",
+    "通常可按每 1000-1500 字一处的软建议安排更短、更轻的“功能性停留”",
+    "`C12` / `C18`",
+    "环境闲描仍受 `C13` 的 2 句限制",
+    "对话闲笔仍要满足 `C19` 的合法意图"
+  ]) {
+    assert.ok(chapterWriter.includes(required), `chapter-writer must mention: ${required}`);
+  }
+
+  for (const required of [
+    "结构呼吸感检测",
+    "留给 ChapterWriter / QualityJudge 处理",
+    "已有段落缝隙内补 1 句最小感官 / 环境过渡",
+    "结构呼吸感最小修补",
+    "停止在本层扩写"
+  ]) {
+    assert.ok(styleRefiner.includes(required), `style-refiner must mention: ${required}`);
+  }
+
+  for (const required of [
+    "结构过密，缺乏呼吸感",
+    "建议性扣 **0.5 分**",
+    "yellow / suggestion",
+    "高压场景间缺乏过渡，沉浸感断裂",
+    "不要仅凭这一项触发 `revise` / `review` / `rewrite`",
+    "哪怕只用 1-2 句呼吸段"
+  ]) {
+    assert.ok(qualityJudge.includes(required), `quality-judge must mention: ${required}`);
+  }
+
+  for (const required of [
+    "### 2.14 结构呼吸感",
+    "信息效率过高",
+    "功能性停留 = 不直接服务于主线推进",
+    "删掉该片段后，本章主线因果链仍然成立",
+    "章节**正文字数**达到 **1000 字以上** 时",
+    "若预算与频率冲突，以 `≤10%` 上限为准",
+    "`C13` 约束，单次环境闲描 **≤2 句**",
+    "`C19` 的敷衍 / 短暂避锋式缓冲 / 转移等合法意图",
+    "StyleRefiner 阶段硬补，应回到 ChapterWriter / QualityJudge 处理",
+    "结构呼吸感最小修补",
+    "1-2 句是上限，不是目标",
+    "`C12 反直觉细节`",
+    "`C18 人性化技法`",
+    "**坏例子（信息效率过高）**",
+    "**好例子（有结构呼吸感）**"
+  ]) {
+    assert.ok(styleGuide.includes(required), `style-guide must mention: ${required}`);
+  }
+
+  for (const required of [
+    "- [x] **T1.1**",
+    "- [x] **T1.2**",
+    "- [x] **T1.3**",
+    "- [x] **T2.1**",
+    "- [x] **T3.1**",
+    "- [x] **T3.2**",
+    "- [x] **T3.3**",
+    "- [x] **T4.1**",
+    "- [x] **T4.2**",
+    "- [x] **T4.3**",
+    "- [x] **T4.4**",
+    "每 1000-1500 字至少一处",
+    "留出足够功能性停留"
+  ]) {
+    assert.ok(tasks.includes(required), `tasks must mention: ${required}`);
+  }
+
+  for (const required of [
+    "是否具备必要的结构呼吸感",
+    "高压段之间是否给读者保留了必要的消化空间",
+    "文笔流畅",
+    "结构过密，缺乏呼吸感",
+    "yellow / suggestion",
+    "功能性停留过多导致拖沓",
+    "高压场景间缺乏过渡，沉浸感断裂",
+    "不单独触发修订"
+  ]) {
+    assert.ok(qualityRubric.includes(required), `quality-rubric must mention: ${required}`);
+  }
 });
 
 test("issue 176 inner-activity docs stay aligned across style-guide and rubric", async () => {
