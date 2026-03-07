@@ -74,7 +74,7 @@ LS: storylines/storylines.json         — 多线叙事约束
 L1 风格锚定 → L2 约束注入 → L3 后处理 → L4 检测度量
 ```
 
-黑名单模板: `templates/ai-blacklist.json` (38 个 AI 高频用语)
+黑名单模板: `templates/ai-blacklist.json`（词条数以文件当前内容为准）
 风格模板: `templates/style-profile-template.json`
 
 ### Quality Gating
@@ -127,13 +127,13 @@ scripts/
   compare-regression-runs.sh  回归 run 对比
 docs/
   user/                       用户手册（quick-start, migration-guide, novel-cli, ops, guardrails）
-  prd/01~11-*.md              PRD 11 章（产品→架构→Agent→工作流→Spec→故事线→去AI→编排→数据→协议→附录）
-  spec/01~06-*.md             Tech Spec 6 章
-  spec/agents/*.md            9 Agent 独立定义
-  dr-workflow/                DR 报告 21 份 + manifest.json（6 个迭代 v1-v6）
+  dr-workflow/
+    novel-writer-tool/
+      final/prd/              PRD 11 章
+      final/spec/             Tech Spec 6 章 + spec/agents/
+      manifest.json           DR 工作流 manifest（迭代数 / 报告数以文件为准）
 openspec/
-  changes/m{1-9}-*/           里程碑 Changeset（当前已实现至 M8，后续以目录为准）
-  specs/                      主 Spec（待 sync / archive 补齐）
+  changes/m*-*/               里程碑 Changeset（以实际目录为准）
 ```
 
 ## OpenSpec Workflow
@@ -160,6 +160,6 @@ openspec/
 
 ## Current Milestone
 
-M8 平台 / 题材 / 文档增强 — canon_status 生命周期、excitement_type、平台扩展、黄金三章门控、题材映射、用户 / 项目文档同步。
+本次 `CLAUDE.md` 更新同步覆盖的是 M8（平台 / 题材 / 文档增强）相关说明：canon_status 生命周期、excitement_type、平台扩展、黄金三章门控、题材映射、用户 / 项目文档。
 
-已完成里程碑：M1 续写引擎 / M2 Context 与状态机 / M3 质量门控与分析 / M4 端到端打磨 / M5 CLI 编排核心 / M6 平台优化与动态评分 / M7 留存与可读性 Guardrails / M8 平台-题材-文档增强
+仓库整体里程碑进度已经超出 M8；后续能力与完成状态不要只以本段文字判断，应以 `openspec/changes/` 下的实际目录与 tasks 为准。
