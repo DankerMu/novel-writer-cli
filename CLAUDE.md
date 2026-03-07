@@ -151,7 +151,7 @@ openspec/
 
 ## Conventions
 
-- **分支命名**: `feature/issues#N-m{M}-short-description`
+- **分支命名**: `feat/issue-<N>-short-description`（当前仓库工作流以此格式为主）
 - **Commit 格式**: `feat:`, `fix:`, `docs:` 前缀 + refs #N
 - **Storyline ID**: 连字符 (`main-arc`, `jiangwang-dao`)，type 枚举用下划线 + `type:` 前缀
 - **路径零填充**: `chapter-{C:03d}`, `vol-{V:02d}`
